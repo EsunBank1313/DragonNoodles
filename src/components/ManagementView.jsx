@@ -6,6 +6,9 @@ export default function ManagementView({ onBackToDemo, onLogout }) {
   const [menuItems, setMenuItems] = useState([]);
   const [storeName, setStoreName] = useState('龍城麵線');
   const [newStoreName, setNewStoreName] = useState('');
+  const [adminPin, setAdminPin] = useState('8888');
+  const [newAdminPin, setNewAdminPin] = useState('8888');
+  const [isClosedToday, setIsClosedToday] = useState(false);
   const [prodPublished, setProdPublished] = useState(true);
   const [activeTab, setActiveTab] = useState('products'); // 'products' or 'staff'
   
@@ -40,10 +43,29 @@ export default function ManagementView({ onBackToDemo, onLogout }) {
         } else {
           setNewStoreName('龍城麵線');
         }
+        const adminPinItem = data.find(item => item.name === 'SYSTEM_SETTING_ADMIN_PIN');
+        if (adminPinItem && adminPinItem.description) {
+          setAdminPin(adminPinItem.description);
+          setNewAdminPin(adminPinItem.description);
+        } else {
+          setNewAdminPin('8888');
+        }
         setMenuItems(data.filter(item => 
           item.name !== 'SYSTEM_SETTING_LINE_TOKEN' && 
-          item.name !== 'SYSTEM_SETTING_STORE_NAME'
+          item.name !== 'SYSTEM_SETTING_STORE_NAME' &&
+          item.name !== 'SYSTEM_SETTING_ADMIN_PIN'
         ));
+
+        // Check if store is closed today
+        const todayStart = new Date();
+        todayStart.setHours(0,0,0,0);
+        supabase.from('orders')
+          .select('*')
+          .gte('created_at', todayStart.toISOString())
+          .eq('table_number', 'CLOSED')
+          .then(({ data: closedOrders }) => {
+            setIsClosedToday(closedOrders && closedOrders.length > 0);
+          });
       }
     } catch (err) {
       console.error("Failed to load products:", err);
@@ -212,8 +234,9 @@ export default function ManagementView({ onBackToDemo, onLogout }) {
         </div>
       </header>
 
-      {/* Store Name Customization Settings Panel */}
-      <div style={{ padding: '12px 24px', display: 'flex', gap: '16px', alignItems: 'center', backgroundColor: 'var(--bg-card)', borderBottom: '1px solid var(--border)', flexWrap: 'wrap' }}>
+      {/* Store Customization Settings Panel */}
+      <div style={{ padding: '12px 24px', display: 'flex', gap: '20px', alignItems: 'center', backgroundColor: 'var(--bg-card)', borderBottom: '1px solid var(--border)', flexWrap: 'wrap' }}>
+        {/* Store Name */}
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
           <span style={{ fontSize: '0.85rem', fontWeight: 'bold' }}>🏪 店名設定:</span>
           <input 
@@ -226,7 +249,6 @@ export default function ManagementView({ onBackToDemo, onLogout }) {
             onClick={async () => {
               if (!newStoreName.trim()) return;
               try {
-                // Upsert to Supabase setting row
                 const { data: exist } = await supabase.from('menu_items').select('*').eq('name', 'SYSTEM_SETTING_STORE_NAME');
                 if (exist && exist.length > 0) {
                   await supabase.from('menu_items').update({ description: newStoreName.trim() }).eq('name', 'SYSTEM_SETTING_STORE_NAME');
@@ -239,7 +261,7 @@ export default function ManagementView({ onBackToDemo, onLogout }) {
                   }]);
                 }
                 setStoreName(newStoreName.trim());
-                alert("店名修改成功！所有畫面重新整理後即可同步生效。");
+                alert("店名修改成功！");
               } catch (e) {
                 alert("修改店名失敗：" + e.message);
               }
@@ -247,6 +269,85 @@ export default function ManagementView({ onBackToDemo, onLogout }) {
             style={{ padding: '6px 12px', fontSize: '0.85rem', backgroundColor: 'var(--primary)', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}
           >
             儲存店名
+          </button>
+        </div>
+
+        {/* Admin Password PIN */}
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', borderLeft: '1px solid var(--border)', paddingLeft: '20px' }}>
+          <span style={{ fontSize: '0.85rem', fontWeight: 'bold' }}>🔑 管理員/公休密碼:</span>
+          <input 
+            type="text" 
+            maxLength="8"
+            value={newAdminPin}
+            onChange={(e) => setNewAdminPin(e.target.value)}
+            style={{ padding: '6px 12px', fontSize: '0.85rem', borderRadius: '6px', border: '1px solid var(--border)', width: '80px', textAlign: 'center' }}
+          />
+          <button
+            onClick={async () => {
+              if (!newAdminPin.trim()) return;
+              try {
+                const { data: exist } = await supabase.from('menu_items').select('*').eq('name', 'SYSTEM_SETTING_ADMIN_PIN');
+                if (exist && exist.length > 0) {
+                  await supabase.from('menu_items').update({ description: newAdminPin.trim() }).eq('name', 'SYSTEM_SETTING_ADMIN_PIN');
+                } else {
+                  await supabase.from('menu_items').insert([{
+                    name: 'SYSTEM_SETTING_ADMIN_PIN',
+                    price: 0,
+                    category: 'settings',
+                    description: newAdminPin.trim()
+                  }]);
+                }
+                setAdminPin(newAdminPin.trim());
+                alert("管理員/對帳/關店密碼修改成功！");
+              } catch (e) {
+                alert("修改密碼失敗：" + e.message);
+              }
+            }}
+            style={{ padding: '6px 12px', fontSize: '0.85rem', backgroundColor: 'var(--primary)', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}
+          >
+            儲存密碼
+          </button>
+        </div>
+
+        {/* Close/Open Toggle */}
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', borderLeft: '1px solid var(--border)', paddingLeft: '20px' }}>
+          <span style={{ fontSize: '0.85rem', fontWeight: 'bold' }}>🚪 營業開關:</span>
+          <button
+            onClick={async () => {
+              const todayStart = new Date();
+              todayStart.setHours(0, 0, 0, 0);
+              try {
+                if (isClosedToday) {
+                  await supabase.from('orders').delete().gte('created_at', todayStart.toISOString()).eq('table_number', 'CLOSED');
+                  setIsClosedToday(false);
+                  alert("營業重啟成功！POS 系統已解除鎖定狀態。");
+                } else {
+                  await supabase.from('orders').insert([{
+                    order_number: 'CLOSE',
+                    items: {
+                      customerName: 'SYSTEM_STORE_CLOSE',
+                      customerPhone: 'SYSTEM',
+                      cart: []
+                    },
+                    total: 0,
+                    type: 'dine-in',
+                    table_number: 'CLOSED',
+                    status: 'completed',
+                    payment_status: 'paid'
+                  }]);
+                  setIsClosedToday(true);
+                  alert("今日收店鎖定成功！POS 系統已鎖定。");
+                }
+              } catch (e) {
+                alert("切換營業開關失敗：" + e.message);
+              }
+            }}
+            style={{
+              padding: '6px 14px', fontSize: '0.85rem', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold',
+              backgroundColor: isClosedToday ? '#ef4444' : '#10b981', color: 'white'
+            }}
+          >
+            {isClosedToday ? '🔴 今日已關店 (點選重開)' : '🟢 今日營業中 (點選收店)'}
           </button>
         </div>
       </div>

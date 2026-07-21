@@ -11,6 +11,7 @@ function App() {
   const [role, setRole] = useState(null); // 'customer', 'pos', 'bookkeeping', 'management', or null (demo selection)
   const [tableNumber, setTableNumber] = useState(null);
   const [storeName, setStoreName] = useState('龍城麵線');
+  const [adminPin, setAdminPin] = useState('8888');
   
   // Authentication states
   const [isCashierAuth, setIsCashierAuth] = useState(() => {
@@ -128,6 +129,15 @@ function App() {
           setStoreName(data.description);
         }
       });
+    supabase.from('menu_items')
+      .select('*')
+      .eq('name', 'SYSTEM_SETTING_ADMIN_PIN')
+      .single()
+      .then(({ data }) => {
+        if (data && data.description) {
+          setAdminPin(data.description);
+        }
+      });
   }, [role]);
 
   const handleBackToDemo = () => {
@@ -215,7 +225,7 @@ function App() {
     if (!isBookkeepingAuth) {
       return (
         <PinLockScreen 
-          expectedPin="8888" 
+          expectedPin={adminPin} 
           onSuccess={handleBookkeepingAuthSuccess}
           title="營業記帳與報表系統"
           subtitle="請輸入四位數管理員 PIN 碼進行驗證"
@@ -234,7 +244,7 @@ function App() {
     if (!isManagementAuth) {
       return (
         <PinLockScreen 
-          expectedPin="8888" 
+          expectedPin={adminPin} 
           onSuccess={handleManagementAuthSuccess}
           title="餐廳後台管理系統"
           subtitle="請輸入管理員四位數 PIN 碼解鎖管理功能"

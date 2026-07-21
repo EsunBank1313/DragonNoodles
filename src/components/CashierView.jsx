@@ -41,6 +41,7 @@ export default function CashierView({ cashierName, onLogout }) {
   // Orders state and printing integration
   const [orders, setOrders] = useState([]);
   const [storeName, setStoreName] = useState('龍城麵線');
+  const [adminPin, setAdminPin] = useState('8888');
 
   // Synthesize notification chime
   const triggerChime = () => {
@@ -189,6 +190,10 @@ export default function CashierView({ cashierName, onLogout }) {
         const storeNameItem = data.find(item => item.name === 'SYSTEM_SETTING_STORE_NAME');
         if (storeNameItem && storeNameItem.description) {
           setStoreName(storeNameItem.description);
+        }
+        const adminPinItem = data.find(item => item.name === 'SYSTEM_SETTING_ADMIN_PIN');
+        if (adminPinItem && adminPinItem.description) {
+          setAdminPin(adminPinItem.description);
         }
         const visibleItems = data.filter(item => 
           item.name !== 'SYSTEM_SETTING_LINE_TOKEN' && 
@@ -489,7 +494,7 @@ export default function CashierView({ cashierName, onLogout }) {
               onClick={() => {
                 if (window.confirm("警告：重開帳目後收銀功能將恢復，今日對帳資訊將會重新變動。確定重開嗎？")) {
                   const pwd = window.prompt("請輸入管理員對帳密碼以重開：");
-                  if (pwd === '8888') {
+                  if (pwd === adminPin) {
                     const updated = closedDates.filter(d => d !== getTodayLocalDate());
                     setClosedDates(updated);
                     localStorage.setItem('restaurant_closed_dates', JSON.stringify(updated));
@@ -567,7 +572,7 @@ export default function CashierView({ cashierName, onLogout }) {
             onClick={() => {
               if (window.confirm("⚠️ 警告：收店結帳後今日的收銀系統將會關閉鎖定，直到明日才會自動重開。確定進行今日收店結帳嗎？")) {
                 const pwd = window.prompt("請輸入關店密碼以確認收店：");
-                if (pwd === '8888') {
+                if (pwd === adminPin) {
                   const todayStr = getTodayLocalDate();
                   const updated = [...closedDates, todayStr];
                   setClosedDates(updated);
