@@ -310,7 +310,6 @@ export default function ManagementView({ onBackToDemo, onLogout }) {
                     <th style={{ padding: '12px' }}>名稱</th>
                     <th style={{ padding: '12px' }}>單價</th>
                     <th style={{ padding: '12px' }}>類別</th>
-                    <th style={{ padding: '12px' }}>供應狀態</th>
                     <th style={{ padding: '12px' }}>上下架</th>
                     <th style={{ padding: '12px', textAlign: 'right' }}>操作</th>
                   </tr>
@@ -327,11 +326,6 @@ export default function ManagementView({ onBackToDemo, onLogout }) {
                         <td style={{ padding: '12px', color: 'var(--primary)', fontWeight: 'bold' }}>${item.price}</td>
                         <td style={{ padding: '12px' }}>
                           {item.category === 'mee-sua' ? '🍜 麵線/主食' : '🍢 特色小吃'}
-                        </td>
-                        <td style={{ padding: '12px' }}>
-                          <span style={{ color: isAvailable ? '#10b981' : '#ef4444', fontWeight: 'bold' }}>
-                            {isAvailable ? '🟢 供應中' : '🔴 已沽清'}
-                          </span>
                         </td>
                         <td style={{ padding: '12px' }}>
                           <span style={{ color: item.customizations?.is_published !== false ? '#10b981' : '#ef4444', fontWeight: 'bold' }}>
@@ -408,11 +402,7 @@ export default function ManagementView({ onBackToDemo, onLogout }) {
                     <label style={{ fontSize: '0.75rem', fontWeight: 'bold' }}>描述</label>
                     <textarea rows="3" value={prodDescription} onChange={(e) => setProdDescription(e.target.value)} style={{ padding: '8px', fontSize: '0.85rem' }} />
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: '4px 0' }}>
-                    <input type="checkbox" id="avail-check" checked={prodAvailable} onChange={(e) => setProdAvailable(e.target.checked)} style={{ width: '16px', height: '16px' }} />
-                    <label htmlFor="avail-check" style={{ fontSize: '0.85rem', fontWeight: 'bold', cursor: 'pointer' }}>此商品目前正常供應 (可點餐)</label>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: '4px 0' }}>
+                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: '4px 0' }}>
                     <input type="checkbox" id="publish-check" checked={prodPublished} onChange={(e) => setProdPublished(e.target.checked)} style={{ width: '16px', height: '16px' }} />
                     <label htmlFor="publish-check" style={{ fontSize: '0.85rem', fontWeight: 'bold', cursor: 'pointer' }}>上架此商品 (勾選為上架顯示，取消為下架隱藏)</label>
                   </div>
