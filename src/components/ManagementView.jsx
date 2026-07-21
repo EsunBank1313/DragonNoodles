@@ -262,9 +262,9 @@ export default function ManagementView({ onBackToDemo, onLogout }) {
                               setProdDescription(item.description || '');
                               setProdAvailable(isAvailable);
                             }}
-                            style={{ padding: '4px 10px', fontSize: '0.75rem', borderRadius: '4px', border: '1px solid var(--border)', cursor: 'pointer' }}
-                          >
-                            編輯商品
+                             style={{ padding: '4px 10px', fontSize: '0.75rem', borderRadius: '4px', border: '1px solid var(--primary)', backgroundColor: 'var(--primary)', color: 'white', cursor: 'pointer', fontWeight: 'bold' }}
+                           >
+                             編輯商品
                           </button>
                         </td>
                       </tr>

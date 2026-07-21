@@ -709,7 +709,7 @@ export default function CashierView({ cashierName, onLogout }) {
             }}>
               {activeCategory === 'orders' ? (
                 /* Orders list */
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', textAlign: 'left' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', textAlign: 'left', maxHeight: 'calc(100vh - 165px)', overflowY: 'auto', paddingRight: '4px' }}>
                   {orders.length === 0 ? (
                     <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>暫無訂單</div>
                   ) : (
@@ -719,11 +719,12 @@ export default function CashierView({ cashierName, onLogout }) {
                         <div key={order.id} style={{ padding: '12px', border: '1px solid var(--border)', borderRadius: '8px', backgroundColor: 'var(--bg-card)' }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', fontWeight: 'bold', borderBottom: '1px solid var(--border)', paddingBottom: '4px', marginBottom: '6px' }}>
                             <span>單號: {order.serialNum} ({order.type === 'dine-in' ? '內用' : '外帶'})</span>
-                            <span style={{ color: isPending ? '#eab308' : '#10b981' }}>
+                            <span style={{ color: isPending ? '#eab308' : order.status === 'completed' ? '#10b981' : '#6b7280' }}>
                               {order.status === 'received' ? '⏳ 待處理' : 
                                order.status === 'preparing' ? '🔥 製作中' : 
-                               order.status === 'completed' ? '✓ 待出餐' : 
-                               order.status === 'declined' ? '🚫 已拒單' : '🪙 已退貨'}
+                               order.status === 'completed' ? '🛍️ 待取餐' : 
+                               order.status === 'declined' ? '🚫 已拒單' : 
+                               order.status === 'archived' ? '✓ 已完成' : '🪙 已退貨'}
                             </span>
                           </div>
                           <div style={{ fontSize: '0.8rem', fontWeight: 'bold' }}>客戶: {order.customerName} {order.pickupTime ? `(取餐: ${order.pickupTime})` : ''}</div>
@@ -738,42 +739,29 @@ export default function CashierView({ cashierName, onLogout }) {
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '6px' }}>
                             <span style={{ fontSize: '0.8rem', fontWeight: 'bold', color: 'var(--primary)' }}>總額: ${order.total}</span>
                             <div style={{ display: 'flex', gap: '6px' }}>
-                              {isPending && (
-                                <>
-                                  <button
-                                    onClick={async () => {
-                                      await supabase.from('orders').update({ status: 'preparing' }).eq('id', order.id);
-                                      fetchOrders();
-                                    }}
-                                    style={{ padding: '4px 8px', fontSize: '0.7rem', backgroundColor: 'var(--primary)', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}
-                                  >
-                                    接單
-                                  </button>
-                                  <button
-                                    onClick={async () => {
-                                      if (confirm("確定拒單嗎？")) {
-                                        await supabase.from('orders').update({ status: 'declined' }).eq('id', order.id);
-                                        fetchOrders();
-                                      }
-                                    }}
-                                    style={{ padding: '4px 8px', fontSize: '0.7rem', backgroundColor: 'transparent', color: '#ef4444', border: '1px solid #ef4444', borderRadius: '4px', cursor: 'pointer' }}
-                                  >
-                                    拒單
-                                  </button>
-                                </>
-                              )}
-                              {order.status === 'preparing' && (
+                              {(order.status === 'received' || order.status === 'preparing') && (
                                 <button
                                   onClick={async () => {
                                     await supabase.from('orders').update({ status: 'completed' }).eq('id', order.id);
                                     fetchOrders();
                                   }}
-                                  style={{ padding: '4px 8px', fontSize: '0.7rem', backgroundColor: '#10b981', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}
+                                  style={{ padding: '4px 8px', fontSize: '0.7rem', backgroundColor: '#eab308', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}
                                 >
-                                  完成出餐
+                                  待取餐
                                 </button>
                               )}
-                              {order.status !== 'declined' && order.status !== 'refunded' && (
+                              {order.status === 'completed' && (
+                                <button
+                                  onClick={async () => {
+                                    await supabase.from('orders').update({ status: 'archived' }).eq('id', order.id);
+                                    fetchOrders();
+                                  }}
+                                  style={{ padding: '4px 8px', fontSize: '0.7rem', backgroundColor: '#10b981', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}
+                                >
+                                  已取餐
+                                </button>
+                              )}
+                              {order.status !== 'declined' && order.status !== 'refunded' && order.status !== 'archived' && (
                                 <button
                                   onClick={async () => {
                                     if (confirm("確定退貨此訂單嗎？")) {
