@@ -4,6 +4,9 @@ import { menuItems as defaultMenuItems } from '../data/menuData';
 
 export default function ManagementView({ onBackToDemo, onLogout }) {
   const [menuItems, setMenuItems] = useState([]);
+  const [storeName, setStoreName] = useState('龍城麵線');
+  const [newStoreName, setNewStoreName] = useState('');
+  const [prodPublished, setProdPublished] = useState(true);
   const [activeTab, setActiveTab] = useState('products'); // 'products' or 'staff'
   
   // Product edit states
@@ -30,7 +33,17 @@ export default function ManagementView({ onBackToDemo, onLogout }) {
         .order('id', { ascending: true });
       if (error) throw error;
       if (data) {
-        setMenuItems(data.filter(item => item.name !== 'SYSTEM_SETTING_LINE_TOKEN'));
+        const storeNameItem = data.find(item => item.name === 'SYSTEM_SETTING_STORE_NAME');
+        if (storeNameItem && storeNameItem.description) {
+          setStoreName(storeNameItem.description);
+          setNewStoreName(storeNameItem.description);
+        } else {
+          setNewStoreName('龍城麵線');
+        }
+        setMenuItems(data.filter(item => 
+          item.name !== 'SYSTEM_SETTING_LINE_TOKEN' && 
+          item.name !== 'SYSTEM_SETTING_STORE_NAME'
+        ));
       }
     } catch (err) {
       console.error("Failed to load products:", err);
@@ -81,8 +94,9 @@ export default function ManagementView({ onBackToDemo, onLogout }) {
       description: prodDescription.trim(),
       customizations: editingItem.customizations ? {
         ...editingItem.customizations,
-        is_available: prodAvailable
-      } : { is_available: prodAvailable }
+        is_available: prodAvailable,
+        is_published: prodPublished
+      } : { is_available: prodAvailable, is_published: prodPublished }
     };
 
     try {
@@ -163,7 +177,7 @@ export default function ManagementView({ onBackToDemo, onLogout }) {
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <span style={{ fontSize: '1.5rem' }}>🛠️</span>
-          <h1 style={{ fontSize: '1.1rem', fontWeight: 'bold', margin: 0 }}>龍城麵線 後台管理系統</h1>
+          <h1 style={{ fontSize: '1.1rem', fontWeight: 'bold', margin: 0 }}>{storeName} 後台管理系統</h1>
         </div>
 
         <div style={{ display: 'flex', gap: '10px' }}>
@@ -190,6 +204,45 @@ export default function ManagementView({ onBackToDemo, onLogout }) {
           </button>
         </div>
       </header>
+
+      {/* Store Name Customization Settings Panel */}
+      <div style={{ padding: '12px 24px', display: 'flex', gap: '16px', alignItems: 'center', backgroundColor: 'var(--bg-card)', borderBottom: '1px solid var(--border)', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <span style={{ fontSize: '0.85rem', fontWeight: 'bold' }}>🏪 店名設定:</span>
+          <input 
+            type="text" 
+            value={newStoreName}
+            onChange={(e) => setNewStoreName(e.target.value)}
+            style={{ padding: '6px 12px', fontSize: '0.85rem', borderRadius: '6px', border: '1px solid var(--border)' }}
+          />
+          <button
+            onClick={async () => {
+              if (!newStoreName.trim()) return;
+              try {
+                // Upsert to Supabase setting row
+                const { data: exist } = await supabase.from('menu_items').select('*').eq('name', 'SYSTEM_SETTING_STORE_NAME');
+                if (exist && exist.length > 0) {
+                  await supabase.from('menu_items').update({ description: newStoreName.trim() }).eq('name', 'SYSTEM_SETTING_STORE_NAME');
+                } else {
+                  await supabase.from('menu_items').insert([{
+                    name: 'SYSTEM_SETTING_STORE_NAME',
+                    price: 0,
+                    category: 'settings',
+                    description: newStoreName.trim()
+                  }]);
+                }
+                setStoreName(newStoreName.trim());
+                alert("店名修改成功！所有畫面重新整理後即可同步生效。");
+              } catch (e) {
+                alert("修改店名失敗：" + e.message);
+              }
+            }}
+            style={{ padding: '6px 12px', fontSize: '0.85rem', backgroundColor: 'var(--primary)', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}
+          >
+            儲存店名
+          </button>
+        </div>
+      </div>
 
       {/* Selector Tabs */}
       <div style={{ display: 'flex', padding: '16px 24px', gap: '12px' }}>
@@ -229,7 +282,8 @@ export default function ManagementView({ onBackToDemo, onLogout }) {
                     <th style={{ padding: '12px' }}>名稱</th>
                     <th style={{ padding: '12px' }}>單價</th>
                     <th style={{ padding: '12px' }}>類別</th>
-                    <th style={{ padding: '12px' }}>狀態</th>
+                    <th style={{ padding: '12px' }}>供應狀態</th>
+                    <th style={{ padding: '12px' }}>上下架</th>
                     <th style={{ padding: '12px', textAlign: 'right' }}>操作</th>
                   </tr>
                 </thead>
@@ -251,6 +305,11 @@ export default function ManagementView({ onBackToDemo, onLogout }) {
                             {isAvailable ? '🟢 供應中' : '🔴 已沽清'}
                           </span>
                         </td>
+                        <td style={{ padding: '12px' }}>
+                          <span style={{ color: item.customizations?.is_published !== false ? '#10b981' : '#ef4444', fontWeight: 'bold' }}>
+                            {item.customizations?.is_published !== false ? '🟢 已上架' : '🔴 已下架'}
+                          </span>
+                        </td>
                         <td style={{ padding: '12px', textAlign: 'right' }}>
                           <button
                             onClick={() => {
@@ -261,6 +320,7 @@ export default function ManagementView({ onBackToDemo, onLogout }) {
                               setProdCategory(item.category);
                               setProdDescription(item.description || '');
                               setProdAvailable(isAvailable);
+                              setProdPublished(item.customizations?.is_published !== false);
                             }}
                              style={{ padding: '4px 10px', fontSize: '0.75rem', borderRadius: '4px', border: '1px solid var(--primary)', backgroundColor: 'var(--primary)', color: 'white', cursor: 'pointer', fontWeight: 'bold' }}
                            >
@@ -305,6 +365,10 @@ export default function ManagementView({ onBackToDemo, onLogout }) {
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: '4px 0' }}>
                     <input type="checkbox" id="avail-check" checked={prodAvailable} onChange={(e) => setProdAvailable(e.target.checked)} style={{ width: '16px', height: '16px' }} />
                     <label htmlFor="avail-check" style={{ fontSize: '0.85rem', fontWeight: 'bold', cursor: 'pointer' }}>此商品目前正常供應 (可點餐)</label>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: '4px 0' }}>
+                    <input type="checkbox" id="publish-check" checked={prodPublished} onChange={(e) => setProdPublished(e.target.checked)} style={{ width: '16px', height: '16px' }} />
+                    <label htmlFor="publish-check" style={{ fontSize: '0.85rem', fontWeight: 'bold', cursor: 'pointer' }}>上架此商品 (勾選為上架顯示，取消為下架隱藏)</label>
                   </div>
                   
                   <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>

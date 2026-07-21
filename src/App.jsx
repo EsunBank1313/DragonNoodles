@@ -9,6 +9,7 @@ import StaffLoginScreen from './components/StaffLoginScreen';
 function App() {
   const [role, setRole] = useState(null); // 'customer', 'pos', 'bookkeeping', 'management', or null (demo selection)
   const [tableNumber, setTableNumber] = useState(null);
+  const [storeName, setStoreName] = useState('龍城麵線');
   
   // Authentication states
   const [isCashierAuth, setIsCashierAuth] = useState(() => {
@@ -115,6 +116,18 @@ function App() {
     setRole('management');
     window.history.pushState({}, '', `${window.location.pathname}?management=true`);
   };
+
+  useEffect(() => {
+    supabase.from('menu_items')
+      .select('*')
+      .eq('name', 'SYSTEM_SETTING_STORE_NAME')
+      .single()
+      .then(({ data }) => {
+        if (data && data.description) {
+          setStoreName(data.description);
+        }
+      });
+  }, [role]);
 
   const handleBackToDemo = () => {
     setRole(null);
@@ -238,7 +251,7 @@ function App() {
   return (
     <div className="demo-shell" style={{ paddingBottom: '50px' }}>
       <span className="demo-logo">🥢</span>
-      <h1 className="demo-title">龍城麵線 餐廳點餐與接單系統</h1>
+      <h1 className="demo-title">{storeName} 餐廳點餐與接單系統</h1>
       <p className="demo-subtitle">
         專為麵線店打造的點餐與櫃檯收銀系統。支援內用掃碼、預約外帶自取與現場實體 POS，跨視窗即時接單同步。
       </p>

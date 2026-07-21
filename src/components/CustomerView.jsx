@@ -91,6 +91,7 @@ export default function CustomerView({ tableNumber, onBackToDemo }) {
 
   const [menuItemsAvailability, setMenuItemsAvailability] = useState({});
   const [menuItems, setMenuItems] = useState([]);
+  const [storeName, setStoreName] = useState('{storeName}');
 
   const confirmationResultRef = useRef(null);
   const recaptchaVerifierRef = useRef(null);
@@ -106,7 +107,15 @@ export default function CustomerView({ tableNumber, onBackToDemo }) {
         if (tokenItem) {
           setLineNotifyToken(tokenItem.description || '');
         }
-        setMenuItems(data.filter(item => item.name !== 'SYSTEM_SETTING_LINE_TOKEN'));
+        const storeNameItem = data.find(item => item.name === 'SYSTEM_SETTING_STORE_NAME');
+        if (storeNameItem && storeNameItem.description) {
+          setStoreName(storeNameItem.description);
+        }
+        setMenuItems(data.filter(item => 
+          item.name !== 'SYSTEM_SETTING_LINE_TOKEN' && 
+          item.name !== 'SYSTEM_SETTING_STORE_NAME' &&
+          item.customizations?.is_published !== false
+        ));
       } else {
         // Seed database if empty
         const defaultWithNullCustomizations = defaultMenuItems.map(item => ({
@@ -120,7 +129,15 @@ export default function CustomerView({ tableNumber, onBackToDemo }) {
           if (tokenItem) {
             setLineNotifyToken(tokenItem.description || '');
           }
-          setMenuItems(seeded.filter(item => item.name !== 'SYSTEM_SETTING_LINE_TOKEN'));
+          const storeNameItem = seeded.find(item => item.name === 'SYSTEM_SETTING_STORE_NAME');
+          if (storeNameItem && storeNameItem.description) {
+            setStoreName(storeNameItem.description);
+          }
+          setMenuItems(seeded.filter(item => 
+            item.name !== 'SYSTEM_SETTING_LINE_TOKEN' && 
+            item.name !== 'SYSTEM_SETTING_STORE_NAME' &&
+            item.customizations?.is_published !== false
+          ));
         }
       }
     } catch (err) {
@@ -301,7 +318,7 @@ export default function CustomerView({ tableNumber, onBackToDemo }) {
           settings = { type: 'notify', notifyToken: lineNotifyToken };
         }
 
-        const msgText = `\n【龍城麵線】您的外帶點餐驗證碼為：${code}\n請於 5 分鐘內輸入此認證碼以完成驗證。`;
+        const msgText = `\n【{storeName}】您的外帶點餐驗證碼為：${code}\n請於 5 分鐘內輸入此認證碼以完成驗證。`;
 
         const requestBody = settings.type === 'bot' 
           ? {
@@ -341,7 +358,7 @@ export default function CustomerView({ tableNumber, onBackToDemo }) {
 
     if (!hasSentReal) {
       // Fallback simulation banner
-      setSimulatedNotification(`💬 LINE (龍城麵線官方帳號): 您的點餐驗證碼為【${code}】。(請至後台系統設定 LINE 密鑰以開啟真實發送)`);
+      setSimulatedNotification(`💬 LINE ({storeName}官方帳號): 您的點餐驗證碼為【${code}】。(請至後台系統設定 LINE 密鑰以開啟真實發送)`);
     }
 
     setTimeout(() => setSimulatedNotification(null), 10000);
@@ -521,7 +538,7 @@ export default function CustomerView({ tableNumber, onBackToDemo }) {
         <div className="brand-section">
           <button onClick={handleHomeClick} style={{ fontSize: '1.2rem' }}>🏡</button>
           <div>
-            <h1 className="brand-name">🥢 龍城麵線</h1>
+            <h1 className="brand-name">🥢 {storeName}</h1>
             <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>傳統柴魚高湯・手工紅麵線・地獄麻辣挑戰</p>
           </div>
         </div>

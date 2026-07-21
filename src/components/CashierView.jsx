@@ -40,6 +40,7 @@ export default function CashierView({ cashierName, onLogout }) {
 
   // Orders state and printing integration
   const [orders, setOrders] = useState([]);
+  const [storeName, setStoreName] = useState('龍城麵線');
 
   // Synthesize notification chime
   const triggerChime = () => {
@@ -93,7 +94,7 @@ export default function CashierView({ cashierName, onLogout }) {
           </style>
         </head>
         <body onload="window.print(); setTimeout(() => window.close(), 500);">
-          <div class="center title">龍城麵線</div>
+          <div class="center title">${storeName}</div>
           <div class="center">=== 交易收據明細 ===</div>
           <div class="divider"></div>
           <div>單號: ${orderNumStr}</div>
@@ -184,7 +185,18 @@ export default function CashierView({ cashierName, onLogout }) {
         .select('*')
         .order('id', { ascending: true });
       if (error) throw error;
-      if (data) setMenuItems(data);
+      if (data) {
+        const storeNameItem = data.find(item => item.name === 'SYSTEM_SETTING_STORE_NAME');
+        if (storeNameItem && storeNameItem.description) {
+          setStoreName(storeNameItem.description);
+        }
+        const visibleItems = data.filter(item => 
+          item.name !== 'SYSTEM_SETTING_LINE_TOKEN' && 
+          item.name !== 'SYSTEM_SETTING_STORE_NAME' &&
+          item.customizations?.is_published !== false
+        );
+        setMenuItems(visibleItems);
+      }
     } catch (err) {
       console.error("Failed to load menu items in CashierView:", err);
       // Fallback from localStorage or default
@@ -195,12 +207,14 @@ export default function CashierView({ cashierName, onLogout }) {
 
   const fetchOrders = async () => {
     try {
-      const { data, error } = await supabase.from('orders').select('*').order('created_at', { ascending: false });
+      const { data, error } = await supabase.from('orders').select('*').order('created_at', { ascending: true });
       if (error) throw error;
       if (data) {
+        const todayStr = getTodayLocalDate();
         const clientOrders = data.filter(o => {
+          const orderDate = new Date(o.created_at).toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' });
           const itemsData = typeof o.items === 'string' ? JSON.parse(o.items) : o.items;
-          return itemsData?.customerName !== 'SYSTEM_STORE_CLOSE';
+          return orderDate === todayStr && itemsData?.customerName !== 'SYSTEM_STORE_CLOSE';
         });
         const mapped = clientOrders.map(formatSupabaseOrder).filter(Boolean);
         setOrders(mapped);
@@ -536,7 +550,7 @@ export default function CashierView({ cashierName, onLogout }) {
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <span style={{ fontSize: '1.5rem' }}>💵</span>
-          <h1 style={{ fontSize: '1.1rem', fontWeight: 'bold', margin: 0 }}>龍城麵線 現場收銀系統 (POS)</h1>
+          <h1 style={{ fontSize: '1.1rem', fontWeight: 'bold', margin: 0 }}>{storeName} 現場收銀系統 (POS)</h1>
         </div>
         <div style={{ display: 'flex', gap: '10px' }}>
           <button 
@@ -709,7 +723,7 @@ export default function CashierView({ cashierName, onLogout }) {
             }}>
               {activeCategory === 'orders' ? (
                 /* Orders list */
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', textAlign: 'left', maxHeight: 'calc(100vh - 165px)', overflowY: 'auto', paddingRight: '4px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', textAlign: 'left' }}>
                   {orders.length === 0 ? (
                     <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>暫無訂單</div>
                   ) : (
