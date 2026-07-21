@@ -375,7 +375,7 @@ export default function CashierView({ cashierName, onLogout }) {
       return;
     }
 
-    // Generate serial number (I-001 or O-001 daily format)
+    // Generate serial number (I-001 or O-001 daily format, counted separately)
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
     
@@ -383,7 +383,8 @@ export default function CashierView({ cashierName, onLogout }) {
     try {
       const { count: dbCount, error } = await supabase.from('orders')
         .select('*', { count: 'exact', head: true })
-        .gte('created_at', todayStart.toISOString());
+        .gte('created_at', todayStart.toISOString())
+        .eq('type', orderType);
       if (!error && dbCount !== null) {
         count = dbCount;
       }

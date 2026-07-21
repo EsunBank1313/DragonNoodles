@@ -421,15 +421,17 @@ export default function CustomerView({ tableNumber, onBackToDemo }) {
     const subtotal = cart.reduce((sum, item) => sum + item.totalPrice, 0);
     const total = subtotal;
 
-    // Generate easy-to-read daily sequential serial number (e.g., I-001 or O-001)
+    // Generate easy-to-read daily sequential serial number (e.g., I-001 or O-001, counted separately)
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
     
     let count = 0;
+    const orderType = tableNumber ? 'dine-in' : 'takeout';
     try {
       const { count: dbCount, error } = await supabase.from('orders')
         .select('*', { count: 'exact', head: true })
-        .gte('created_at', todayStart.toISOString());
+        .gte('created_at', todayStart.toISOString())
+        .eq('type', orderType);
       if (!error && dbCount !== null) {
         count = dbCount;
       }
