@@ -5,6 +5,7 @@ import BookkeepingView from './components/BookkeepingView';
 import ManagementView from './components/ManagementView';
 import PinLockScreen from './components/PinLockScreen';
 import StaffLoginScreen from './components/StaffLoginScreen';
+import { supabase } from './supabaseClient';
 
 function App() {
   const [role, setRole] = useState(null); // 'customer', 'pos', 'bookkeeping', 'management', or null (demo selection)
