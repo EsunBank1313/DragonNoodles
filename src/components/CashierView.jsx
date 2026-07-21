@@ -375,7 +375,7 @@ export default function CashierView({ cashierName, onLogout }) {
       return;
     }
 
-    // Generate serial number (A-001 daily format)
+    // Generate serial number (I-001 or O-001 daily format)
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
     
@@ -390,15 +390,8 @@ export default function CashierView({ cashierName, onLogout }) {
     } catch (err) {
       console.warn("Failed to get today count, using fallback:", err);
     }
-    const serialNum = `A-${String(count + 1).padStart(3, '0')}`;
-
-    // Format discount remarks
-    let discountDetail = '';
-    if (discountType === 'percent') {
-      discountDetail = ` [折價: ${(10 - discountValue/10)}折, 折抵 $${discountAmount}]`;
-    } else if (discountType === 'amount') {
-      discountDetail = ` [折抵 $${discountValue}]`;
-    }
+    const prefix = orderType === 'dine-in' ? 'I' : 'O';
+    const serialNum = `${prefix}-${String(count + 1).padStart(3, '0')}`;
 
     try {
       const { data: dbOrders, error: insertError } = await supabase.from('orders').insert([{
@@ -415,7 +408,7 @@ export default function CashierView({ cashierName, onLogout }) {
           customerPhone: '',
           pickupTime: '',
           paymentMethod: 'cash',
-          remarks: `${remarks.trim()}${discountDetail} [櫃檯現場收銀]`,
+          remarks: "",
           cashier: cashierName
         },
         total: finalTotal,

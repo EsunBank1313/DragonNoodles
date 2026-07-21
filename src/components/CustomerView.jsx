@@ -421,7 +421,7 @@ export default function CustomerView({ tableNumber, onBackToDemo }) {
     const subtotal = cart.reduce((sum, item) => sum + item.totalPrice, 0);
     const total = subtotal;
 
-    // Generate easy-to-read daily sequential serial number (e.g., A-001)
+    // Generate easy-to-read daily sequential serial number (e.g., I-001 or O-001)
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
     
@@ -437,7 +437,8 @@ export default function CustomerView({ tableNumber, onBackToDemo }) {
       console.warn("Failed to fetch today's order count, default to 0:", err);
     }
     
-    const serialNum = `A-${String(count + 1).padStart(3, '0')}`;
+    const prefix = tableNumber ? 'I' : 'O';
+    const serialNum = `${prefix}-${String(count + 1).padStart(3, '0')}`;
 
     try {
       const { data: dbOrders, error: insertError } = await supabase.from('orders').insert([{
