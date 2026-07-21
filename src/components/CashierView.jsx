@@ -217,7 +217,23 @@ export default function CashierView({ cashierName, onLogout }) {
           return orderDate === todayStr && itemsData?.customerName !== 'SYSTEM_STORE_CLOSE';
         });
         const mapped = clientOrders.map(formatSupabaseOrder).filter(Boolean);
-        setOrders(mapped);
+        
+        // Status priorities: received/preparing (1) > completed (2) > archived (3) > others (4)
+        const getStatusPriority = (status) => {
+          if (status === 'received' || status === 'preparing') return 1;
+          if (status === 'completed') return 2;
+          if (status === 'archived') return 3;
+          return 4;
+        };
+
+        const sorted = mapped.sort((a, b) => {
+          const priA = getStatusPriority(a.status);
+          const priB = getStatusPriority(b.status);
+          if (priA !== priB) return priA - priB;
+          return a.timestamp - b.timestamp; // oldest first within same status group
+        });
+
+        setOrders(sorted);
       }
     } catch (err) {
       console.error("Failed to load orders in CashierView:", err);

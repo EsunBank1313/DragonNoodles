@@ -100,13 +100,20 @@ export default function ManagementView({ onBackToDemo, onLogout }) {
     };
 
     try {
-      const { error } = await supabase
-        .from('menu_items')
-        .update(updatedItem)
-        .eq('id', editingItem.id);
-      
-      if (error) throw error;
-      alert("商品修改成功並已同步雲端！");
+      if (editingItem === 'new') {
+        const { error } = await supabase
+          .from('menu_items')
+          .insert([updatedItem]);
+        if (error) throw error;
+        alert("商品新增成功並已發布至雲端！");
+      } else {
+        const { error } = await supabase
+          .from('menu_items')
+          .update(updatedItem)
+          .eq('id', editingItem.id);
+        if (error) throw error;
+        alert("商品修改成功並已同步雲端！");
+      }
       setEditingItem(null);
       fetchMenuItems();
     } catch (err) {
@@ -274,7 +281,28 @@ export default function ManagementView({ onBackToDemo, onLogout }) {
         {activeTab === 'products' ? (
           <div style={{ display: 'flex', gap: '24px', alignItems: 'flex-start' }}>
             {/* Products List Table */}
-            <div style={{ flex: 1.5, backgroundColor: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px', overflow: 'hidden' }}>
+            <div style={{ flex: 1.5, display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <div style={{ display: 'flex', justifyContent: 'flex-start' }}>
+                <button
+                  onClick={() => {
+                    setEditingItem('new');
+                    setProdName('');
+                    setProdPrice('');
+                    setProdImage('');
+                    setProdCategory('mee-sua');
+                    setProdDescription('');
+                    setProdAvailable(true);
+                    setProdPublished(true);
+                  }}
+                  style={{
+                    padding: '8px 16px', backgroundColor: '#10b981', color: 'white', border: 'none',
+                    borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.85rem'
+                  }}
+                >
+                  ＋ 新增商品項目
+                </button>
+              </div>
+              <div style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px', overflow: 'hidden' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
                 <thead>
                   <tr style={{ backgroundColor: 'var(--bg-body)', borderBottom: '1px solid var(--border)', textAlign: 'left' }}>
@@ -333,11 +361,12 @@ export default function ManagementView({ onBackToDemo, onLogout }) {
                 </tbody>
               </table>
             </div>
+          </div>
 
             {/* Product Edit Sidepanel Form */}
             {editingItem && (
               <div style={{ flex: 1, backgroundColor: 'var(--bg-card)', padding: '24px', borderRadius: '12px', border: '1px solid var(--border)', textAlign: 'left' }}>
-                <h3 style={{ margin: '0 0 16px 0', fontSize: '1rem', fontWeight: 'bold' }}>✏️ 編輯商品詳情</h3>
+                <h3 style={{ margin: '0 0 16px 0', fontSize: '1rem', fontWeight: 'bold' }}>{editingItem === 'new' ? '➕ 新增商品項目' : '✏️ 編輯商品詳情'}</h3>
                 <form onSubmit={handleSaveProduct} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                     <label style={{ fontSize: '0.75rem', fontWeight: 'bold' }}>商品名稱</label>
