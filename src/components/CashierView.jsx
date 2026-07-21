@@ -69,11 +69,11 @@ export default function CashierView({ cashierName, onLogout }) {
       return;
     }
     
-    const cartItems = order.cart || [];
-    const orderNumStr = order.orderNumber || order.order_number || '';
+    const cartItems = order.items || order.cart || [];
+    const orderNumStr = order.serialNum || order.orderNumber || order.order_number || '';
     const nameStr = order.customerName || '';
     const totalNum = order.total || 0;
-    const dateStr = order.createdAt || order.created_at || new Date().toISOString();
+    const dateStr = order.timestamp || order.createdAt || order.created_at || new Date().toISOString();
     const typeStr = order.type === 'dine-in' ? '內用' : '外帶';
     
     const html = `
@@ -718,7 +718,7 @@ export default function CashierView({ cashierName, onLogout }) {
                       return (
                         <div key={order.id} style={{ padding: '12px', border: '1px solid var(--border)', borderRadius: '8px', backgroundColor: 'var(--bg-card)' }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', fontWeight: 'bold', borderBottom: '1px solid var(--border)', paddingBottom: '4px', marginBottom: '6px' }}>
-                            <span>單號: {order.orderNumber} ({order.type === 'dine-in' ? '內用' : '外帶'})</span>
+                            <span>單號: {order.serialNum} ({order.type === 'dine-in' ? '內用' : '外帶'})</span>
                             <span style={{ color: isPending ? '#eab308' : '#10b981' }}>
                               {order.status === 'received' ? '⏳ 待處理' : 
                                order.status === 'preparing' ? '🔥 製作中' : 
@@ -728,7 +728,7 @@ export default function CashierView({ cashierName, onLogout }) {
                           </div>
                           <div style={{ fontSize: '0.8rem', fontWeight: 'bold' }}>客戶: {order.customerName} {order.pickupTime ? `(取餐: ${order.pickupTime})` : ''}</div>
                           <div style={{ fontSize: '0.75rem', margin: '4px 0', borderTop: '1px dashed var(--border)', borderBottom: '1px dashed var(--border)', padding: '4px 0' }}>
-                            {order.cart.map((item, idx) => (
+                            {(order.items || []).map((item, idx) => (
                               <div key={idx}>• {item.name} x {item.quantity} {item.specs && item.specs.length > 0 ? `(${item.specs.map(s=>s.value).join(', ')})` : ''}</div>
                             ))}
                           </div>
