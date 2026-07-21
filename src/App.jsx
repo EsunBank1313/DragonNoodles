@@ -2,11 +2,12 @@ import React, { useState, useEffect } from 'react';
 import CustomerView from './components/CustomerView';
 import CashierView from './components/CashierView';
 import BookkeepingView from './components/BookkeepingView';
+import ManagementView from './components/ManagementView';
 import PinLockScreen from './components/PinLockScreen';
 import StaffLoginScreen from './components/StaffLoginScreen';
 
 function App() {
-  const [role, setRole] = useState(null); // 'customer', 'pos', 'bookkeeping', or null (demo selection)
+  const [role, setRole] = useState(null); // 'customer', 'pos', 'bookkeeping', 'management', or null (demo selection)
   const [tableNumber, setTableNumber] = useState(null);
   
   // Authentication states
@@ -17,6 +18,10 @@ function App() {
   const [isBookkeepingAuth, setIsBookkeepingAuth] = useState(() => {
     return localStorage.getItem('is_bookkeeping_authenticated') === 'true' ||
            sessionStorage.getItem('is_bookkeeping_authenticated') === 'true';
+  });
+  const [isManagementAuth, setIsManagementAuth] = useState(() => {
+    return localStorage.getItem('is_management_authenticated') === 'true' ||
+           sessionStorage.getItem('is_management_authenticated') === 'true';
   });
   const [cashierName, setCashierName] = useState(() => {
     return localStorage.getItem('cashier_name') || sessionStorage.getItem('cashier_name') || '';
@@ -55,17 +60,17 @@ function App() {
     const bookkeepingParam = params.get('bookkeeping');
     const demoParam = params.get('demo');
 
-    // 1. Subdomain-based routing (pos.* -> POS, admin.* -> POS, bookkeeping.* -> Bookkeeping)
+    // 1. Subdomain-based routing (pos.* -> POS, admin.* -> Management, bookkeeping.* -> Bookkeeping)
     if (hostname.startsWith('pos.')) {
       setRole('pos');
     } else if (hostname.startsWith('admin.')) {
-      setRole('pos');
+      setRole('management');
     } else if (hostname.startsWith('bookkeeping.')) {
       setRole('bookkeeping');
     }
     // 2. URL parameter routing
-    else if (adminParam === 'true') {
-      setRole('pos');
+    else if (adminParam === 'true' || params.get('management') === 'true') {
+      setRole('management');
     } else if (posParam === 'true') {
       setRole('pos');
     } else if (bookkeepingParam === 'true') {
@@ -92,8 +97,8 @@ function App() {
   };
 
   const handleSelectKitchen = () => {
-    setRole('pos');
-    window.history.pushState({}, '', `${window.location.pathname}?pos=true`);
+    setRole('management');
+    window.history.pushState({}, '', `${window.location.pathname}?management=true`);
   };
 
   const handleSelectPos = () => {
@@ -104,6 +109,11 @@ function App() {
   const handleSelectBookkeeping = () => {
     setRole('bookkeeping');
     window.history.pushState({}, '', `${window.location.pathname}?bookkeeping=true`);
+  };
+
+  const handleSelectManagement = () => {
+    setRole('management');
+    window.history.pushState({}, '', `${window.location.pathname}?management=true`);
   };
 
   const handleBackToDemo = () => {
@@ -141,6 +151,21 @@ function App() {
     setIsBookkeepingAuth(false);
     localStorage.removeItem('is_bookkeeping_authenticated');
     sessionStorage.removeItem('is_bookkeeping_authenticated');
+  };
+
+  const handleManagementAuthSuccess = (remember) => {
+    setIsManagementAuth(true);
+    if (remember) {
+      localStorage.setItem('is_management_authenticated', 'true');
+    } else {
+      sessionStorage.setItem('is_management_authenticated', 'true');
+    }
+  };
+
+  const handleManagementLogout = () => {
+    setIsManagementAuth(false);
+    localStorage.removeItem('is_management_authenticated');
+    sessionStorage.removeItem('is_management_authenticated');
   };
 
   // Render view based on active role
@@ -187,6 +212,25 @@ function App() {
       <BookkeepingView 
         onBackToDemo={handleBackToDemo} 
         onLogout={handleBookkeepingLogout}
+      />
+    );
+  }
+
+  if (role === 'management') {
+    if (!isManagementAuth) {
+      return (
+        <PinLockScreen 
+          expectedPin="8888" 
+          onSuccess={handleManagementAuthSuccess}
+          title="餐廳後台管理系統"
+          subtitle="請輸入管理員四位數 PIN 碼解鎖管理功能"
+        />
+      );
+    }
+    return (
+      <ManagementView 
+        onBackToDemo={handleBackToDemo}
+        onLogout={handleManagementLogout}
       />
     );
   }
@@ -243,6 +287,18 @@ function App() {
           </p>
           <button className="demo-btn" style={{ backgroundColor: '#8b5cf6' }}>進入記帳系統</button>
         </div>
+
+        {/* Management view */}
+        <div className="demo-card" onClick={handleSelectManagement}>
+          <span className="demo-card-icon">🛠️</span>
+          <h2 className="demo-card-title">後台管理系統</h2>
+          <p className="demo-card-desc">
+            產品與員工班表管理。可變更商品名稱、價格、圖片，並管理收銀員名單與登入密碼 ("點名")。
+            <br />
+            <span style={{ fontSize: '0.7rem', color: 'var(--primary)', fontWeight: 'bold' }}>(預設 PIN 碼：8888)</span>
+          </p>
+          <button className="demo-btn" style={{ backgroundColor: '#0284c7' }}>進入管理系統</button>
+        </div>
       </div>
 
       <div 
@@ -263,9 +319,10 @@ function App() {
       >
         <strong style={{ color: 'var(--primary)' }}>💡 龍城麵線系統測試教學：</strong>
         <ol style={{ paddingLeft: '20px', marginTop: '6px' }}>
-          <li>在新分頁開啟 <strong>「現場收銀系統 (POS)」</strong> (PIN `6666`) 進行實體收銀、並可切換「接單看板」處理雲端點餐。</li>
-          <li>在新分頁開啟 <strong>「模擬點餐」</strong> 以顧客視角下單。</li>
-          <li>點選 <strong>「進入營業記帳與報表」</strong> 輸入 `8888` 解鎖財務、固定成本與月報表。</li>
+          <li>在新分頁開啟 <strong>「現場收銀系統 (POS)」</strong> (PIN `6666`) 進行收銀結帳，切換 📋 選單可即時接單與「自動列印收據」。</li>
+          <li>在新分頁開啟 <strong>「模擬點餐」</strong> 進行顧客下單，下單的瞬間 POS 系統會自動發出提示音並開起列印收據。</li>
+          <li>點選 <strong>「後台管理系統」</strong> (PIN `8888`) 可直接修改產品詳情（價格、圖片）與管理收銀人員。</li>
+          <li>點選 <strong>「進入營業記帳與報表」</strong> (PIN `8888`) 可進行收店對帳。</li>
         </ol>
       </div>
     </div>

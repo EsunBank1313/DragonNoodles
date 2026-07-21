@@ -1,14 +1,16 @@
 import React, { useState, useEffect } from 'react';
 
-const staffList = [
-  { name: '店長 (Admin)', pin: '6666' },
-  { name: '收銀員-小明', pin: '1111' },
-  { name: '收銀員-小華', pin: '2222' },
-  { name: '收銀員-阿強', pin: '3333' }
-];
-
 export default function StaffLoginScreen({ onSuccess, title, subtitle }) {
-  const [selectedStaff, setSelectedStaff] = useState(staffList[0].name);
+  const [staffList, setStaffList] = useState(() => {
+    const saved = localStorage.getItem('restaurant_staff_list');
+    return saved ? JSON.parse(saved) : [
+      { name: '店長 (Admin)', pin: '6666' },
+      { name: '收銀員-小明', pin: '1111' },
+      { name: '收銀員-小華', pin: '2222' },
+      { name: '收銀員-阿強', pin: '3333' }
+    ];
+  });
+  const [selectedStaff, setSelectedStaff] = useState(staffList[0]?.name || '');
   const [pin, setPin] = useState('');
   const [error, setError] = useState(false);
 
