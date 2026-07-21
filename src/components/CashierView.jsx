@@ -749,11 +749,11 @@ export default function CashierView({ cashierName, onLogout }) {
                         <div key={order.id} style={{ padding: '12px', border: '1px solid var(--border)', borderRadius: '8px', backgroundColor: 'var(--bg-card)' }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', fontWeight: 'bold', borderBottom: '1px solid var(--border)', paddingBottom: '4px', marginBottom: '6px' }}>
                             <span>單號: {order.serialNum} ({order.type === 'dine-in' ? '內用' : '外帶'})</span>
-                            <span style={{ color: isPending ? '#eab308' : order.status === 'completed' ? '#10b981' : '#6b7280' }}>
+                            <span style={{ color: isPending ? '#eab308' : order.status === 'completed' ? '#10b981' : (order.status === 'declined' || order.status === 'refunded') ? '#ef4444' : '#6b7280' }}>
                               {order.status === 'received' ? '⏳ 待處理' : 
                                order.status === 'preparing' ? '🔥 製作中' : 
                                order.status === 'completed' ? '🛍️ 待取餐' : 
-                               order.status === 'declined' ? '🚫 已拒單' : 
+                               order.status === 'declined' ? '🪙 已退貨' : 
                                order.status === 'archived' ? '✓ 已完成' : '🪙 已退貨'}
                             </span>
                           </div>

@@ -350,9 +350,26 @@ export default function ManagementView({ onBackToDemo, onLogout }) {
                               setProdAvailable(isAvailable);
                               setProdPublished(item.customizations?.is_published !== false);
                             }}
-                             style={{ padding: '4px 10px', fontSize: '0.75rem', borderRadius: '4px', border: '1px solid var(--primary)', backgroundColor: 'var(--primary)', color: 'white', cursor: 'pointer', fontWeight: 'bold' }}
-                           >
-                             編輯商品
+                            style={{ padding: '4px 10px', fontSize: '0.75rem', borderRadius: '4px', border: '1px solid var(--primary)', backgroundColor: 'var(--primary)', color: 'white', cursor: 'pointer', fontWeight: 'bold' }}
+                          >
+                            編輯商品
+                          </button>
+                          <button
+                            onClick={async () => {
+                              if (confirm(`確定要刪除商品「${item.name}」嗎？此動作無法復原。`)) {
+                                try {
+                                  const { error } = await supabase.from('menu_items').delete().eq('id', item.id);
+                                  if (error) throw error;
+                                  alert("商品刪除成功！");
+                                  fetchMenuItems();
+                                } catch (e) {
+                                  alert("刪除失敗：" + e.message);
+                                }
+                              }
+                            }}
+                            style={{ padding: '4px 10px', fontSize: '0.75rem', borderRadius: '4px', border: '1px solid #ef4444', backgroundColor: 'transparent', color: '#ef4444', cursor: 'pointer', fontWeight: 'bold', marginLeft: '6px' }}
+                          >
+                            刪除
                           </button>
                         </td>
                       </tr>
