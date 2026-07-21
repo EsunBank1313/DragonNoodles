@@ -1,20 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import CustomerView from './components/CustomerView';
-import KitchenView from './components/KitchenView';
 import CashierView from './components/CashierView';
 import BookkeepingView from './components/BookkeepingView';
 import PinLockScreen from './components/PinLockScreen';
 import StaffLoginScreen from './components/StaffLoginScreen';
 
 function App() {
-  const [role, setRole] = useState(null); // 'customer', 'kitchen', 'pos', 'bookkeeping', or null (demo selection)
+  const [role, setRole] = useState(null); // 'customer', 'pos', 'bookkeeping', or null (demo selection)
   const [tableNumber, setTableNumber] = useState(null);
   
   // Authentication states
-  const [isKitchenAuth, setIsKitchenAuth] = useState(() => {
-    return localStorage.getItem('is_kitchen_authenticated') === 'true' ||
-           sessionStorage.getItem('is_kitchen_authenticated') === 'true';
-  });
   const [isCashierAuth, setIsCashierAuth] = useState(() => {
     return localStorage.getItem('is_cashier_authenticated') === 'true' ||
            sessionStorage.getItem('is_cashier_authenticated') === 'true';
@@ -60,17 +55,17 @@ function App() {
     const bookkeepingParam = params.get('bookkeeping');
     const demoParam = params.get('demo');
 
-    // 1. Subdomain-based routing (pos.* -> POS, admin.* -> Kitchen, bookkeeping.* -> Bookkeeping)
+    // 1. Subdomain-based routing (pos.* -> POS, admin.* -> POS, bookkeeping.* -> Bookkeeping)
     if (hostname.startsWith('pos.')) {
       setRole('pos');
     } else if (hostname.startsWith('admin.')) {
-      setRole('kitchen');
+      setRole('pos');
     } else if (hostname.startsWith('bookkeeping.')) {
       setRole('bookkeeping');
     }
     // 2. URL parameter routing
     else if (adminParam === 'true') {
-      setRole('kitchen');
+      setRole('pos');
     } else if (posParam === 'true') {
       setRole('pos');
     } else if (bookkeepingParam === 'true') {
@@ -97,8 +92,8 @@ function App() {
   };
 
   const handleSelectKitchen = () => {
-    setRole('kitchen');
-    window.history.pushState({}, '', `${window.location.pathname}?admin=true`);
+    setRole('pos');
+    window.history.pushState({}, '', `${window.location.pathname}?pos=true`);
   };
 
   const handleSelectPos = () => {
@@ -115,22 +110,6 @@ function App() {
     setRole(null);
     setTableNumber(null);
     window.history.pushState({}, '', window.location.pathname);
-  };
-
-  // Auth callbacks
-  const handleKitchenAuthSuccess = (remember) => {
-    setIsKitchenAuth(true);
-    if (remember) {
-      localStorage.setItem('is_kitchen_authenticated', 'true');
-    } else {
-      sessionStorage.setItem('is_kitchen_authenticated', 'true');
-    }
-  };
-
-  const handleKitchenLogout = () => {
-    setIsKitchenAuth(false);
-    localStorage.removeItem('is_kitchen_authenticated');
-    sessionStorage.removeItem('is_kitchen_authenticated');
   };
 
   const handleCashierAuthSuccess = (employeeName) => {
@@ -174,25 +153,6 @@ function App() {
     );
   }
 
-  if (role === 'kitchen') {
-    if (!isKitchenAuth) {
-      return (
-        <PinLockScreen 
-          expectedPin="8888" 
-          onSuccess={handleKitchenAuthSuccess}
-          title="商家接單管理後台"
-          subtitle="請輸入四位數管理員 PIN 碼進行驗證"
-        />
-      );
-    }
-    return (
-      <KitchenView 
-        onBackToDemo={handleBackToDemo} 
-        onLogout={handleKitchenLogout}
-      />
-    );
-  }
-
   if (role === 'pos') {
     if (!isCashierAuth) {
       return (
@@ -207,6 +167,7 @@ function App() {
       <CashierView 
         cashierName={cashierName}
         onLogout={handleCashierLogout}
+        onBackToDemo={handleBackToDemo}
       />
     );
   }
@@ -271,18 +232,6 @@ function App() {
           <button className="demo-btn" style={{ backgroundColor: '#16a34a' }}>進入收銀系統</button>
         </div>
 
-        {/* Admin/Kitchen view */}
-        <div className="demo-card" onClick={handleSelectKitchen}>
-          <span className="demo-card-icon">👨‍🍳</span>
-          <h2 className="demo-card-title">商家接單與設定</h2>
-          <p className="demo-card-desc">
-            廚房與櫃檯接單系統。即時接收點餐、出餐，並可於此控制菜單上架與佐料供應。
-            <br />
-            <span style={{ fontSize: '0.7rem', color: 'var(--primary)', fontWeight: 'bold' }}>(預設 PIN 碼：8888)</span>
-          </p>
-          <button className="demo-btn">進入接單後台</button>
-        </div>
-
         {/* Bookkeeping view */}
         <div className="demo-card" onClick={handleSelectBookkeeping}>
           <span className="demo-card-icon">📊</span>
@@ -314,10 +263,9 @@ function App() {
       >
         <strong style={{ color: 'var(--primary)' }}>💡 龍城麵線系統測試教學：</strong>
         <ol style={{ paddingLeft: '20px', marginTop: '6px' }}>
-          <li>點選 <strong>「進入接單與設定」</strong>，開啟後點選畫面中的「🔊 開啟接單音效」接收訂單。</li>
-          <li>在新分頁開啟 <strong>「現場收銀系統 (POS)」</strong> 進行現場實體收銀與出餐模擬。</li>
+          <li>在新分頁開啟 <strong>「現場收銀系統 (POS)」</strong> (PIN `6666`) 進行實體收銀、並可切換「接單看板」處理雲端點餐。</li>
           <li>在新分頁開啟 <strong>「模擬點餐」</strong> 以顧客視角下單。</li>
-          <li>點選 <strong>「進入營業記帳與報表」</strong> 輸入 `8888` 收店驗證，解鎖財務、固定成本與按月利潤報表。</li>
+          <li>點選 <strong>「進入營業記帳與報表」</strong> 輸入 `8888` 解鎖財務、固定成本與月報表。</li>
         </ol>
       </div>
     </div>
