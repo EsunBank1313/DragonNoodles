@@ -110,19 +110,18 @@ export default function CashierView({ cashierName, onLogout }) {
           <div class="divider"></div>
           <div style="font-size: 17px; font-weight: bold; margin-bottom: 2px;">單號: ${orderNumStr}</div>
           <div>類型: ${typeStr}</div>
-          <div>客群: ${nameStr || '現場顧客'}</div>
           <div style="font-size: 13px;">時間: ${new Date(dateStr).toLocaleString('zh-TW', { hour12: false })}</div>
           <div class="divider"></div>
           ${cartItems.map(item => {
             const unitPrice = item.price || (item.totalPrice && item.quantity ? Math.round(item.totalPrice / item.quantity) : 0);
             return `
-              <div class="row" style="font-size: 16px;">
+              <div class="row" style="font-size: 16px; color: #000;">
                 <span class="item">${item.name} x${item.quantity}</span>
                 <span>$${unitPrice}</span>
               </div>
               ${item.specs && item.specs.length > 0 ? `
-                <div style="font-size: 14px; color: #333; padding-left: 12px; font-weight: bold;">
-                  └ ${item.specs.map(s => s.value).join(', ')}
+                <div style="font-size: 14px; color: #000; padding-left: 12px; font-weight: bold;">
+                  └ ${item.specs.map(s => typeof s === 'object' && s ? (s.value || `${s.name}: ${s.value}`) : String(s)).join(', ')}
                 </div>
               ` : ''}
             `;
