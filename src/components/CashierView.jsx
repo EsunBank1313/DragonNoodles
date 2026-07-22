@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 import { formatSupabaseOrder } from './CustomerView';
 import ItemModal from './ItemModal';
 
 export default function CashierView({ cashierName, onLogout }) {
+  const locallyPrintedOrders = useRef(new Set());
   const [menuItems, setMenuItems] = useState([]);
   const [activeCategory, setActiveCategory] = useState('mee-sua');
   const [cart, setCart] = useState([]);
@@ -131,6 +132,16 @@ export default function CashierView({ cashierName, onLogout }) {
             <span>應收總計:</span>
             <span>$${totalNum}</span>
           </div>
+          ${(order.cashReceived !== undefined && order.cashReceived !== null) ? `
+            <div class="row" style="font-size: 16px; color: #000; font-weight: bold;">
+              <span>實收金額:</span>
+              <span>$${order.cashReceived}</span>
+            </div>
+            <div class="row" style="font-size: 16px; color: #000; font-weight: bold;">
+              <span>找零:</span>
+              <span>$${order.changeAmount}</span>
+            </div>
+          ` : ''}
         </body>
       </html>
     `;
@@ -272,6 +283,10 @@ export default function CashierView({ cashierName, onLogout }) {
         if (payload.eventType === 'INSERT') {
           const itemsData = typeof payload.new.items === 'string' ? JSON.parse(payload.new.items) : payload.new.items;
           if (itemsData?.customerName !== 'SYSTEM_STORE_CLOSE') {
+            const orderNum = payload.new.order_number;
+            if (locallyPrintedOrders.current.has(orderNum)) {
+              return;
+            }
             const mappedOrder = formatSupabaseOrder(payload.new);
             triggerChime();
             if (mappedOrder) {
@@ -440,6 +455,14 @@ export default function CashierView({ cashierName, onLogout }) {
       if (insertError) throw insertError;
 
       const createdOrder = dbOrders[0];
+      const orderToPrint = {
+        ...formatSupabaseOrder(createdOrder),
+        cashReceived: received,
+        changeAmount: received - finalTotal
+      };
+      locallyPrintedOrders.current.add(createdOrder.order_number);
+      printReceipt(orderToPrint);
+
       setLatestOrder({
         ...createdOrder,
         cashReceived: received,
