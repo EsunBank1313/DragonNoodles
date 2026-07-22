@@ -425,6 +425,7 @@ export default function CashierView({ cashierName, onLogout }) {
     }
     const prefix = orderType === 'dine-in' ? 'I' : 'O';
     const serialNum = `${prefix}-${String(count + 1).padStart(3, '0')}`;
+    locallyPrintedOrders.current.add(serialNum);
 
     try {
       const { data: dbOrders, error: insertError } = await supabase.from('orders').insert([{
@@ -460,7 +461,6 @@ export default function CashierView({ cashierName, onLogout }) {
         cashReceived: received,
         changeAmount: received - finalTotal
       };
-      locallyPrintedOrders.current.add(createdOrder.order_number);
       printReceipt(orderToPrint);
 
       setLatestOrder({
