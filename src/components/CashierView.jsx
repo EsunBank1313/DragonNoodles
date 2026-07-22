@@ -71,7 +71,17 @@ export default function CashierView({ cashierName, onLogout }) {
       return;
     }
     
-    const cartItems = order.items || order.cart || [];
+    let cartItems = [];
+    if (order) {
+      if (Array.isArray(order.items)) {
+        cartItems = order.items;
+      } else if (order.items && Array.isArray(order.items.cart)) {
+        cartItems = order.items.cart;
+      } else if (Array.isArray(order.cart)) {
+        cartItems = order.cart;
+      }
+    }
+
     const orderNumStr = order.serialNum || order.orderNumber || order.order_number || '';
     const nameStr = order.customerName || '';
     const totalNum = order.total || 0;
@@ -86,9 +96,9 @@ export default function CashierView({ cashierName, onLogout }) {
             @media print {
               body { margin: 0; }
             }
-            body { font-family: monospace; font-size: 13px; line-height: 1.4; padding: 10px; width: 280px; }
+            body { font-family: monospace; font-size: 16px; line-height: 1.5; padding: 10px; width: 280px; }
             .center { text-align: center; }
-            .title { font-size: 16px; font-weight: bold; margin-bottom: 4px; }
+            .title { font-size: 20px; font-weight: bold; margin-bottom: 6px; }
             .divider { border-top: 1px dashed #000; margin: 6px 0; }
             .row { display: flex; justify-content: space-between; }
             .item { font-weight: bold; }
@@ -96,26 +106,29 @@ export default function CashierView({ cashierName, onLogout }) {
         </head>
         <body onload="window.print(); setTimeout(() => window.close(), 500);">
           <div class="center title">${storeName}</div>
-          <div class="center">=== 交易收據明細 ===</div>
+          <div class="center" style="font-size: 14px; font-weight: bold;">=== 交易收據明細 ===</div>
           <div class="divider"></div>
-          <div>單號: ${orderNumStr}</div>
+          <div style="font-size: 17px; font-weight: bold; margin-bottom: 2px;">單號: ${orderNumStr}</div>
           <div>類型: ${typeStr}</div>
           <div>客群: ${nameStr || '現場顧客'}</div>
-          <div>時間: ${new Date(dateStr).toLocaleString('zh-TW', { hour12: false })}</div>
+          <div style="font-size: 13px;">時間: ${new Date(dateStr).toLocaleString('zh-TW', { hour12: false })}</div>
           <div class="divider"></div>
-          ${cartItems.map(item => `
-            <div class="row">
-              <span class="item">${item.name} x${item.quantity}</span>
-              <span>$${item.price || item.itemPrice}</span>
-            </div>
-            ${item.specs && item.specs.length > 0 ? `
-              <div style="font-size: 11px; color: #555; padding-left: 8px;">
-                └ ${item.specs.map(s => `${s.name}:${s.value}`).join(', ')}
+          ${cartItems.map(item => {
+            const unitPrice = item.price || (item.totalPrice && item.quantity ? Math.round(item.totalPrice / item.quantity) : 0);
+            return `
+              <div class="row" style="font-size: 16px;">
+                <span class="item">${item.name} x${item.quantity}</span>
+                <span>$${unitPrice}</span>
               </div>
-            ` : ''}
-          `).join('')}
+              ${item.specs && item.specs.length > 0 ? `
+                <div style="font-size: 14px; color: #333; padding-left: 12px; font-weight: bold;">
+                  └ ${item.specs.map(s => s.value).join(', ')}
+                </div>
+              ` : ''}
+            `;
+          }).join('')}
           <div class="divider"></div>
-          <div class="row" style="font-size: 14px; font-weight: bold;">
+          <div class="row" style="font-size: 18px; font-weight: bold;">
             <span>應收總計:</span>
             <span>$${totalNum}</span>
           </div>
@@ -406,6 +419,7 @@ export default function CashierView({ cashierName, onLogout }) {
           cart: cart.map(c => ({
             id: c.id,
             name: c.name,
+            price: c.price,
             quantity: c.quantity,
             totalPrice: c.totalPrice,
             specs: c.specs
