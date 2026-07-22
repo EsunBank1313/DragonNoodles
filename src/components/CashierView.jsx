@@ -1150,14 +1150,15 @@ export default function CashierView({ cashierName, onLogout }) {
           }}>
             {/* Checkout Form & Register Panel */}
             <form onSubmit={handleCheckoutSubmit} style={{
-              padding: '12px 16px',
+              padding: '8px 12px',
               backgroundColor: 'var(--bg-body)',
               display: 'flex',
               flexDirection: 'column',
-              gap: '6px',
+              gap: '4px',
               height: '100%',
               boxSizing: 'border-box',
-              justifyContent: 'space-between'
+              justifyContent: 'space-between',
+              overflowY: 'auto'
             }}>
               {/* Order Type Checkbox (Default is Dine-in, check for Takeout) */}
               <div style={{
