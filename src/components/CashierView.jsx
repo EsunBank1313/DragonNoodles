@@ -96,11 +96,13 @@ export default function CashierView({ cashierName, onLogout }) {
           <style>
             @page {
               margin: 0;
+              size: auto;
             }
             @media print {
-              body { margin: 0; width: 180px; }
+              html, body { height: auto !important; }
+              body { margin: 0; width: 160px; }
             }
-            body { font-family: monospace; font-size: 13px; line-height: 1.4; padding: 4px; width: 180px; box-sizing: border-box; }
+            body { font-family: monospace; font-size: 13px; line-height: 1.4; padding: 2px 8px 2px 2px; width: 160px; box-sizing: border-box; height: auto; }
             .center { text-align: center; }
             .title { font-size: 16px; font-weight: bold; margin-bottom: 4px; }
             .divider { border-top: 1px dashed #000; margin: 4px 0; }
