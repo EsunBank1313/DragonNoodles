@@ -582,7 +582,8 @@ export default function CashierView({ cashierName, onLogout }) {
     <div style={{
       display: 'flex',
       flexDirection: 'column',
-      minHeight: '100vh',
+      height: '100vh',
+      overflow: 'hidden',
       backgroundColor: 'var(--bg-body)',
       color: 'var(--text-main)',
       fontFamily: 'system-ui, -apple-system, sans-serif',
@@ -685,7 +686,8 @@ export default function CashierView({ cashierName, onLogout }) {
             overflowY: 'hidden',
             padding: '12px 16px',
             borderRight: '1px solid var(--border)',
-            gap: '10px'
+            gap: '10px',
+            minHeight: 0
           }}>
             {/* Giant Category switcher tabs */}
             <div style={{
@@ -1035,7 +1037,8 @@ export default function CashierView({ cashierName, onLogout }) {
               border: '1px solid var(--border)',
               marginTop: '6px',
               overflow: 'hidden',
-              boxSizing: 'border-box'
+              boxSizing: 'border-box',
+              minHeight: 0
             }}>
               <h2 style={{ fontSize: '0.85rem', fontWeight: 'bold', borderBottom: '1px solid var(--border)', paddingBottom: '4px', margin: '0 0 6px 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>🛒 點餐清單 <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 'normal' }}>({cart.length} 品項)</span></span>
