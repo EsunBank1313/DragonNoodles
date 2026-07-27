@@ -94,50 +94,53 @@ export default function CashierView({ cashierName, onLogout }) {
         <head>
           <title>收據列印</title>
           <style>
-            @media print {
-              body { margin: 0; width: 200px; }
+            @page {
+              margin: 0;
             }
-            body { font-family: monospace; font-size: 14px; line-height: 1.4; padding: 2px; width: 200px; box-sizing: border-box; }
+            @media print {
+              body { margin: 0; width: 180px; }
+            }
+            body { font-family: monospace; font-size: 13px; line-height: 1.4; padding: 4px; width: 180px; box-sizing: border-box; }
             .center { text-align: center; }
-            .title { font-size: 18px; font-weight: bold; margin-bottom: 4px; }
-            .divider { border-top: 1px dashed #000; margin: 5px 0; }
+            .title { font-size: 16px; font-weight: bold; margin-bottom: 4px; }
+            .divider { border-top: 1px dashed #000; margin: 4px 0; }
             .row { display: flex; justify-content: space-between; width: 100%; box-sizing: border-box; }
             .item { font-weight: bold; }
           </style>
         </head>
         <body onload="window.print(); setTimeout(() => window.close(), 500);">
           <div class="center title">${storeName}</div>
-          <div class="center" style="font-size: 12px; font-weight: bold;">=== 交易收據明細 ===</div>
+          <div class="center" style="font-size: 11px; font-weight: bold;">=== 交易收據明細 ===</div>
           <div class="divider"></div>
-          <div style="font-size: 15px; font-weight: bold; margin-bottom: 2px;">單號: ${orderNumStr}</div>
+          <div style="font-size: 14px; font-weight: bold; margin-bottom: 2px;">單號: ${orderNumStr}</div>
           <div>類型: ${typeStr}</div>
-          <div style="font-size: 12px;">時間: ${new Date(dateStr).toLocaleString('zh-TW', { hour12: false })}</div>
+          <div style="font-size: 11px;">時間: ${new Date(dateStr).toLocaleString('zh-TW', { hour12: false })}</div>
           <div class="divider"></div>
           ${cartItems.map(item => {
             const unitPrice = item.price || (item.totalPrice && item.quantity ? Math.round(item.totalPrice / item.quantity) : 0);
             return `
-              <div class="row" style="font-size: 14px; color: #000;">
+              <div class="row" style="font-size: 13px; color: #000;">
                 <span class="item">${item.name} x${item.quantity}</span>
                 <span>$${unitPrice}</span>
               </div>
               ${item.specs && item.specs.length > 0 ? `
-                <div style="font-size: 12px; color: #000; padding-left: 10px; font-weight: bold;">
+                <div style="font-size: 11px; color: #000; padding-left: 8px; font-weight: bold;">
                   └ ${item.specs.map(s => typeof s === 'object' && s ? (s.value || `${s.name}: ${s.value}`) : String(s)).join(', ')}
                 </div>
               ` : ''}
             `;
           }).join('')}
           <div class="divider"></div>
-          <div class="row" style="font-size: 16px; font-weight: bold;">
+          <div class="row" style="font-size: 14px; font-weight: bold;">
             <span>應收總計:</span>
             <span>$${totalNum}</span>
           </div>
           ${(order.cashReceived !== undefined && order.cashReceived !== null) ? `
-            <div class="row" style="font-size: 14px; color: #000; font-weight: bold;">
+            <div class="row" style="font-size: 13px; color: #000; font-weight: bold;">
               <span>實收金額:</span>
               <span>$${order.cashReceived}</span>
             </div>
-            <div class="row" style="font-size: 14px; color: #000; font-weight: bold;">
+            <div class="row" style="font-size: 13px; color: #000; font-weight: bold;">
               <span>找零:</span>
               <span>$${order.changeAmount}</span>
             </div>
