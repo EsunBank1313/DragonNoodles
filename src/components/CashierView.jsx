@@ -793,7 +793,7 @@ export default function CashierView({ cashierName, onLogout }) {
                           <div style={{ fontSize: '0.8rem', fontWeight: 'bold' }}>客戶: {order.customerName} {order.pickupTime ? `(取餐: ${order.pickupTime})` : ''}</div>
                           <div style={{ fontSize: '0.75rem', margin: '4px 0', borderTop: '1px dashed var(--border)', borderBottom: '1px dashed var(--border)', padding: '4px 0' }}>
                             {(order.items || []).map((item, idx) => (
-                              <div key={idx}>• {item.name} x {item.quantity} {item.specs && item.specs.length > 0 ? `(${item.specs.map(s=>s.value).join(', ')})` : ''}</div>
+                              <div key={idx}>• {item.name} x {item.quantity} {item.specs && item.specs.length > 0 ? `(${item.specs.map(s => typeof s === 'object' && s ? (s.value || `${s.name}: ${s.value}`) : String(s)).join(', ')})` : ''}</div>
                             ))}
                           </div>
                           {order.remarks && (
@@ -1453,7 +1453,7 @@ export default function CashierView({ cashierName, onLogout }) {
                 }
               `}</style>
               <div style={{ textAlign: 'center', marginBottom: '10px' }}>
-                <h3 style={{ margin: '0 0 5px 0', fontSize: '16px', color: 'black' }}>龍城麵線</h3>
+                <h3 style={{ margin: '0 0 5px 0', fontSize: '16px', color: 'black' }}>{storeName}</h3>
                 <p style={{ margin: 0, fontSize: '11px', color: 'black' }}>收執聯收據 (客戶存根)</p>
               </div>
               <div style={{ borderBottom: '1px dashed black', paddingBottom: '5px', marginBottom: '5px', color: 'black' }}>
@@ -1475,9 +1475,12 @@ export default function CashierView({ cashierName, onLogout }) {
                     <tr key={idx} style={{ verticalAlign: 'top' }}>
                       <td style={{ textAlign: 'left', padding: '3px 0' }}>
                         <div>{item.name}</div>
-                        {item.specs?.map((spec, sIdx) => (
-                          <div key={sIdx} style={{ fontSize: '11px', color: 'black', paddingLeft: '5px' }}>- {spec}</div>
-                        ))}
+                        {item.specs?.map((spec, sIdx) => {
+                          const specText = typeof spec === 'object' && spec ? (spec.value || `${spec.name}: ${spec.value}`) : String(spec);
+                          return (
+                            <div key={sIdx} style={{ fontSize: '11px', color: 'black', paddingLeft: '5px' }}>- {specText}</div>
+                          );
+                        })}
                       </td>
                       <td style={{ textAlign: 'center', padding: '3px 0' }}>{item.quantity}</td>
                       <td style={{ textAlign: 'right', padding: '3px 0' }}>NT$ {item.totalPrice}</td>

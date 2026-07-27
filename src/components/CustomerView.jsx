@@ -13,7 +13,14 @@ import { getAuth, RecaptchaVerifier, signInWithPhoneNumber } from 'firebase/auth
 // Helper to format Supabase order row into React component format
 export const formatSupabaseOrder = (dbOrder) => {
   if (!dbOrder) return null;
-  const itemsData = dbOrder.items || {};
+  let itemsData = dbOrder.items || {};
+  if (typeof itemsData === 'string') {
+    try {
+      itemsData = JSON.parse(itemsData);
+    } catch (e) {
+      itemsData = {};
+    }
+  }
   return {
     id: String(dbOrder.id),
     serialNum: dbOrder.order_number,
