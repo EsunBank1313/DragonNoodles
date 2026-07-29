@@ -43,6 +43,11 @@ export default function CashierView({ cashierName, onLogout }) {
   const [orders, setOrders] = useState([]);
   const [storeName, setStoreName] = useState('龍城麵線');
   const [adminPin, setAdminPin] = useState('8888');
+  const [receiptConfig, setReceiptConfig] = useState({
+    printReceivedAndChange: true,
+    printType: true,
+    printDateTime: true
+  });
 
   // Synthesize notification chime
   const triggerChime = () => {
@@ -137,7 +142,7 @@ export default function CashierView({ cashierName, onLogout }) {
             <span>應收總計:</span>
             <span>$${totalNum}</span>
           </div>
-          ${(order.cashReceived !== undefined && order.cashReceived !== null) ? `
+          ${(receiptConfig.printReceivedAndChange !== false && order.cashReceived !== undefined && order.cashReceived !== null) ? `
             <div class="row" style="font-size: 13px; color: #000; font-weight: bold;">
               <span>實收金額:</span>
               <span>$${order.cashReceived}</span>
@@ -223,11 +228,32 @@ export default function CashierView({ cashierName, onLogout }) {
         if (adminPinItem && adminPinItem.description) {
           setAdminPin(adminPinItem.description);
         }
+        const orderItem = data.find(item => item.name === 'SYSTEM_SETTING_MENU_ORDER');
+        let orderList = [];
+        if (orderItem && orderItem.description) {
+          try { orderList = JSON.parse(orderItem.description); } catch (e) {}
+        }
+        
+        const receiptItem = data.find(item => item.name === 'SYSTEM_SETTING_RECEIPT_CONFIG');
+        if (receiptItem && receiptItem.description) {
+          try { setReceiptConfig(JSON.parse(receiptItem.description)); } catch (e) {}
+        }
+
         const visibleItems = data.filter(item => 
-          item.name !== 'SYSTEM_SETTING_LINE_TOKEN' && 
-          item.name !== 'SYSTEM_SETTING_STORE_NAME' &&
+          !item.name.startsWith('SYSTEM_SETTING_') &&
           item.customizations?.is_published !== false
         );
+
+        if (orderList.length > 0) {
+          visibleItems.sort((a, b) => {
+            const indexA = orderList.indexOf(String(a.id));
+            const indexB = orderList.indexOf(String(b.id));
+            if (indexA === -1 && indexB === -1) return 0;
+            if (indexA === -1) return 1;
+            if (indexB === -1) return -1;
+            return indexA - indexB;
+          });
+        }
         setMenuItems(visibleItems);
       }
     } catch (err) {

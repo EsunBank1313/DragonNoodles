@@ -118,11 +118,28 @@ export default function CustomerView({ tableNumber, onBackToDemo }) {
         if (storeNameItem && storeNameItem.description) {
           setStoreName(storeNameItem.description);
         }
-        setMenuItems(data.filter(item => 
-          item.name !== 'SYSTEM_SETTING_LINE_TOKEN' && 
-          item.name !== 'SYSTEM_SETTING_STORE_NAME' &&
+        const orderItem = data.find(item => item.name === 'SYSTEM_SETTING_MENU_ORDER');
+        let orderList = [];
+        if (orderItem && orderItem.description) {
+          try { orderList = JSON.parse(orderItem.description); } catch (e) {}
+        }
+
+        const visibleItems = data.filter(item => 
+          !item.name.startsWith('SYSTEM_SETTING_') &&
           item.customizations?.is_published !== false
-        ));
+        );
+
+        if (orderList.length > 0) {
+          visibleItems.sort((a, b) => {
+            const indexA = orderList.indexOf(String(a.id));
+            const indexB = orderList.indexOf(String(b.id));
+            if (indexA === -1 && indexB === -1) return 0;
+            if (indexA === -1) return 1;
+            if (indexB === -1) return -1;
+            return indexA - indexB;
+          });
+        }
+        setMenuItems(visibleItems);
       } else {
         // Seed database if empty
         const defaultWithNullCustomizations = defaultMenuItems.map(item => ({
@@ -140,11 +157,28 @@ export default function CustomerView({ tableNumber, onBackToDemo }) {
           if (storeNameItem && storeNameItem.description) {
             setStoreName(storeNameItem.description);
           }
-          setMenuItems(seeded.filter(item => 
-            item.name !== 'SYSTEM_SETTING_LINE_TOKEN' && 
-            item.name !== 'SYSTEM_SETTING_STORE_NAME' &&
+          const orderItem = seeded.find(item => item.name === 'SYSTEM_SETTING_MENU_ORDER');
+          let orderList = [];
+          if (orderItem && orderItem.description) {
+            try { orderList = JSON.parse(orderItem.description); } catch (e) {}
+          }
+
+          const visibleItems = seeded.filter(item => 
+            !item.name.startsWith('SYSTEM_SETTING_') &&
             item.customizations?.is_published !== false
-          ));
+          );
+
+          if (orderList.length > 0) {
+            visibleItems.sort((a, b) => {
+              const indexA = orderList.indexOf(String(a.id));
+              const indexB = orderList.indexOf(String(b.id));
+              if (indexA === -1 && indexB === -1) return 0;
+              if (indexA === -1) return 1;
+              if (indexB === -1) return -1;
+              return indexA - indexB;
+            });
+          }
+          setMenuItems(visibleItems);
         }
       }
     } catch (err) {

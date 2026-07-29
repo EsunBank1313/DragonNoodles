@@ -10,7 +10,13 @@ export default function ManagementView({ onBackToDemo, onLogout }) {
   const [newAdminPin, setNewAdminPin] = useState('8888');
   const [isClosedToday, setIsClosedToday] = useState(false);
   const [prodPublished, setProdPublished] = useState(true);
-  const [activeTab, setActiveTab] = useState('products'); // 'products' or 'staff'
+  const [receiptConfig, setReceiptConfig] = useState({
+    printReceivedAndChange: true,
+    printType: true,
+    printDateTime: true
+  });
+  const [menuOrder, setMenuOrder] = useState([]);
+  const [activeTab, setActiveTab] = useState('products');
   
   // Product edit states
   const [editingItem, setEditingItem] = useState(null);
@@ -50,10 +56,22 @@ export default function ManagementView({ onBackToDemo, onLogout }) {
         } else {
           setNewAdminPin('8888');
         }
+        
+        // Load custom settings
+        const orderItem = data.find(item => item.name === 'SYSTEM_SETTING_MENU_ORDER');
+        if (orderItem && orderItem.description) {
+          try { setMenuOrder(JSON.parse(orderItem.description)); } catch (e) { setMenuOrder([]); }
+        } else {
+          setMenuOrder([]);
+        }
+        
+        const receiptItem = data.find(item => item.name === 'SYSTEM_SETTING_RECEIPT_CONFIG');
+        if (receiptItem && receiptItem.description) {
+          try { setReceiptConfig(JSON.parse(receiptItem.description)); } catch (e) {}
+        }
+
         setMenuItems(data.filter(item => 
-          item.name !== 'SYSTEM_SETTING_LINE_TOKEN' && 
-          item.name !== 'SYSTEM_SETTING_STORE_NAME' &&
-          item.name !== 'SYSTEM_SETTING_ADMIN_PIN'
+          !item.name.startsWith('SYSTEM_SETTING_')
         ));
 
         // Check if store is closed today
@@ -93,6 +111,97 @@ export default function ManagementView({ onBackToDemo, onLogout }) {
     fetchMenuItems();
     fetchStaffList();
   }, []);
+
+  // Sort menu items based on setting
+  const sortedMenuItems = [...menuItems].sort((a, b) => {
+    const indexA = menuOrder.indexOf(String(a.id));
+    const indexB = menuOrder.indexOf(String(b.id));
+    if (indexA === -1 && indexB === -1) return 0;
+    if (indexA === -1) return 1;
+    if (indexB === -1) return -1;
+    return indexA - indexB;
+  });
+
+  const handleMoveItem = async (index, direction) => {
+    const currentOrder = sortedMenuItems.map(item => String(item.id));
+    const targetIndex = index + direction;
+    if (targetIndex < 0 || targetIndex >= currentOrder.length) return;
+    
+    // Swap
+    const temp = currentOrder[index];
+    currentOrder[index] = currentOrder[targetIndex];
+    currentOrder[targetIndex] = temp;
+    
+    try {
+      const { error } = await supabase.from('menu_items').upsert({
+        name: 'SYSTEM_SETTING_MENU_ORDER',
+        description: JSON.stringify(currentOrder),
+        price: 0,
+        category: 'system',
+        image: ''
+      }, { onConflict: 'name' });
+      if (error) throw error;
+      setMenuOrder(currentOrder);
+      fetchMenuItems();
+    } catch (err) {
+      alert("儲存排序失敗：" + err.message);
+    }
+  };
+
+  const handleSizePriceChange = (sizeIndex, value) => {
+    const nextVal = parseFloat(value) || 0;
+    setEditingItem(prev => {
+      if (!prev || !prev.customizations || !prev.customizations.size) return prev;
+      const sizeOptions = [...prev.customizations.size.options];
+      sizeOptions[sizeIndex] = { ...sizeOptions[sizeIndex], priceChange: nextVal };
+      return {
+        ...prev,
+        customizations: {
+          ...prev.customizations,
+          size: {
+            ...prev.customizations.size,
+            options: sizeOptions
+          }
+        }
+      };
+    });
+  };
+
+  const handleAddonPriceChange = (addonIndex, value) => {
+    const nextVal = parseFloat(value) || 0;
+    setEditingItem(prev => {
+      if (!prev || !prev.customizations || !prev.customizations.addons) return prev;
+      const addonOptions = [...prev.customizations.addons.options];
+      addonOptions[addonIndex] = { ...addonOptions[addonIndex], priceChange: nextVal };
+      return {
+        ...prev,
+        customizations: {
+          ...prev.customizations,
+          addons: {
+            ...prev.customizations.addons,
+            options: addonOptions
+          }
+        }
+      };
+    });
+  };
+
+  const handleSaveReceiptConfig = async (config) => {
+    try {
+      const { error } = await supabase.from('menu_items').upsert({
+        name: 'SYSTEM_SETTING_RECEIPT_CONFIG',
+        description: JSON.stringify(config),
+        price: 0,
+        category: 'system',
+        image: ''
+      }, { onConflict: 'name' });
+      if (error) throw error;
+      setReceiptConfig(config);
+      alert("收據配置更新成功！");
+    } catch (err) {
+      alert("儲存收據配置失敗：" + err.message);
+    }
+  };
 
   // Save product details to Supabase
   const handleSaveProduct = async (e) => {
@@ -309,6 +418,44 @@ export default function ManagementView({ onBackToDemo, onLogout }) {
           </button>
         </div>
 
+        {/* Receipt configuration */}
+        <div style={{ display: 'flex', gap: '12px', alignItems: 'center', borderLeft: '1px solid var(--border)', paddingLeft: '20px' }}>
+          <span style={{ fontSize: '0.85rem', fontWeight: 'bold' }}>🖨️ 收據內容:</span>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.8rem', cursor: 'pointer' }}>
+            <input 
+              type="checkbox" 
+              checked={!!receiptConfig.printReceivedAndChange}
+              onChange={(e) => {
+                const next = { ...receiptConfig, printReceivedAndChange: e.target.checked };
+                handleSaveReceiptConfig(next);
+              }}
+            />
+            實收與找零
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.8rem', cursor: 'pointer' }}>
+            <input 
+              type="checkbox" 
+              checked={!!receiptConfig.printType}
+              onChange={(e) => {
+                const next = { ...receiptConfig, printType: e.target.checked };
+                handleSaveReceiptConfig(next);
+              }}
+            />
+            交易類型
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.8rem', cursor: 'pointer' }}>
+            <input 
+              type="checkbox" 
+              checked={!!receiptConfig.printDateTime}
+              onChange={(e) => {
+                const next = { ...receiptConfig, printDateTime: e.target.checked };
+                handleSaveReceiptConfig(next);
+              }}
+            />
+            日期時間
+          </label>
+        </div>
+
         {/* Close/Open Toggle */}
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center', borderLeft: '1px solid var(--border)', paddingLeft: '20px' }}>
           <span style={{ fontSize: '0.85rem', fontWeight: 'bold' }}>🚪 營業開關:</span>
@@ -412,11 +559,12 @@ export default function ManagementView({ onBackToDemo, onLogout }) {
                     <th style={{ padding: '12px' }}>單價</th>
                     <th style={{ padding: '12px' }}>類別</th>
                     <th style={{ padding: '12px' }}>上下架</th>
+                    <th style={{ padding: '12px' }}>排序</th>
                     <th style={{ padding: '12px', textAlign: 'right' }}>操作</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {menuItems.map(item => {
+                  {sortedMenuItems.map((item, idx) => {
                     const isAvailable = item.customizations?.is_available !== false;
                     return (
                       <tr key={item.id} style={{ borderBottom: '1px solid var(--border)' }}>
@@ -432,6 +580,26 @@ export default function ManagementView({ onBackToDemo, onLogout }) {
                           <span style={{ color: item.customizations?.is_published !== false ? '#10b981' : '#ef4444', fontWeight: 'bold' }}>
                             {item.customizations?.is_published !== false ? '🟢 已上架' : '🔴 已下架'}
                           </span>
+                        </td>
+                        <td style={{ padding: '12px' }}>
+                          <div style={{ display: 'flex', gap: '4px' }}>
+                            <button 
+                              type="button"
+                              disabled={idx === 0} 
+                              onClick={() => handleMoveItem(idx, -1)}
+                              style={{ padding: '4px 8px', fontSize: '0.75rem', borderRadius: '4px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-card)', color: 'var(--text-main)', cursor: idx === 0 ? 'not-allowed' : 'pointer' }}
+                            >
+                              ▲
+                            </button>
+                            <button 
+                              type="button"
+                              disabled={idx === sortedMenuItems.length - 1} 
+                              onClick={() => handleMoveItem(idx, 1)}
+                              style={{ padding: '4px 8px', fontSize: '0.75rem', borderRadius: '4px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-card)', color: 'var(--text-main)', cursor: idx === sortedMenuItems.length - 1 ? 'not-allowed' : 'pointer' }}
+                            >
+                              ▼
+                            </button>
+                          </div>
                         </td>
                         <td style={{ padding: '12px', textAlign: 'right' }}>
                           <button
@@ -507,6 +675,55 @@ export default function ManagementView({ onBackToDemo, onLogout }) {
                     <input type="checkbox" id="publish-check" checked={prodPublished} onChange={(e) => setProdPublished(e.target.checked)} style={{ width: '16px', height: '16px' }} />
                     <label htmlFor="publish-check" style={{ fontSize: '0.85rem', fontWeight: 'bold', cursor: 'pointer' }}>上架此商品 (勾選為上架顯示，取消為下架隱藏)</label>
                   </div>
+
+                  {/* Customization Prices Editor */}
+                  {editingItem && editingItem.customizations && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', border: '1px solid var(--border)', padding: '12px', borderRadius: '8px', marginTop: '10px' }}>
+                      <h4 style={{ margin: 0, fontSize: '0.8rem', fontWeight: 'bold' }}>⚙️ 客製選項價錢編輯</h4>
+                      
+                      {/* Sizes list */}
+                      {editingItem.customizations.size && editingItem.customizations.size.options && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                          <label style={{ fontSize: '0.75rem', fontWeight: 'bold', color: 'var(--primary)' }}>份量加價設定</label>
+                          {editingItem.customizations.size.options.map((opt, idx) => (
+                            <div key={idx} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                              <span style={{ fontSize: '0.8rem' }}>{opt.label}</span>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                <span style={{ fontSize: '0.8rem' }}>+NT$</span>
+                                <input 
+                                  type="number" 
+                                  value={opt.priceChange} 
+                                  onChange={(e) => handleSizePriceChange(idx, e.target.value)}
+                                  style={{ width: '60px', padding: '4px', fontSize: '0.8rem' }}
+                                />
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Addons list */}
+                      {editingItem.customizations.addons && editingItem.customizations.addons.options && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '8px' }}>
+                          <label style={{ fontSize: '0.75rem', fontWeight: 'bold', color: 'var(--primary)' }}>加料加價設定 (可多選)</label>
+                          {editingItem.customizations.addons.options.map((opt, idx) => (
+                            <div key={idx} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                              <span style={{ fontSize: '0.8rem' }}>{opt.label}</span>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                <span style={{ fontSize: '0.8rem' }}>+NT$</span>
+                                <input 
+                                  type="number" 
+                                  value={opt.priceChange} 
+                                  onChange={(e) => handleAddonPriceChange(idx, e.target.value)}
+                                  style={{ width: '60px', padding: '4px', fontSize: '0.8rem' }}
+                                />
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
                   
                   <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
                     <button type="button" onClick={() => setEditingItem(null)} style={{ flex: 1, padding: '8px', fontSize: '0.8rem', borderRadius: '4px', border: '1px solid var(--border)', backgroundColor: 'transparent', cursor: 'pointer' }}>
