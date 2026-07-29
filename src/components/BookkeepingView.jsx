@@ -995,7 +995,7 @@ export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDa
         fetchPurchases();
       } catch (err) {
         console.error("Failed to add purchase in BookkeepingView:", err);
-        alert("新增變動支出失敗！");
+        alert("新增變動支出失敗！原因通常為 Supabase 資料庫中的 purchases 資料表啟用了 RLS (資料列安全政策) 但未設定授權。請依指示在 Supabase SQL 編輯器關閉該表的 RLS。");
       }
     } else {
       const newPurchase = {
@@ -1059,7 +1059,7 @@ export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDa
         fetchFixedCosts();
       } catch (err) {
         console.error("Failed to add fixed cost in BookkeepingView:", err);
-        alert("新增固定成本失敗！");
+        alert("新增固定成本失敗！若您尚未在 Supabase 中建立 fixed_costs 資料表，請依指示執行 SQL 建立資料表並關閉 RLS。");
       }
     } else {
       const newFC = {
