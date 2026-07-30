@@ -3,8 +3,7 @@ import CustomerView from './components/CustomerView';
 import CashierView from './components/CashierView';
 import BookkeepingView from './components/BookkeepingView';
 import ManagementView from './components/ManagementView';
-import PinLockScreen from './components/PinLockScreen';
-import StaffLoginScreen from './components/StaffLoginScreen';
+import UnifiedLoginScreen from './components/UnifiedLoginScreen';
 import { supabase } from './supabaseClient';
 
 function App() {
@@ -192,6 +191,16 @@ function App() {
     sessionStorage.removeItem('is_management_authenticated');
   };
 
+  const handleUnifiedLoginSuccess = (targetRole, payload) => {
+    if (targetRole === 'pos') {
+      handleCashierAuthSuccess(payload);
+    } else if (targetRole === 'bookkeeping') {
+      handleBookkeepingAuthSuccess(payload);
+    } else if (targetRole === 'management') {
+      handleManagementAuthSuccess(payload);
+    }
+  };
+
   // Render view based on active role
   if (role === 'customer') {
     return (
@@ -202,16 +211,43 @@ function App() {
     );
   }
 
+  // Combined login screen check
+  if (role === 'pos' && !isCashierAuth) {
+    return (
+      <UnifiedLoginScreen 
+        initialRole="pos"
+        onChangeRole={setRole}
+        adminPin={adminPin}
+        onSuccess={handleUnifiedLoginSuccess}
+        onBackToDemo={handleBackToDemo}
+      />
+    );
+  }
+  if (role === 'bookkeeping' && !isBookkeepingAuth) {
+    return (
+      <UnifiedLoginScreen 
+        initialRole="bookkeeping"
+        onChangeRole={setRole}
+        adminPin={adminPin}
+        onSuccess={handleUnifiedLoginSuccess}
+        onBackToDemo={handleBackToDemo}
+      />
+    );
+  }
+  if (role === 'management' && !isManagementAuth) {
+    return (
+      <UnifiedLoginScreen 
+        initialRole="management"
+        onChangeRole={setRole}
+        adminPin={adminPin}
+        onSuccess={handleUnifiedLoginSuccess}
+        onBackToDemo={handleBackToDemo}
+      />
+    );
+  }
+
+  // Authenticated Views
   if (role === 'pos') {
-    if (!isCashierAuth) {
-      return (
-        <StaffLoginScreen 
-          onSuccess={handleCashierAuthSuccess}
-          title="現場收銀系統 (POS)"
-          subtitle="請選擇收銀人員並輸入 PIN 碼進行驗證"
-        />
-      );
-    }
     return (
       <CashierView 
         cashierName={cashierName}
@@ -222,16 +258,6 @@ function App() {
   }
 
   if (role === 'bookkeeping') {
-    if (!isBookkeepingAuth) {
-      return (
-        <PinLockScreen 
-          expectedPin={adminPin} 
-          onSuccess={handleBookkeepingAuthSuccess}
-          title="營業記帳與報表系統"
-          subtitle="請輸入四位數管理員 PIN 碼進行驗證"
-        />
-      );
-    }
     return (
       <BookkeepingView 
         onBackToDemo={handleBackToDemo} 
@@ -241,16 +267,6 @@ function App() {
   }
 
   if (role === 'management') {
-    if (!isManagementAuth) {
-      return (
-        <PinLockScreen 
-          expectedPin={adminPin} 
-          onSuccess={handleManagementAuthSuccess}
-          title="餐廳後台管理系統"
-          subtitle="請輸入管理員四位數 PIN 碼解鎖管理功能"
-        />
-      );
-    }
     return (
       <ManagementView 
         onBackToDemo={handleBackToDemo}

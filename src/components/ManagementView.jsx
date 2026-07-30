@@ -502,7 +502,7 @@ export default function ManagementView({ onBackToDemo, onLogout }) {
           <button
             type="button"
             onClick={() => {
-              setTempAddons(globalAddons.map(a => ({ ...a })));
+              setTempAddons(globalAddons.map(a => ({ label: a.label || '', priceChange: Number(a.priceChange) || 0 })));
               setShowAddonModal(true);
             }}
             style={{
@@ -872,7 +872,7 @@ export default function ManagementView({ onBackToDemo, onLogout }) {
                   <input 
                     type="text" 
                     placeholder="配料名稱 (如: 蚵仔)"
-                    value={addon.label}
+                    value={addon.label || ''}
                     onChange={(e) => {
                       const updated = [...tempAddons];
                       updated[idx].label = e.target.value;
@@ -928,7 +928,7 @@ export default function ManagementView({ onBackToDemo, onLogout }) {
               <button
                 type="button"
                 onClick={() => {
-                  const filtered = tempAddons.filter(a => a.label.trim() !== '');
+                  const filtered = tempAddons.filter(a => a && a.label && typeof a.label === 'string' && a.label.trim() !== '');
                   handleSaveGlobalAddons(filtered);
                 }}
                 style={{ flex: 1.5, padding: '8px', border: 'none', borderRadius: '6px', backgroundColor: 'var(--primary)', color: 'white', fontWeight: 'bold', cursor: 'pointer', fontSize: '0.85rem' }}
