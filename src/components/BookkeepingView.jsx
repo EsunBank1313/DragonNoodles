@@ -855,11 +855,24 @@ export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDa
     }
 
     try {
-      const updatedRemarks = `${currentRemarks || ''} [已刪除 - 原因: ${reason.trim()}]`;
+      const targetOrder = orders.find(o => String(o.id) === String(orderId));
+      if (!targetOrder) throw new Error("找不到該筆訂單");
+
+      const updatedItems = {
+        cart: targetOrder.items,
+        cashier: targetOrder.cashier,
+        remarks: `${targetOrder.remarks || ''} [已刪除 - 原因: ${reason.trim()}]`,
+        pickupTime: targetOrder.pickupTime,
+        customerName: targetOrder.customerName,
+        customerPhone: targetOrder.customerPhone,
+        paymentMethod: targetOrder.paymentMethod
+      };
+
+      const numericId = Number(orderId);
       const { error } = await supabase.from('orders').update({
         status: 'deleted',
-        remarks: updatedRemarks
-      }).eq('id', orderId);
+        items: updatedItems
+      }).eq('id', isNaN(numericId) ? orderId : numericId);
       
       if (error) throw error;
       alert("已成功刪除該筆帳目紀錄！");
