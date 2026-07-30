@@ -251,7 +251,17 @@ export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDa
       const { data, error } = await supabase.from('menu_items').select('*').order('id', { ascending: true });
       if (error) throw error;
       if (data && data.length > 0) {
-        setMenuItems(data.filter(item => item.name !== 'SYSTEM_SETTING_LINE_TOKEN'));
+        setMenuItems(data.filter(item => !item.name.startsWith('SYSTEM_SETTING_')));
+        
+        // Load manual revenue setting
+        const manualRevItem = data.find(item => item.name === 'SYSTEM_SETTING_MANUAL_REVENUE');
+        if (manualRevItem && manualRevItem.description) {
+          try {
+            setManualRevenues(JSON.parse(manualRevItem.description));
+          } catch (e) {
+            setManualRevenues({});
+          }
+        }
       } else {
         setMenuItems(defaultMenuItems);
       }
@@ -387,6 +397,12 @@ export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDa
   const [editingVendorIndex, setEditingVendorIndex] = useState(null);
     const [selectedBookkeepingDate, setSelectedBookkeepingDate] = useState(getTodayLocalDate());
   const [activeTab, setActiveTab] = useState('sales'); // 'sales', 'variable', 'fixed', 'monthly'
+  
+  // Manual revenues states
+  const [manualRevenues, setManualRevenues] = useState({});
+  const [showManualRevModal, setShowManualRevModal] = useState(false);
+  const [manualRevDate, setManualRevDate] = useState(getTodayLocalDate());
+  const [manualRevAmount, setManualRevAmount] = useState('');
   
   // Daily Closing State
   const [localClosedDates, setLocalClosedDates] = useState(() => {
@@ -986,7 +1002,28 @@ export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDa
   // Add Purchase (Variable Cost)
   const handleAddPurchase = async (e) => {
     e.preventDefault();
-    if (!purchaseVendor.trim() || !purchaseQty.trim() || !purchaseCost) return;
+    
+    // Resolve vendor name fallback
+    let vendorName = purchaseVendor;
+    if (!vendorName || !vendorName.trim()) {
+      const matched = vendors.find(v => v.id === selectedVendorId);
+      if (matched) {
+        vendorName = matched.name;
+      }
+    }
+    
+    if (!vendorName || !vendorName.trim()) {
+      alert("請先選擇或新增進貨廠商！");
+      return;
+    }
+    if (!purchaseQty || !purchaseQty.trim()) {
+      alert("請輸入數量或重量！");
+      return;
+    }
+    if (!purchaseCost) {
+      alert("請輸入支出金額！");
+      return;
+    }
 
     const time = new Date().toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' });
     const costNum = Number(purchaseCost);
@@ -997,15 +1034,16 @@ export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDa
           purchase_id: `PUR-${Date.now().toString().slice(-6)}-${Math.floor(100 + Math.random() * 900)}`,
           date: purchaseDate,
           time,
-          vendor: purchaseVendor.trim(),
+          vendor: vendorName.trim(),
           item_name: purchaseItemName,
           quantity: purchaseQty.trim(),
           cost: costNum,
           status: purchaseStatus
         }]);
         if (error) throw error;
-        updateInventoryFromPurchase(purchaseVendor.trim(), purchaseItemName, purchaseQty.trim(), purchaseDate, time);
+        updateInventoryFromPurchase(vendorName.trim(), purchaseItemName, purchaseQty.trim(), purchaseDate, time);
         fetchPurchases();
+        alert("新增變動支出成功！");
       } catch (err) {
         console.error("Failed to add purchase in BookkeepingView:", err);
         alert("新增變動支出失敗！原因通常為 Supabase 資料庫中的 purchases 資料表啟用了 RLS (資料列安全政策) 但未設定授權。請依指示在 Supabase SQL 編輯器關閉該表的 RLS。");
@@ -1015,7 +1053,7 @@ export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDa
         id: `PUR-${Date.now().toString().slice(-6)}-${Math.floor(100 + Math.random() * 900)}`,
         date: purchaseDate,
         time,
-        vendor: purchaseVendor.trim(),
+        vendor: vendorName.trim(),
         itemName: purchaseItemName,
         quantity: purchaseQty.trim(),
         cost: costNum,
@@ -1024,13 +1062,75 @@ export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDa
       const updated = [newPurchase, ...purchases];
       setPurchases(updated);
       localStorage.setItem('restaurant_purchases', JSON.stringify(updated));
-      updateInventoryFromPurchase(purchaseVendor.trim(), purchaseItemName, purchaseQty.trim(), purchaseDate, time);
+      updateInventoryFromPurchase(vendorName.trim(), purchaseItemName, purchaseQty.trim(), purchaseDate, time);
       fetchPurchases();
+      alert("新增變動支出成功（已儲存於本機）！");
     }
 
     setPurchaseVendor('');
     setPurchaseQty('');
     setPurchaseCost('');
+  };
+
+  // Save / Delete Manual Revenue
+  const handleSaveManualRevenue = async (date, amount) => {
+    const updated = {
+      ...manualRevenues,
+      [date]: Number(amount) || 0
+    };
+    
+    try {
+      const { data: exist } = await supabase.from('menu_items').select('*').eq('name', 'SYSTEM_SETTING_MANUAL_REVENUE');
+      if (exist && exist.length > 0) {
+        const { error } = await supabase.from('menu_items').update({
+          description: JSON.stringify(updated)
+        }).eq('name', 'SYSTEM_SETTING_MANUAL_REVENUE');
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from('menu_items').insert([{
+          name: 'SYSTEM_SETTING_MANUAL_REVENUE',
+          description: JSON.stringify(updated),
+          price: 0,
+          category: 'system',
+          image: ''
+        }]);
+        if (error) throw error;
+      }
+      setManualRevenues(updated);
+      alert(`${date} 的手動登錄人工營業額更新成功！`);
+      setShowManualRevModal(false);
+    } catch (err) {
+      alert("儲存手動營業額失敗：" + err.message);
+    }
+  };
+
+  const handleDeleteManualRevenue = async (date) => {
+    if (!window.confirm(`確定要清除 ${date} 的所有手動登錄人工營業額嗎？`)) return;
+    const updated = { ...manualRevenues };
+    delete updated[date];
+    
+    try {
+      const { data: exist } = await supabase.from('menu_items').select('*').eq('name', 'SYSTEM_SETTING_MANUAL_REVENUE');
+      if (exist && exist.length > 0) {
+        const { error } = await supabase.from('menu_items').update({
+          description: JSON.stringify(updated)
+        }).eq('name', 'SYSTEM_SETTING_MANUAL_REVENUE');
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from('menu_items').insert([{
+          name: 'SYSTEM_SETTING_MANUAL_REVENUE',
+          description: JSON.stringify(updated),
+          price: 0,
+          category: 'system',
+          image: ''
+        }]);
+        if (error) throw error;
+      }
+      setManualRevenues(updated);
+      alert(`${date} 的手動登錄人工營業額已成功清除！`);
+    } catch (err) {
+      alert("清除手動營業額失敗：" + err.message);
+    }
   };
 
   // Delete Purchase (Variable Cost)
@@ -1229,7 +1329,7 @@ export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDa
 
   // Generate Monthly report
   const getMonthlyReports = () => {
-    // Collect all dates that have transactions or are closed
+    // Collect all dates that have transactions, are closed, or have manual revenue
     const datesSet = new Set(closedDates);
     
     orders.forEach(o => {
@@ -1245,6 +1345,12 @@ export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDa
       }
     });
 
+    Object.keys(manualRevenues).forEach(d => {
+      if (Number(manualRevenues[d]) > 0) {
+        datesSet.add(d);
+      }
+    });
+
     const days = Array.from(datesSet).sort((a, b) => b.localeCompare(a));
     
     return days.map(day => {
@@ -1253,7 +1359,9 @@ export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDa
         const orderDate = new Date(o.timestamp).toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' });
         return (o.status === 'completed' || o.status === 'received') && orderDate === day;
       });
-      const revenue = dayOrders.reduce((sum, o) => sum + o.total, 0);
+      const systemRevenue = dayOrders.reduce((sum, o) => sum + o.total, 0);
+      const manualRev = Number(manualRevenues[day]) || 0;
+      const totalRevenue = systemRevenue + manualRev;
 
       // 2. Daily Variable Cost (Purchases)
       const dayPurchases = purchases.filter(p => p.date === day);
@@ -1267,7 +1375,9 @@ export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDa
 
       return {
         month: day,
-        revenue,
+        systemRevenue,
+        manualRev,
+        revenue: totalRevenue,
         variableCosts,
         fixedCosts: dailyFixedCostShare
       };
@@ -2010,16 +2120,28 @@ export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDa
             {/* 4. MONTHLY FINANCIAL REPORTS */}
             {activeTab === 'monthly' && (
               <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '10px' }}>
                   <h4 style={{ fontSize: '0.9rem', fontWeight: 'bold', margin: 0 }}>📅 龍城麵線 - 每日/按月彙整財務損益報表</h4>
-                  <button 
-                    onClick={handleExportMonthlyCSV}
-                    style={{ padding: '6px 12px', fontSize: '0.75rem', borderRadius: '6px', border: 'none', backgroundColor: '#10b981', color: 'white', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
-                  >
-                    📊 匯出總表 CSV
-                  </button>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <button 
+                      onClick={() => {
+                        setManualRevDate(getTodayLocalDate());
+                        setManualRevAmount('');
+                        setShowManualRevModal(true);
+                      }}
+                      style={{ padding: '6px 12px', fontSize: '0.75rem', borderRadius: '6px', border: 'none', backgroundColor: 'var(--primary)', color: 'white', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
+                    >
+                      ✍️ 登錄手動營業額
+                    </button>
+                    <button 
+                      onClick={handleExportMonthlyCSV}
+                      style={{ padding: '6px 12px', fontSize: '0.75rem', borderRadius: '6px', border: 'none', backgroundColor: '#10b981', color: 'white', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
+                    >
+                      📊 匯出總表 CSV
+                    </button>
+                  </div>
                 </div>
-                <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '16px' }}>根據資料庫中訂單交易額與支出流，每月進行自動化對帳與結算淨利。</p>
+                <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '16px' }}>根據資料庫中訂單交易額與支出流，每月進行自動化對帳與結算淨利。您也可以手動補登非系統記錄的人工營業額。</p>
                 
                 <div style={{ overflowX: 'auto' }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem', textAlign: 'left' }}>
@@ -2032,12 +2154,13 @@ export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDa
                         <th style={{ padding: '10px 12px' }}>合計總成本</th>
                         <th style={{ padding: '10px 12px' }}>預估月份淨利</th>
                         <th style={{ padding: '10px 12px' }}>財務健康狀態</th>
+                        <th style={{ padding: '10px 12px', textAlign: 'center' }}>操作</th>
                       </tr>
                     </thead>
                     <tbody>
                       {monthlyReports.length === 0 ? (
                         <tr>
-                          <td colSpan="7" style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)' }}>無歷史交易與支出數據可供彙整</td>
+                          <td colSpan="8" style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)' }}>無歷史交易與支出數據可供彙整</td>
                         </tr>
                       ) : (
                         monthlyReports.map(report => {
@@ -2047,7 +2170,12 @@ export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDa
                           return (
                             <tr key={report.month} style={{ borderBottom: '1px solid var(--border)' }}>
                               <td style={{ padding: '10px 12px', fontWeight: 'bold', fontSize: '0.85rem', color: 'var(--primary)' }}>{report.month}</td>
-                              <td style={{ padding: '10px 12px', fontWeight: 'bold', color: '#16a34a' }}>NT$ {report.revenue}</td>
+                              <td style={{ padding: '10px 12px' }}>
+                                <div style={{ fontWeight: 'bold', color: '#16a34a', fontSize: '0.85rem' }}>NT$ {report.revenue}</div>
+                                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                                  (系統: {report.systemRevenue || 0} | 人工: {report.manualRev || 0})
+                                </div>
+                              </td>
                               <td style={{ padding: '10px 12px', color: '#ef4444' }}>NT$ {report.fixedCosts}</td>
                               <td style={{ padding: '10px 12px', color: '#ef4444' }}>NT$ {report.variableCosts}</td>
                               <td style={{ padding: '10px 12px', fontWeight: 'bold', color: '#ef4444' }}>NT$ {totalCost}</td>
@@ -2065,6 +2193,26 @@ export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDa
                                 }}>
                                   {isProfit ? '🟢 盈餘利潤' : '🔴 營運虧損'}
                                 </span>
+                              </td>
+                              <td style={{ padding: '10px 12px', textAlign: 'center' }}>
+                                <button 
+                                  onClick={() => {
+                                    setManualRevDate(report.month);
+                                    setManualRevAmount(report.manualRev || '');
+                                    setShowManualRevModal(true);
+                                  }}
+                                  style={{ padding: '4px 8px', fontSize: '0.7rem', border: '1px solid var(--primary)', color: 'var(--primary)', backgroundColor: 'transparent', borderRadius: '4px', cursor: 'pointer', marginRight: '4px' }}
+                                >
+                                  ✏️ 登錄人工
+                                </button>
+                                {report.manualRev > 0 && (
+                                  <button 
+                                    onClick={() => handleDeleteManualRevenue(report.month)}
+                                    style={{ padding: '4px 8px', fontSize: '0.7rem', border: '1px solid #ef4444', color: '#ef4444', backgroundColor: 'transparent', borderRadius: '4px', cursor: 'pointer' }}
+                                  >
+                                    🗑️ 清除
+                                  </button>
+                                )}
                               </td>
                             </tr>
                           );
@@ -2898,6 +3046,65 @@ export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDa
         </div>
       )}
 
+      {/* MANUAL REVENUE MODAL */}
+      {showManualRevModal && (
+        <div className="modal-backdrop" style={{ zIndex: 1100 }}>
+          <div className="modal-content" style={{ maxWidth: '400px', padding: '24px', borderRadius: '16px', boxSizing: 'border-box', textAlign: 'left' }}>
+            <div className="modal-header" style={{ padding: 0, borderBottom: 'none', marginBottom: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h3 style={{ fontSize: '1.1rem', fontWeight: 'bold', margin: 0 }}>
+                ✍️ 登錄人工接單/未登錄營業收入
+              </h3>
+              <button className="close-btn" style={{ background: 'none', border: 'none', fontSize: '1.5rem', cursor: 'pointer', color: 'var(--text-muted)' }} onClick={() => setShowManualRevModal(false)}>&times;</button>
+            </div>
+            
+            <form onSubmit={(e) => {
+              e.preventDefault();
+              handleSaveManualRevenue(manualRevDate, manualRevAmount);
+            }} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <label style={{ fontSize: '0.75rem', fontWeight: 'bold' }}>進貨/營業日期</label>
+                <input 
+                  type="date"
+                  required
+                  value={manualRevDate}
+                  onChange={(e) => setManualRevDate(e.target.value)}
+                  style={{ padding: '8px', fontSize: '0.85rem', borderRadius: '6px', border: '1px solid var(--border)', color: 'var(--text-main)', backgroundColor: 'var(--bg-card)' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <label style={{ fontSize: '0.75rem', fontWeight: 'bold' }}>手動補登營業額 (NT$)</label>
+                <input 
+                  type="number"
+                  placeholder="例如: 1500"
+                  required
+                  min="0"
+                  value={manualRevAmount}
+                  onChange={(e) => setManualRevAmount(e.target.value)}
+                  style={{ padding: '8px', fontSize: '0.85rem', borderRadius: '6px', border: '1px solid var(--border)', color: 'var(--text-main)', backgroundColor: 'var(--bg-card)' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '12px' }}>
+                <button 
+                  type="button"
+                  onClick={() => setShowManualRevModal(false)}
+                  style={{ padding: '8px 16px', fontSize: '0.8rem', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'transparent', color: 'var(--text-main)', cursor: 'pointer' }}
+                >
+                  取消
+                </button>
+                <button 
+                  type="submit"
+                  style={{ padding: '8px 16px', fontSize: '0.8rem', borderRadius: '6px', border: 'none', backgroundColor: 'var(--primary)', color: 'white', fontWeight: 'bold', cursor: 'pointer' }}
+                >
+                  💾 儲存並同步雲端
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
       {/* LINE Notify & Messaging API Settings Modal */}
       {showLineSettingsModal && (
         <div className="modal-backdrop" style={{ zIndex: 1100 }}>
