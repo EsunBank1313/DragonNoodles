@@ -174,14 +174,22 @@ export default function ManagementView({ onBackToDemo, onLogout }) {
     currentOrder[targetIndex] = temp;
     
     try {
-      const { error } = await supabase.from('menu_items').upsert({
-        name: 'SYSTEM_SETTING_MENU_ORDER',
-        description: JSON.stringify(currentOrder),
-        price: 0,
-        category: 'system',
-        image: ''
-      }, { onConflict: 'name' });
-      if (error) throw error;
+      const { data: exist } = await supabase.from('menu_items').select('*').eq('name', 'SYSTEM_SETTING_MENU_ORDER');
+      if (exist && exist.length > 0) {
+        const { error } = await supabase.from('menu_items').update({
+          description: JSON.stringify(currentOrder)
+        }).eq('name', 'SYSTEM_SETTING_MENU_ORDER');
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from('menu_items').insert([{
+          name: 'SYSTEM_SETTING_MENU_ORDER',
+          description: JSON.stringify(currentOrder),
+          price: 0,
+          category: 'system',
+          image: ''
+        }]);
+        if (error) throw error;
+      }
       setMenuOrder(currentOrder);
       fetchMenuItems();
     } catch (err) {
@@ -229,14 +237,22 @@ export default function ManagementView({ onBackToDemo, onLogout }) {
 
   const handleSaveReceiptConfig = async (config) => {
     try {
-      const { error } = await supabase.from('menu_items').upsert({
-        name: 'SYSTEM_SETTING_RECEIPT_CONFIG',
-        description: JSON.stringify(config),
-        price: 0,
-        category: 'system',
-        image: ''
-      }, { onConflict: 'name' });
-      if (error) throw error;
+      const { data: exist } = await supabase.from('menu_items').select('*').eq('name', 'SYSTEM_SETTING_RECEIPT_CONFIG');
+      if (exist && exist.length > 0) {
+        const { error } = await supabase.from('menu_items').update({
+          description: JSON.stringify(config)
+        }).eq('name', 'SYSTEM_SETTING_RECEIPT_CONFIG');
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from('menu_items').insert([{
+          name: 'SYSTEM_SETTING_RECEIPT_CONFIG',
+          description: JSON.stringify(config),
+          price: 0,
+          category: 'system',
+          image: ''
+        }]);
+        if (error) throw error;
+      }
       setReceiptConfig(config);
       alert("收據配置更新成功！");
     } catch (err) {

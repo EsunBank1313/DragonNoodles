@@ -754,7 +754,7 @@ export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDa
   useEffect(() => {
     if (orders.length === 0) return;
 
-    const completedOrders = orders.filter(o => o.status === 'completed');
+    const completedOrders = orders.filter(o => o.status === 'completed' || o.status === 'received');
     const newProcessedIds = [...processedOrderIds];
     const newLogs = [];
     let processedAny = false;
@@ -1175,7 +1175,7 @@ export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDa
   // Bookkeeping Computations for Selected Date
   const completedOrders = orders.filter(o => {
     const orderDate = new Date(o.timestamp).toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' });
-    return o.status === 'completed' && orderDate === selectedBookkeepingDate;
+    return (o.status === 'completed' || o.status === 'received') && orderDate === selectedBookkeepingDate;
   });
 
   const totalRevenue = completedOrders.reduce((sum, o) => sum + o.total, 0);
@@ -1220,7 +1220,7 @@ export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDa
     const datesSet = new Set(closedDates);
     
     orders.forEach(o => {
-      if (o.status === 'completed') {
+      if (o.status === 'completed' || o.status === 'received') {
         const orderDate = new Date(o.timestamp).toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' });
         datesSet.add(orderDate);
       }
@@ -1238,7 +1238,7 @@ export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDa
       // 1. Daily Completed Orders Revenue
       const dayOrders = orders.filter(o => {
         const orderDate = new Date(o.timestamp).toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' });
-        return o.status === 'completed' && orderDate === day;
+        return (o.status === 'completed' || o.status === 'received') && orderDate === day;
       });
       const revenue = dayOrders.reduce((sum, o) => sum + o.total, 0);
 
