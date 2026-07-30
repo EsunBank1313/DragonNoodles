@@ -16,6 +16,15 @@ export default function ManagementView({ onBackToDemo, onLogout }) {
     printDateTime: true
   });
   const [menuOrder, setMenuOrder] = useState([]);
+  const [globalAddons, setGlobalAddons] = useState([
+    { label: '大腸', priceChange: 15 },
+    { label: '豬肚', priceChange: 15 },
+    { label: '肉羹', priceChange: 15 },
+    { label: '花枝羹', priceChange: 15 },
+    { label: '貢丸', priceChange: 15 }
+  ]);
+  const [showAddonModal, setShowAddonModal] = useState(false);
+  const [tempAddons, setTempAddons] = useState([]);
   const [activeTab, setActiveTab] = useState('products');
   
   // Product edit states
@@ -70,9 +79,41 @@ export default function ManagementView({ onBackToDemo, onLogout }) {
           try { setReceiptConfig(JSON.parse(receiptItem.description)); } catch (e) {}
         }
 
-        setMenuItems(data.filter(item => 
+        const addonsItem = data.find(item => item.name === 'SYSTEM_SETTING_GLOBAL_ADDONS');
+        let currentAddons = [
+          { label: '大腸', priceChange: 15 },
+          { label: '豬肚', priceChange: 15 },
+          { label: '肉羹', priceChange: 15 },
+          { label: '花枝羹', priceChange: 15 },
+          { label: '貢丸', priceChange: 15 }
+        ];
+        if (addonsItem && addonsItem.description) {
+          try {
+            currentAddons = JSON.parse(addonsItem.description);
+            setGlobalAddons(currentAddons);
+          } catch (e) {}
+        } else {
+          setGlobalAddons(currentAddons);
+        }
+
+        const visibleItems = data.filter(item => 
           !item.name.startsWith('SYSTEM_SETTING_')
-        ));
+        ).map(item => {
+          if (item.customizations && item.customizations.addons) {
+            return {
+              ...item,
+              customizations: {
+                ...item.customizations,
+                addons: {
+                  ...item.customizations.addons,
+                  options: currentAddons
+                }
+              }
+            };
+          }
+          return item;
+        });
+        setMenuItems(visibleItems);
 
         // Check if store is closed today
         const todayStart = new Date();
@@ -456,6 +497,23 @@ export default function ManagementView({ onBackToDemo, onLogout }) {
           </label>
         </div>
 
+        {/* Global Addons Toggle */}
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', borderLeft: '1px solid var(--border)', paddingLeft: '20px' }}>
+          <button
+            type="button"
+            onClick={() => {
+              setTempAddons(globalAddons.map(a => ({ ...a })));
+              setShowAddonModal(true);
+            }}
+            style={{
+              padding: '6px 14px', fontSize: '0.85rem', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold',
+              backgroundColor: 'var(--primary)', color: 'white'
+            }}
+          >
+            ⚙️ 全局加料項目管理
+          </button>
+        </div>
+
         {/* Close/Open Toggle */}
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center', borderLeft: '1px solid var(--border)', paddingLeft: '20px' }}>
           <span style={{ fontSize: '0.85rem', fontWeight: 'bold' }}>🚪 營業開關:</span>
@@ -702,26 +760,7 @@ export default function ManagementView({ onBackToDemo, onLogout }) {
                         </div>
                       )}
 
-                      {/* Addons list */}
-                      {editingItem.customizations.addons && editingItem.customizations.addons.options && (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '8px' }}>
-                          <label style={{ fontSize: '0.75rem', fontWeight: 'bold', color: 'var(--primary)' }}>加料加價設定 (可多選)</label>
-                          {editingItem.customizations.addons.options.map((opt, idx) => (
-                            <div key={idx} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
-                              <span style={{ fontSize: '0.8rem' }}>{opt.label}</span>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                <span style={{ fontSize: '0.8rem' }}>+NT$</span>
-                                <input 
-                                  type="number" 
-                                  value={opt.priceChange} 
-                                  onChange={(e) => handleAddonPriceChange(idx, e.target.value)}
-                                  style={{ width: '60px', padding: '4px', fontSize: '0.8rem' }}
-                                />
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
+
                     </div>
                   )}
                   
@@ -801,6 +840,105 @@ export default function ManagementView({ onBackToDemo, onLogout }) {
         )}
 
       </div>
+
+      {/* GLOBAL ADDON MANAGEMENT MODAL */}
+      {showAddonModal && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.6)', display: 'flex',
+          justifyContent: 'center', alignItems: 'center', zIndex: 1000,
+          backdropFilter: 'blur(4px)'
+        }}>
+          <div style={{
+            backgroundColor: 'var(--bg-card)', padding: '24px', borderRadius: '12px',
+            border: '1px solid var(--border)', width: '400px', maxWidth: '90%',
+            maxHeight: '80vh', display: 'flex', flexDirection: 'column', gap: '16px',
+            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)', textAlign: 'left'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 'bold' }}>⚙️ 全局加料項目與價格管理</h3>
+              <button 
+                type="button"
+                onClick={() => setShowAddonModal(false)}
+                style={{ background: 'none', border: 'none', fontSize: '1.2rem', cursor: 'pointer', color: 'var(--text-muted)' }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '10px', paddingRight: '4px' }}>
+              {tempAddons.map((addon, idx) => (
+                <div key={idx} style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  <input 
+                    type="text" 
+                    placeholder="配料名稱 (如: 蚵仔)"
+                    value={addon.label}
+                    onChange={(e) => {
+                      const updated = [...tempAddons];
+                      updated[idx].label = e.target.value;
+                      setTempAddons(updated);
+                    }}
+                    style={{ flex: 2, padding: '6px', fontSize: '0.85rem', borderRadius: '4px', border: '1px solid var(--border)', color: 'var(--text-main)', backgroundColor: 'var(--bg-card)' }}
+                  />
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '2px', flex: 1 }}>
+                    <span style={{ fontSize: '0.8rem' }}>$</span>
+                    <input 
+                      type="number" 
+                      placeholder="價格"
+                      value={addon.priceChange}
+                      onChange={(e) => {
+                        const updated = [...tempAddons];
+                        updated[idx].priceChange = parseFloat(e.target.value) || 0;
+                        setTempAddons(updated);
+                      }}
+                      style={{ width: '100%', padding: '6px', fontSize: '0.85rem', borderRadius: '4px', border: '1px solid var(--border)', color: 'var(--text-main)', backgroundColor: 'var(--bg-card)' }}
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTempAddons(tempAddons.filter((_, i) => i !== idx));
+                    }}
+                    style={{ padding: '6px 10px', backgroundColor: '#ef4444', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '0.8rem' }}
+                  >
+                    🗑️
+                  </button>
+                </div>
+              ))}
+              
+              <button
+                type="button"
+                onClick={() => {
+                  setTempAddons([...tempAddons, { label: '', priceChange: 15 }]);
+                }}
+                style={{ padding: '8px', backgroundColor: 'var(--bg-body)', border: '1px dashed var(--border)', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 'bold', width: '100%', marginTop: '6px', color: 'var(--text-main)' }}
+              >
+                ＋ 新增加料品項
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button
+                type="button"
+                onClick={() => setShowAddonModal(false)}
+                style={{ flex: 1, padding: '8px', border: '1px solid var(--border)', borderRadius: '6px', backgroundColor: 'transparent', cursor: 'pointer', fontSize: '0.85rem', color: 'var(--text-main)' }}
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const filtered = tempAddons.filter(a => a.label.trim() !== '');
+                  handleSaveGlobalAddons(filtered);
+                }}
+                style={{ flex: 1.5, padding: '8px', border: 'none', borderRadius: '6px', backgroundColor: 'var(--primary)', color: 'white', fontWeight: 'bold', cursor: 'pointer', fontSize: '0.85rem' }}
+              >
+                💾 儲存並同步雲端
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

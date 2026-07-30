@@ -239,10 +239,36 @@ export default function CashierView({ cashierName, onLogout }) {
           try { setReceiptConfig(JSON.parse(receiptItem.description)); } catch (e) {}
         }
 
+        const addonsItem = data.find(item => item.name === 'SYSTEM_SETTING_GLOBAL_ADDONS');
+        let currentAddons = [
+          { label: '大腸', priceChange: 15 },
+          { label: '豬肚', priceChange: 15 },
+          { label: '肉羹', priceChange: 15 },
+          { label: '花枝羹', priceChange: 15 },
+          { label: '貢丸', priceChange: 15 }
+        ];
+        if (addonsItem && addonsItem.description) {
+          try { currentAddons = JSON.parse(addonsItem.description); } catch (e) {}
+        }
+
         const visibleItems = data.filter(item => 
           !item.name.startsWith('SYSTEM_SETTING_') &&
           item.customizations?.is_published !== false
-        );
+        ).map(item => {
+          if (item.customizations && item.customizations.addons) {
+            return {
+              ...item,
+              customizations: {
+                ...item.customizations,
+                addons: {
+                  ...item.customizations.addons,
+                  options: currentAddons
+                }
+              }
+            };
+          }
+          return item;
+        });
 
         if (orderList.length > 0) {
           visibleItems.sort((a, b) => {
