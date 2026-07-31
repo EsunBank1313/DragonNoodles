@@ -543,7 +543,7 @@ export default function CustomerView({ tableNumber, onBackToDemo }) {
 
     if (!hasSentReal) {
       // Fallback simulation banner
-      setSimulatedNotification(`💬 LINE (${storeName}官方帳號): 您的點餐驗證碼為【${code}】。(請至後台系統設定 LINE 密鑰以開啟真實發送)`);
+      setSimulatedNotification(`💬 LINE (${storeName}官方帳號): 您的點餐驗證碼為【${code}】。(請至後台管理設定 LINE Token 以啟用真實通知)`);
     }
 
     setTimeout(() => setSimulatedNotification(null), 10000);
@@ -707,7 +707,7 @@ export default function CustomerView({ tableNumber, onBackToDemo }) {
         }}>
           <span style={{ fontSize: '1.5rem' }}>💬</span>
           <div style={{ flex: 1 }}>
-            <div style={{ fontSize: '0.8rem', fontWeight: 'bold', color: '#06c755', marginBottom: '2px' }}>系統通知 (模擬 LINE 官方帳號送達)</div>
+            <div style={{ fontSize: '0.8rem', fontWeight: 'bold', color: '#06c755', marginBottom: '2px' }}>系統通知</div>
             <div style={{ fontSize: '0.85rem', lineHeight: '1.4' }}>{simulatedNotification}</div>
           </div>
           <button 

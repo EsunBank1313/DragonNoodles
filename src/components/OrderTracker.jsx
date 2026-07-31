@@ -114,8 +114,7 @@ export default function OrderTracker({ order, onBackToMenu }) {
 
       {order.type === 'takeout' && order.status !== 'completed' && (
         <div style={{ margin: '16px 0' }}>
-          <div className="barcode-sim" style={{ margin: '8px auto 12px auto' }}>||||| | |||| || ||| {order.id.slice(-6)}</div>
-          <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+          <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', fontWeight: 'bold' }}>
             取餐姓名: {order.customerName} | 電話: {order.customerPhone || '無'}
           </div>
           <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px' }}>
