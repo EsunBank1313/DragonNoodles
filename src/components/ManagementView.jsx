@@ -1140,61 +1140,31 @@ export default function ManagementView({ onBackToDemo, onLogout }) {
             <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '14px', paddingRight: '4px' }}>
               {tempCondiments.map((cond, idx) => (
                 <div key={idx} style={{ padding: '10px', border: '1px solid var(--border)', borderRadius: '8px', backgroundColor: 'var(--bg-body)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                    <div style={{ flex: 2, display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                      <span style={{ fontSize: '0.7rem', fontWeight: 'bold', color: 'var(--text-muted)' }}>調料名稱</span>
+                  <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                      <span style={{ fontSize: '0.7rem', fontWeight: 'bold', color: 'var(--text-muted)' }}>調料品項名稱</span>
                       <input 
                         type="text" 
-                        placeholder="調料名稱 (如: 香菜)"
+                        placeholder="例如: 香菜、蒜泥、烏醋、辣醬..."
                         value={cond.name || ''}
                         onChange={(e) => {
                           const updated = [...tempCondiments];
                           updated[idx].name = e.target.value;
                           setTempCondiments(updated);
                         }}
-                        style={{ padding: '6px', fontSize: '0.85rem', borderRadius: '4px', border: '1px solid var(--border)', color: 'var(--text-main)', backgroundColor: 'var(--bg-card)' }}
+                        style={{ padding: '8px', fontSize: '0.85rem', borderRadius: '4px', border: '1px solid var(--border)', color: 'var(--text-main)', backgroundColor: 'var(--bg-card)' }}
                       />
                     </div>
                     
-                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                      <span style={{ fontSize: '0.7rem', fontWeight: 'bold', color: 'var(--text-muted)' }}>預設選項</span>
-                      <input 
-                        type="text" 
-                        placeholder="如: 正常"
-                        value={cond.default || ''}
-                        onChange={(e) => {
-                          const updated = [...tempCondiments];
-                          updated[idx].default = e.target.value;
-                          setTempCondiments(updated);
-                        }}
-                        style={{ padding: '6px', fontSize: '0.85rem', borderRadius: '4px', border: '1px solid var(--border)', color: 'var(--text-main)', backgroundColor: 'var(--bg-card)' }}
-                      />
-                    </div>
-
                     <button
                       type="button"
                       onClick={() => {
                         setTempCondiments(tempCondiments.filter((_, i) => i !== idx));
                       }}
-                      style={{ alignSelf: 'flex-end', height: '34px', padding: '0 10px', backgroundColor: '#ef4444', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '0.8rem' }}
+                      style={{ alignSelf: 'flex-end', height: '34px', padding: '0 12px', backgroundColor: '#ef4444', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 'bold' }}
                     >
                       🗑️ 刪除
                     </button>
-                  </div>
-
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                    <span style={{ fontSize: '0.7rem', fontWeight: 'bold', color: 'var(--text-muted)' }}>客製選項 (以半角逗號隔開)</span>
-                    <input 
-                      type="text" 
-                      placeholder="如: 正常, 多一點, 不要香菜"
-                      value={Array.isArray(cond.choices) ? cond.choices.join(', ') : ''}
-                      onChange={(e) => {
-                        const updated = [...tempCondiments];
-                        updated[idx].choices = e.target.value.split(',').map(s => s.trim());
-                        setTempCondiments(updated);
-                      }}
-                      style={{ padding: '6px', fontSize: '0.85rem', borderRadius: '4px', border: '1px solid var(--border)', color: 'var(--text-main)', backgroundColor: 'var(--bg-card)' }}
-                    />
                   </div>
                 </div>
               ))}
@@ -1202,7 +1172,7 @@ export default function ManagementView({ onBackToDemo, onLogout }) {
               <button
                 type="button"
                 onClick={() => {
-                  setTempCondiments([...tempCondiments, { name: '', choices: ['正常', '多一點', '不要'], default: '正常' }]);
+                  setTempCondiments([...tempCondiments, { name: '', choices: ['加', '不加'], default: '加' }]);
                 }}
                 style={{ padding: '8px', backgroundColor: 'var(--bg-body)', border: '1px dashed var(--border)', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 'bold', width: '100%', marginTop: '6px', color: 'var(--text-main)' }}
               >
@@ -1221,8 +1191,14 @@ export default function ManagementView({ onBackToDemo, onLogout }) {
               <button
                 type="button"
                 onClick={() => {
-                  const filtered = tempCondiments.filter(c => c && c.name && typeof c.name === 'string' && c.name.trim() !== '');
-                  handleSaveGlobalCondiments(filtered);
+                  const formatted = tempCondiments
+                    .filter(c => c && c.name && typeof c.name === 'string' && c.name.trim() !== '')
+                    .map(c => ({
+                      name: c.name.trim(),
+                      choices: ['加', '不加'],
+                      default: '加'
+                    }));
+                  handleSaveGlobalCondiments(formatted);
                 }}
                 style={{ flex: 1.5, padding: '8px', border: 'none', borderRadius: '6px', backgroundColor: 'var(--primary)', color: 'white', fontWeight: 'bold', cursor: 'pointer', fontSize: '0.85rem' }}
               >

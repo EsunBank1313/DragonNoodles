@@ -272,41 +272,39 @@ export default function ItemModal({ item, onClose, onAddToCart, condimentsAvaila
           <div className="option-group-title" style={{ marginBottom: '6px', fontSize: '0.8rem', fontWeight: 'bold' }}>
             {customGroup.title}
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px' }}>
             {availableOptions.map((opt) => {
-              const selectedVal = selectedDropdowns[groupKey]?.[opt.name] || opt.default;
+              const selectedVal = selectedDropdowns[groupKey]?.[opt.name] || opt.default || '加';
+              const isChecked = selectedVal === '加' || selectedVal === '正常' || selectedVal === '要';
               return (
-                <div key={opt.name} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
-                  <label style={{ fontSize: '0.75rem', fontWeight: 'bold', color: 'var(--text-muted)', minWidth: '40px' }}>{opt.name}</label>
-                  <div style={{ display: 'flex', gap: '4px', flex: 1 }}>
-                    {opt.choices.map((choice) => {
-                      const isSelected = selectedVal === choice;
-                      return (
-                        <button
-                          key={choice}
-                          type="button"
-                          onClick={() => handleDropdownChange(groupKey, opt.name, choice)}
-                          style={{
-                            flex: 1,
-                            padding: '4px 6px',
-                            fontSize: '0.7rem',
-                            fontWeight: 'bold',
-                            borderRadius: '6px',
-                            border: '1px solid',
-                            borderColor: isSelected ? 'var(--primary)' : 'var(--border)',
-                            backgroundColor: isSelected ? 'var(--primary)' : 'var(--bg-card)',
-                            color: isSelected ? '#ffffff' : 'var(--text-main)',
-                            cursor: 'pointer',
-                            transition: 'all 0.1s ease',
-                            textAlign: 'center'
-                          }}
-                        >
-                          {choice}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
+                <label 
+                  key={opt.name} 
+                  style={{ 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    gap: '8px', 
+                    padding: '8px 12px', 
+                    borderRadius: '8px', 
+                    border: '1px solid var(--border)', 
+                    backgroundColor: isChecked ? 'rgba(22, 163, 74, 0.05)' : 'var(--bg-card)', 
+                    borderColor: isChecked ? '#16a34a' : 'var(--border)',
+                    cursor: 'pointer',
+                    fontSize: '0.85rem',
+                    fontWeight: 'bold',
+                    userSelect: 'none'
+                  }}
+                >
+                  <input 
+                    type="checkbox"
+                    checked={isChecked}
+                    onChange={(e) => {
+                      const newValue = e.target.checked ? '加' : '不加';
+                      handleDropdownChange(groupKey, opt.name, newValue);
+                    }}
+                    style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+                  />
+                  <span>{opt.name} ({isChecked ? '加' : '不加'})</span>
+                </label>
               );
             })}
           </div>
