@@ -20,7 +20,12 @@ const defaultInventory = [
   { name: '新鮮香菜', qty: 15, unit: '斤', minStock: 3 },
   { name: '特製辣醬', qty: 20, unit: '罐', minStock: 5 },
   { name: '大蒜/辛香料', qty: 25, unit: '斤', minStock: 5 },
-  { name: '桶裝瓦斯', qty: 10, unit: '桶', minStock: 2 }
+  { name: '桶裝瓦斯', qty: 10, unit: '桶', minStock: 2 },
+  { name: '洗衣粉', qty: 0, unit: '包', minStock: 1 },
+  { name: '大瓷碗', qty: 0, unit: '個', minStock: 2 },
+  { name: '小瓷碗', qty: 0, unit: '個', minStock: 2 },
+  { name: '拖鞋', qty: 0, unit: '組', minStock: 1 },
+  { name: '手套', qty: 0, unit: '組', minStock: 1 }
 ];
 
 const RECIPES = {
@@ -95,7 +100,10 @@ const mapPurchaseToInventory = (purchaseItemName) => {
     '桶裝瓦斯': '桶裝瓦斯',
     '其他雜物': null
   };
-  return mapping[purchaseItemName] || null;
+  if (mapping[purchaseItemName] !== undefined) {
+    return mapping[purchaseItemName];
+  }
+  return purchaseItemName;
 };
 
 const mapPurchaseUnit = (purchaseItemName) => {
@@ -830,6 +838,59 @@ export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDa
       }
     }
   }, [orders, processedOrderIds]);
+
+  // One-time sync of 7/23 purchases into inventory status
+  useEffect(() => {
+    if (inventory.length === 0) return;
+    const isSynced = localStorage.getItem('is_723_purchases_synced_v3');
+    if (!isSynced) {
+      // 7/23 purchases details
+      const purchases723 = [
+        { name: '洗衣粉', qty: 1, unit: '包', minStock: 1 },
+        { name: '大瓷碗', qty: 4, unit: '個', minStock: 2 },
+        { name: '小瓷碗', qty: 2, unit: '個', minStock: 2 },
+        { name: '拖鞋', qty: 2, unit: '組', minStock: 1 },
+        { name: '手套', qty: 2, unit: '組', minStock: 1 }
+      ];
+
+      setInventory(prev => {
+        let updated = [...prev];
+        purchases723.forEach(p => {
+          const idx = updated.findIndex(item => item.name === p.name);
+          if (idx !== -1) {
+            // We set it to the purchased quantity if it was 0, or add it
+            updated[idx] = { ...updated[idx], qty: updated[idx].qty + p.qty };
+          } else {
+            updated.push(p);
+          }
+        });
+        localStorage.setItem('restaurant_inventory', JSON.stringify(updated));
+        return updated;
+      });
+
+      // Insert matching logs
+      const time = "09:00";
+      const date = "2026-07-23";
+      const newLogs = purchases723.map((p, idx) => ({
+        id: `LOG-PUR-723-SYNC-${idx}-${Date.now()}`,
+        time,
+        date,
+        itemName: p.name,
+        type: '採購進貨(聯動)',
+        change: `+${p.qty}`,
+        unit: p.unit,
+        remarks: '7/23 補登進貨聯動'
+      }));
+
+      setInventoryLogs(prev => {
+        const updatedLogs = [...newLogs, ...prev].slice(0, 50);
+        localStorage.setItem('restaurant_inventory_logs', JSON.stringify(updatedLogs));
+        return updatedLogs;
+      });
+
+      localStorage.setItem('is_723_purchases_synced_v3', 'true');
+    }
+  }, [inventory]);
 
   // Listen for PostgreSQL database changes in real-time
   useEffect(() => {
