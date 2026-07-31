@@ -8,40 +8,13 @@ export default function OrderTracker({ order, onBackToMenu }) {
     switch (status) {
       case 'received':
         return {
-          percent: 25,
-          title: '已接單',
-          desc: '廚房已收到您的訂單，準備開始製作。',
-          stepClass: ['active', '', '', '']
-        };
-      case 'preparing':
-        return {
-          percent: 50,
-          title: '製作中',
-          desc: '美味的麵線現點現做中，請稍候。',
-          stepClass: ['completed', 'active', '', '']
-        };
-      case 'ready':
-        return {
-          percent: 75,
-          title: order.type === 'dine-in' ? '餐點已送達 / 請自取' : '餐點已完成，請至櫃檯取餐',
-          desc: order.type === 'dine-in' 
-            ? `餐點已送至 ${order.tableName} 號桌，祝您用餐愉快！` 
-            : '請出示下方條碼至櫃檯結帳取餐。',
-          stepClass: ['completed', 'completed', 'active', '']
-        };
-      case 'completed':
-        return {
-          percent: 100,
-          title: '訂單已完成',
-          desc: '謝謝您的光臨！歡迎下次再來！',
-          stepClass: ['completed', 'completed', 'completed', 'active']
+          title: '已送單',
+          desc: '訂單已送出，等待店家接單中。'
         };
       default:
         return {
-          percent: 0,
-          title: '處理中',
-          desc: '訂單處理中...',
-          stepClass: ['', '', '', '']
+          title: '已接單',
+          desc: '店家已接單並開始製作，請準備取餐。'
         };
     }
   };
@@ -60,24 +33,38 @@ export default function OrderTracker({ order, onBackToMenu }) {
         <div className="status-sub">{statusDetails.desc}</div>
       </div>
 
-      {/* Progress Bar */}
-      <div className="progress-stepper">
-        <div className="progress-bar-fill" style={{ width: `${statusDetails.percent - 12.5}%` }}></div>
-        <div className={`step-node ${statusDetails.stepClass[0]}`}>
-          <div className="step-circle">1</div>
-          <span className="step-label">已收單</span>
+      {/* Progress Bar (2 Nodes: 已送單 -> 已接單) */}
+      <div className="progress-stepper" style={{ justifyContent: 'space-around', margin: '24px 0', position: 'relative' }}>
+        <div 
+          className="progress-bar-fill" 
+          style={{ 
+            width: order.status !== 'received' ? '50%' : '0%',
+            height: '4px',
+            backgroundColor: 'var(--primary)',
+            position: 'absolute',
+            top: '15px',
+            left: '25%',
+            right: '25%',
+            zIndex: 1,
+            transition: 'width 0.3s ease'
+          }}
+        ></div>
+        <div className="step-node active" style={{ zIndex: 2 }}>
+          <div className="step-circle" style={{ backgroundColor: 'var(--primary)', color: 'white', fontWeight: 'bold' }}>✓</div>
+          <span className="step-label" style={{ color: 'var(--primary)', fontWeight: 'bold' }}>已送單</span>
         </div>
-        <div className={`step-node ${statusDetails.stepClass[1]}`}>
-          <div className="step-circle">2</div>
-          <span className="step-label">製作中</span>
-        </div>
-        <div className={`step-node ${statusDetails.stepClass[2]}`}>
-          <div className="step-circle">3</div>
-          <span className="step-label">{order.type === 'dine-in' ? '已送餐' : '待取餐'}</span>
-        </div>
-        <div className={`step-node ${statusDetails.stepClass[3]}`}>
-          <div className="step-circle">4</div>
-          <span className="step-label">已結案</span>
+        <div className={`step-node ${order.status !== 'received' ? 'active' : ''}`} style={{ zIndex: 2 }}>
+          <div className="step-circle" style={{ 
+            backgroundColor: order.status !== 'received' ? 'var(--primary)' : 'var(--bg-input)',
+            color: order.status !== 'received' ? 'white' : 'var(--text-muted)',
+            fontWeight: 'bold'
+          }}>
+            {order.status !== 'received' ? '✓' : '2'}
+          </div>
+          <span className="step-label" style={{ 
+            color: order.status !== 'received' ? 'var(--primary)' : 'var(--text-muted)',
+            fontWeight: order.status !== 'received' ? 'bold' : 'normal'
+          }}>已接單</span>
         </div>
       </div>
 
@@ -137,30 +124,45 @@ export default function OrderTracker({ order, onBackToMenu }) {
         </div>
       )}
 
-
       {/* Receipt Summary */}
       <div className="tracker-receipt">
         <div className="tracker-receipt-title">明細項目</div>
         {order.items.map((item, idx) => (
-          <div key={idx} className="tracker-receipt-item">
-            <div>
-              <strong>{item.name} x {item.quantity}</strong>
-              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', paddingLeft: '4px' }}>
+          <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '16px', padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
+            <div style={{ flex: 1, textAlign: 'left' }}>
+              <strong style={{ fontSize: '0.9rem', color: 'var(--text-main)' }}>{item.name} x {item.quantity}</strong>
+              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', paddingLeft: '4px', marginTop: '2px', lineHeight: '1.3' }}>
                 {item.specs.join(', ')}
               </div>
             </div>
-            <span>NT$ {item.totalPrice}</span>
+            <span style={{ fontWeight: 'bold', fontSize: '0.9rem', color: 'var(--text-main)', whiteSpace: 'nowrap' }}>NT$ {item.totalPrice}</span>
           </div>
         ))}
-        <div className="summary-row total" style={{ paddingBottom: 0, borderBottom: 'none' }}>
+        <div className="summary-row total" style={{ paddingBottom: 0, borderBottom: 'none', display: 'flex', justifyContent: 'space-between', marginTop: '10px' }}>
           <span>實付總計</span>
           <span>NT$ {order.total}</span>
         </div>
       </div>
 
+      {/* Auto refresh & Edit policy reminder */}
+      <div style={{ 
+        marginTop: '16px', 
+        padding: '12px', 
+        borderRadius: '8px', 
+        backgroundColor: 'rgba(255, 107, 53, 0.05)', 
+        border: '1px solid rgba(255, 107, 53, 0.15)',
+        fontSize: '0.8rem',
+        color: 'var(--primary)',
+        textAlign: 'center',
+        fontWeight: 'bold',
+        lineHeight: '1.4'
+      }}>
+        💡 提醒您：本頁面每 8 秒自動抓取更新狀態。當店家接單後，即進入廚房製作，屆時將無法修改或取消訂單。
+      </div>
+
       {/* Edit and Cancel Buttons (Conditional based on status) */}
       {order.status === 'received' ? (
-        <div style={{ display: 'flex', gap: '12px', marginTop: '20px' }}>
+        <div style={{ display: 'flex', gap: '12px', marginTop: '16px' }}>
           <button
             onClick={() => onEditOrder && onEditOrder(order)}
             style={{
@@ -197,7 +199,7 @@ export default function OrderTracker({ order, onBackToMenu }) {
       ) : (
         order.status !== 'completed' && order.status !== 'deleted' && (
           <div style={{
-            marginTop: '20px',
+            marginTop: '16px',
             padding: '10px 14px',
             borderRadius: 'var(--radius-md)',
             backgroundColor: 'rgba(239, 68, 68, 0.05)',
@@ -207,7 +209,7 @@ export default function OrderTracker({ order, onBackToMenu }) {
             fontWeight: 'bold',
             textAlign: 'center'
           }}>
-            🔒 店家已開始製作，訂單已鎖定無法修改或取消。
+            🔒 店家已接單並開始製作，訂單已鎖定無法修改或取消。
           </div>
         )
       )}
