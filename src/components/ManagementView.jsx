@@ -6,6 +6,10 @@ export default function ManagementView({ onBackToDemo, onLogout }) {
   const [menuItems, setMenuItems] = useState([]);
   const [storeName, setStoreName] = useState('龍城麵線');
   const [newStoreName, setNewStoreName] = useState('');
+  const [storeAddress, setStoreAddress] = useState('');
+  const [newStoreAddress, setNewStoreAddress] = useState('');
+  const [storePhone, setStorePhone] = useState('');
+  const [newStorePhone, setNewStorePhone] = useState('');
   const [adminPin, setAdminPin] = useState('8888');
   const [newAdminPin, setNewAdminPin] = useState('8888');
   const [isClosedToday, setIsClosedToday] = useState(false);
@@ -74,6 +78,22 @@ export default function ManagementView({ onBackToDemo, onLogout }) {
           setNewAdminPin(adminPinItem.description);
         } else {
           setNewAdminPin('8888');
+        }
+
+        const storeAddrItem = data.find(item => item.name === 'SYSTEM_SETTING_STORE_ADDRESS');
+        if (storeAddrItem && storeAddrItem.description) {
+          setStoreAddress(storeAddrItem.description);
+          setNewStoreAddress(storeAddrItem.description);
+        } else {
+          setNewStoreAddress('');
+        }
+
+        const storePhoneItem = data.find(item => item.name === 'SYSTEM_SETTING_STORE_PHONE');
+        if (storePhoneItem && storePhoneItem.description) {
+          setStorePhone(storePhoneItem.description);
+          setNewStorePhone(storePhoneItem.description);
+        } else {
+          setNewStorePhone('');
         }
         
         // Load custom settings
@@ -570,6 +590,78 @@ export default function ManagementView({ onBackToDemo, onLogout }) {
             style={{ padding: '6px 12px', fontSize: '0.85rem', backgroundColor: 'var(--primary)', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}
           >
             儲存店名
+          </button>
+        </div>
+
+        {/* Store Address */}
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', borderLeft: '1px solid var(--border)', paddingLeft: '20px' }}>
+          <span style={{ fontSize: '0.85rem', fontWeight: 'bold' }}>📍 店家地址:</span>
+          <input 
+            type="text" 
+            placeholder="不寫則不顯示於結帳頁"
+            value={newStoreAddress}
+            onChange={(e) => setNewStoreAddress(e.target.value)}
+            style={{ padding: '6px 12px', fontSize: '0.85rem', borderRadius: '6px', border: '1px solid var(--border)', width: '200px' }}
+          />
+          <button
+            onClick={async () => {
+              try {
+                const { data: exist } = await supabase.from('menu_items').select('*').eq('name', 'SYSTEM_SETTING_STORE_ADDRESS');
+                if (exist && exist.length > 0) {
+                  await supabase.from('menu_items').update({ description: newStoreAddress.trim() }).eq('name', 'SYSTEM_SETTING_STORE_ADDRESS');
+                } else {
+                  await supabase.from('menu_items').insert([{
+                    name: 'SYSTEM_SETTING_STORE_ADDRESS',
+                    price: 0,
+                    category: 'settings',
+                    description: newStoreAddress.trim()
+                  }]);
+                }
+                setStoreAddress(newStoreAddress.trim());
+                alert("地址修改成功！");
+              } catch (e) {
+                alert("修改地址失敗：" + e.message);
+              }
+            }}
+            style={{ padding: '6px 12px', fontSize: '0.85rem', backgroundColor: 'var(--primary)', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}
+          >
+            儲存地址
+          </button>
+        </div>
+
+        {/* Store Phone */}
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', borderLeft: '1px solid var(--border)', paddingLeft: '20px' }}>
+          <span style={{ fontSize: '0.85rem', fontWeight: 'bold' }}>📞 聯絡電話:</span>
+          <input 
+            type="text" 
+            placeholder="不寫則不顯示於結帳頁"
+            value={newStorePhone}
+            onChange={(e) => setNewStorePhone(e.target.value)}
+            style={{ padding: '6px 12px', fontSize: '0.85rem', borderRadius: '6px', border: '1px solid var(--border)', width: '120px' }}
+          />
+          <button
+            onClick={async () => {
+              try {
+                const { data: exist } = await supabase.from('menu_items').select('*').eq('name', 'SYSTEM_SETTING_STORE_PHONE');
+                if (exist && exist.length > 0) {
+                  await supabase.from('menu_items').update({ description: newStorePhone.trim() }).eq('name', 'SYSTEM_SETTING_STORE_PHONE');
+                } else {
+                  await supabase.from('menu_items').insert([{
+                    name: 'SYSTEM_SETTING_STORE_PHONE',
+                    price: 0,
+                    category: 'settings',
+                    description: newStorePhone.trim()
+                  }]);
+                }
+                setStorePhone(newStorePhone.trim());
+                alert("電話修改成功！");
+              } catch (e) {
+                alert("修改電話失敗：" + e.message);
+              }
+            }}
+            style={{ padding: '6px 12px', fontSize: '0.85rem', backgroundColor: 'var(--primary)', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}
+          >
+            儲存電話
           </button>
         </div>
 

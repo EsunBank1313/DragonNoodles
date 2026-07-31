@@ -100,6 +100,8 @@ export default function CustomerView({ tableNumber, onBackToDemo }) {
   const [menuItemsAvailability, setMenuItemsAvailability] = useState({});
   const [menuItems, setMenuItems] = useState([]);
   const [storeName, setStoreName] = useState('龍城麵線');
+  const [storeAddress, setStoreAddress] = useState('');
+  const [storePhone, setStorePhone] = useState('');
 
   const confirmationResultRef = useRef(null);
   const recaptchaVerifierRef = useRef(null);
@@ -118,6 +120,14 @@ export default function CustomerView({ tableNumber, onBackToDemo }) {
         const storeNameItem = data.find(item => item.name === 'SYSTEM_SETTING_STORE_NAME');
         if (storeNameItem && storeNameItem.description) {
           setStoreName(storeNameItem.description);
+        }
+        const storeAddrItem = data.find(item => item.name === 'SYSTEM_SETTING_STORE_ADDRESS');
+        if (storeAddrItem && storeAddrItem.description) {
+          setStoreAddress(storeAddrItem.description);
+        }
+        const storePhoneItem = data.find(item => item.name === 'SYSTEM_SETTING_STORE_PHONE');
+        if (storePhoneItem && storePhoneItem.description) {
+          setStorePhone(storePhoneItem.description);
         }
         const orderItem = data.find(item => item.name === 'SYSTEM_SETTING_MENU_ORDER');
         let orderList = [];
@@ -201,6 +211,14 @@ export default function CustomerView({ tableNumber, onBackToDemo }) {
           const storeNameItem = seeded.find(item => item.name === 'SYSTEM_SETTING_STORE_NAME');
           if (storeNameItem && storeNameItem.description) {
             setStoreName(storeNameItem.description);
+          }
+          const storeAddrItem = seeded.find(item => item.name === 'SYSTEM_SETTING_STORE_ADDRESS');
+          if (storeAddrItem && storeAddrItem.description) {
+            setStoreAddress(storeAddrItem.description);
+          }
+          const storePhoneItem = seeded.find(item => item.name === 'SYSTEM_SETTING_STORE_PHONE');
+          if (storePhoneItem && storePhoneItem.description) {
+            setStorePhone(storePhoneItem.description);
           }
           const orderItem = seeded.find(item => item.name === 'SYSTEM_SETTING_MENU_ORDER');
           let orderList = [];
@@ -856,6 +874,64 @@ export default function CustomerView({ tableNumber, onBackToDemo }) {
           </div>
 
           <form onSubmit={handleCheckoutClick} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            {/* 🛒 訂單明細與店家資訊 */}
+            <div className="option-group" style={{ 
+              border: '1px solid var(--border)', 
+              borderRadius: 'var(--radius-md)', 
+              padding: '16px', 
+              backgroundColor: 'var(--bg-card)',
+              textAlign: 'left'
+            }}>
+              <h4 className="checkout-section-title" style={{ margin: '0 0 12px 0', borderBottom: '1px solid var(--border)', paddingBottom: '6px' }}>
+                🛒 訂購明細與取餐資訊
+              </h4>
+              
+              {/* 取餐方式與時間 */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '0.85rem', marginBottom: '12px' }}>
+                <div><strong>取餐方式：</strong>{tableNumber ? `內用 (${tableNumber} 號桌)` : '外帶自取'}</div>
+                {!tableNumber && (
+                  <div><strong>預計取餐時間：</strong>{pickupTime}</div>
+                )}
+              </div>
+
+              {/* 商品資訊與價格明細 */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', borderBottom: '1px dashed var(--border)', paddingBottom: '12px', marginBottom: '12px' }}>
+                {cart.map((item, idx) => (
+                  <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem' }}>
+                    <div>
+                      <strong style={{ color: 'var(--text-main)' }}>{item.name} x {item.quantity}</strong>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', paddingLeft: '6px' }}>
+                        {item.specs.join(', ')}
+                      </div>
+                    </div>
+                    <span style={{ fontWeight: 'bold' }}>NT$ {item.totalPrice}</span>
+                  </div>
+                ))}
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.95rem', fontWeight: 'bold', marginBottom: (storeAddress || storePhone) ? '12px' : '0px' }}>
+                <span>應收總計</span>
+                <span style={{ color: 'var(--primary)', fontSize: '1.1rem' }}>NT$ {cart.reduce((sum, item) => sum + item.totalPrice, 0)}</span>
+              </div>
+
+              {/* 店家聯絡資訊 (如果後台有填寫才顯示) */}
+              {(storeAddress || storePhone) && (
+                <div style={{ 
+                  marginTop: '12px', 
+                  paddingTop: '12px', 
+                  borderTop: '1px solid var(--border)', 
+                  fontSize: '0.8rem', 
+                  color: 'var(--text-muted)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '4px'
+                }}>
+                  {storeAddress && <div>📍 店家地址：{storeAddress}</div>}
+                  {storePhone && <div>📞 聯絡電話：{storePhone}</div>}
+                </div>
+              )}
+            </div>
+
             {/* Dining details */}
             {tableNumber ? (
               <div className="option-group" style={{ backgroundColor: 'rgba(255,107,53,0.03)', padding: '16px', borderRadius: 'var(--radius-sm)' }}>
@@ -941,7 +1017,7 @@ export default function CustomerView({ tableNumber, onBackToDemo }) {
                   <div>
                     <strong>店內結帳 (到店付款)</strong>
                     <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                      {tableNumber ? '至櫃檯買單或餐後付款' : '取餐時於櫃檯付款，支援現金與LinePay'}
+                      取餐時於櫃檯付款，支援現金與TWQR共同支付
                     </div>
                   </div>
                 </div>
