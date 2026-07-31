@@ -131,6 +131,57 @@ export default function ManagementView({ onBackToDemo, onLogout }) {
     }
   };
 
+  const handleSaveGlobalAddons = async (newAddons) => {
+    try {
+      // 1. Check if the setting exists
+      const { data: exist } = await supabase.from('menu_items').select('*').eq('name', 'SYSTEM_SETTING_GLOBAL_ADDONS');
+      
+      if (exist && exist.length > 0) {
+        // Update
+        const { error } = await supabase.from('menu_items').update({
+          description: JSON.stringify(newAddons)
+        }).eq('name', 'SYSTEM_SETTING_GLOBAL_ADDONS');
+        if (error) throw error;
+      } else {
+        // Insert
+        const { error } = await supabase.from('menu_items').insert([{
+          name: 'SYSTEM_SETTING_GLOBAL_ADDONS',
+          description: JSON.stringify(newAddons),
+          price: 0,
+          category: 'system',
+          image: ''
+        }]);
+        if (error) throw error;
+      }
+      
+      // Update local state
+      setGlobalAddons(newAddons);
+      
+      // Also update the addon options on all menuItems in the local state so the UI updates immediately!
+      setMenuItems(prev => prev.map(item => {
+        if (item.customizations && item.customizations.addons) {
+          return {
+            ...item,
+            customizations: {
+              ...item.customizations,
+              addons: {
+                ...item.customizations.addons,
+                options: newAddons
+              }
+            }
+          };
+        }
+        return item;
+      }));
+
+      alert("全域加料設定已成功儲存並同步雲端！");
+      setShowAddonModal(false);
+    } catch (e) {
+      console.error("Failed to save global addons:", e);
+      alert("儲存加料設定失敗：" + e.message);
+    }
+  };
+
   // Load staff list from localStorage
   const fetchStaffList = () => {
     const saved = localStorage.getItem('restaurant_staff_list');
