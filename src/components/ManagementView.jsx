@@ -10,6 +10,10 @@ export default function ManagementView({ onBackToDemo, onLogout }) {
   const [newStoreAddress, setNewStoreAddress] = useState('');
   const [storePhone, setStorePhone] = useState('');
   const [newStorePhone, setNewStorePhone] = useState('');
+  const [paymentMethods, setPaymentMethods] = useState({
+    counter: { enabled: true, name: '店內結帳 (到店付款)', desc: '取餐時於櫃檯付款，支援現金與TWQR共同支付' },
+    online: { enabled: true, name: '線上刷卡', desc: '下單即完成付款' }
+  });
   const [adminPin, setAdminPin] = useState('8888');
   const [newAdminPin, setNewAdminPin] = useState('8888');
   const [isClosedToday, setIsClosedToday] = useState(false);
@@ -94,6 +98,15 @@ export default function ManagementView({ onBackToDemo, onLogout }) {
           setNewStorePhone(storePhoneItem.description);
         } else {
           setNewStorePhone('');
+        }
+
+        const paymentItem = data.find(item => item.name === 'SYSTEM_SETTING_PAYMENT_METHODS');
+        if (paymentItem && paymentItem.description) {
+          try {
+            setPaymentMethods(JSON.parse(paymentItem.description));
+          } catch (e) {
+            console.error("Failed to parse payment settings in management:", e);
+          }
         }
         
         // Load custom settings
@@ -664,6 +677,114 @@ export default function ManagementView({ onBackToDemo, onLogout }) {
             儲存電話
           </button>
         </div>
+        <div style={{ flexBasis: '100%', height: '8px', borderTop: '1px solid var(--border)', margin: '8px 0' }} />
+        <span style={{ fontSize: '0.85rem', fontWeight: 'bold' }}>💳 顧客支付方式設定:</span>
+        
+        {/* Counter Pay Config */}
+        <div style={{ display: 'flex', gap: '6px', alignItems: 'center', backgroundColor: 'var(--bg-body)', padding: '6px 12px', borderRadius: '6px', border: '1px solid var(--border)' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.8rem', fontWeight: 'bold', cursor: 'pointer' }}>
+            <input 
+              type="checkbox"
+              checked={paymentMethods.counter?.enabled !== false}
+              onChange={(e) => {
+                setPaymentMethods({
+                  ...paymentMethods,
+                  counter: { ...paymentMethods.counter, enabled: e.target.checked }
+                });
+              }}
+            />
+            啟用店內結帳
+          </label>
+          <input 
+            type="text"
+            placeholder="顯示名稱"
+            value={paymentMethods.counter?.name || ''}
+            onChange={(e) => {
+              setPaymentMethods({
+                ...paymentMethods,
+                counter: { ...paymentMethods.counter, name: e.target.value }
+              });
+            }}
+            style={{ padding: '4px 8px', fontSize: '0.8rem', borderRadius: '4px', border: '1px solid var(--border)', width: '130px', color: 'var(--text-main)', backgroundColor: 'var(--bg-card)' }}
+          />
+          <input 
+            type="text"
+            placeholder="說明文字"
+            value={paymentMethods.counter?.desc || ''}
+            onChange={(e) => {
+              setPaymentMethods({
+                ...paymentMethods,
+                counter: { ...paymentMethods.counter, desc: e.target.value }
+              });
+            }}
+            style={{ padding: '4px 8px', fontSize: '0.8rem', borderRadius: '4px', border: '1px solid var(--border)', width: '220px', color: 'var(--text-main)', backgroundColor: 'var(--bg-card)' }}
+          />
+        </div>
+
+        {/* Online Credit Pay Config */}
+        <div style={{ display: 'flex', gap: '6px', alignItems: 'center', backgroundColor: 'var(--bg-body)', padding: '6px 12px', borderRadius: '6px', border: '1px solid var(--border)' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.8rem', fontWeight: 'bold', cursor: 'pointer' }}>
+            <input 
+              type="checkbox"
+              checked={paymentMethods.online?.enabled !== false}
+              onChange={(e) => {
+                setPaymentMethods({
+                  ...paymentMethods,
+                  online: { ...paymentMethods.online, enabled: e.target.checked }
+                });
+              }}
+            />
+            啟用線上刷卡
+          </label>
+          <input 
+            type="text"
+            placeholder="顯示名稱"
+            value={paymentMethods.online?.name || ''}
+            onChange={(e) => {
+              setPaymentMethods({
+                ...paymentMethods,
+                online: { ...paymentMethods.online, name: e.target.value }
+              });
+            }}
+            style={{ padding: '4px 8px', fontSize: '0.8rem', borderRadius: '4px', border: '1px solid var(--border)', width: '100px', color: 'var(--text-main)', backgroundColor: 'var(--bg-card)' }}
+          />
+          <input 
+            type="text"
+            placeholder="說明文字"
+            value={paymentMethods.online?.desc || ''}
+            onChange={(e) => {
+              setPaymentMethods({
+                ...paymentMethods,
+                online: { ...paymentMethods.online, desc: e.target.value }
+              });
+            }}
+            style={{ padding: '4px 8px', fontSize: '0.8rem', borderRadius: '4px', border: '1px solid var(--border)', width: '150px', color: 'var(--text-main)', backgroundColor: 'var(--bg-card)' }}
+          />
+        </div>
+
+        <button
+          onClick={async () => {
+            try {
+              const { data: exist } = await supabase.from('menu_items').select('*').eq('name', 'SYSTEM_SETTING_PAYMENT_METHODS');
+              if (exist && exist.length > 0) {
+                await supabase.from('menu_items').update({ description: JSON.stringify(paymentMethods) }).eq('name', 'SYSTEM_SETTING_PAYMENT_METHODS');
+              } else {
+                await supabase.from('menu_items').insert([{
+                  name: 'SYSTEM_SETTING_PAYMENT_METHODS',
+                  price: 0,
+                  category: 'settings',
+                  description: JSON.stringify(paymentMethods)
+                }]);
+              }
+              alert("支付方式設定已儲存並同步雲端！");
+            } catch (e) {
+              alert("儲存支付方式設定失敗：" + e.message);
+            }
+          }}
+          style={{ padding: '6px 12px', fontSize: '0.85rem', backgroundColor: '#10b981', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}
+        >
+          儲存支付設定
+        </button>
 
         {/* Admin Password PIN */}
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center', borderLeft: '1px solid var(--border)', paddingLeft: '20px' }}>

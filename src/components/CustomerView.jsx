@@ -102,6 +102,10 @@ export default function CustomerView({ tableNumber, onBackToDemo }) {
   const [storeName, setStoreName] = useState('龍城麵線');
   const [storeAddress, setStoreAddress] = useState('');
   const [storePhone, setStorePhone] = useState('');
+  const [paymentMethodsConfig, setPaymentMethodsConfig] = useState({
+    counter: { enabled: true, name: '店內結帳 (到店付款)', desc: '取餐時於櫃檯付款，支援現金與TWQR共同支付' },
+    online: { enabled: true, name: '線上刷卡', desc: '下單即完成付款' }
+  });
 
   const confirmationResultRef = useRef(null);
   const recaptchaVerifierRef = useRef(null);
@@ -128,6 +132,20 @@ export default function CustomerView({ tableNumber, onBackToDemo }) {
         const storePhoneItem = data.find(item => item.name === 'SYSTEM_SETTING_STORE_PHONE');
         if (storePhoneItem && storePhoneItem.description) {
           setStorePhone(storePhoneItem.description);
+        }
+        const paymentItem = data.find(item => item.name === 'SYSTEM_SETTING_PAYMENT_METHODS');
+        if (paymentItem && paymentItem.description) {
+          try {
+            const parsed = JSON.parse(paymentItem.description);
+            setPaymentMethodsConfig(parsed);
+            if (parsed.counter && !parsed.counter.enabled && parsed.online && parsed.online.enabled) {
+              setPaymentMethod('online');
+            } else {
+              setPaymentMethod('counter');
+            }
+          } catch (e) {
+            console.error("Failed to parse payment methods:", e);
+          }
         }
         const orderItem = data.find(item => item.name === 'SYSTEM_SETTING_MENU_ORDER');
         let orderList = [];
@@ -219,6 +237,20 @@ export default function CustomerView({ tableNumber, onBackToDemo }) {
           const storePhoneItem = seeded.find(item => item.name === 'SYSTEM_SETTING_STORE_PHONE');
           if (storePhoneItem && storePhoneItem.description) {
             setStorePhone(storePhoneItem.description);
+          }
+          const paymentItem = seeded.find(item => item.name === 'SYSTEM_SETTING_PAYMENT_METHODS');
+          if (paymentItem && paymentItem.description) {
+            try {
+              const parsed = JSON.parse(paymentItem.description);
+              setPaymentMethodsConfig(parsed);
+              if (parsed.counter && !parsed.counter.enabled && parsed.online && parsed.online.enabled) {
+                setPaymentMethod('online');
+              } else {
+                setPaymentMethod('counter');
+              }
+            } catch (e) {
+              console.error("Failed to parse payment methods:", e);
+            }
           }
           const orderItem = seeded.find(item => item.name === 'SYSTEM_SETTING_MENU_ORDER');
           let orderList = [];
@@ -1009,31 +1041,35 @@ export default function CustomerView({ tableNumber, onBackToDemo }) {
             <div className="option-group">
               <h4 className="checkout-section-title">💳 付款方式</h4>
               <div className="payment-options">
-                <div 
-                  className={`payment-option-card ${paymentMethod === 'counter' ? 'selected' : ''}`}
-                  onClick={() => setPaymentMethod('counter')}
-                >
-                  <span className="payment-icon">💵</span>
-                  <div>
-                    <strong>店內結帳 (到店付款)</strong>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                      取餐時於櫃檯付款，支援現金與TWQR共同支付
+                {paymentMethodsConfig.counter?.enabled !== false && (
+                  <div 
+                    className={`payment-option-card ${paymentMethod === 'counter' ? 'selected' : ''}`}
+                    onClick={() => setPaymentMethod('counter')}
+                  >
+                    <span className="payment-icon">💵</span>
+                    <div>
+                      <strong>{paymentMethodsConfig.counter?.name || '店內結帳 (到店付款)'}</strong>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                        {paymentMethodsConfig.counter?.desc || '取餐時於櫃檯付款，支援現金與TWQR共同支付'}
+                      </div>
                     </div>
                   </div>
-                </div>
+                )}
 
-                <div 
-                  className={`payment-option-card ${paymentMethod === 'online' ? 'selected' : ''}`}
-                  onClick={() => setPaymentMethod('online')}
-                >
-                  <span className="payment-icon">💳</span>
-                  <div>
-                    <strong>線上刷卡</strong>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                      下單即完成付款
+                {paymentMethodsConfig.online?.enabled !== false && (
+                  <div 
+                    className={`payment-option-card ${paymentMethod === 'online' ? 'selected' : ''}`}
+                    onClick={() => setPaymentMethod('online')}
+                  >
+                    <span className="payment-icon">💳</span>
+                    <div>
+                      <strong>{paymentMethodsConfig.online?.name || '線上刷卡'}</strong>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                        {paymentMethodsConfig.online?.desc || '下單即完成付款'}
+                      </div>
                     </div>
                   </div>
-                </div>
+                )}
               </div>
             </div>
 
