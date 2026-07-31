@@ -48,6 +48,8 @@ export default function CashierView({ cashierName, onLogout }) {
     printType: true,
     printDateTime: true
   });
+  
+  const [isAutoPrintEnabled, setIsAutoPrintEnabled] = useState(() => localStorage.getItem('is_auto_print_enabled') === 'true');
 
   // Synthesize notification chime
   const triggerChime = () => {
@@ -358,6 +360,61 @@ export default function CashierView({ cashierName, onLogout }) {
       supabase.removeChannel(ordersChannel);
     };
   }, []);
+
+  // Background Auto-Print Polling Daemon
+  useEffect(() => {
+    if (!isAutoPrintEnabled) return;
+
+    const interval = setInterval(async () => {
+      try {
+        // Poll orders that are received (new)
+        const { data: newOrders, error } = await supabase
+          .from('orders')
+          .select('*')
+          .eq('status', 'received')
+          .order('id', { ascending: true });
+
+        if (error) throw error;
+        if (newOrders && newOrders.length > 0) {
+          // Find the ones that don't have is_printed: true in items JSONB
+          const unprintedOrders = newOrders.filter(o => {
+            const itemsData = typeof o.items === 'string' ? JSON.parse(o.items) : o.items;
+            return !itemsData || !itemsData.is_printed;
+          });
+
+          for (const order of unprintedOrders) {
+            // 1. Mark as printed in the DB first to avoid duplicate printing loops
+            const itemsData = typeof order.items === 'string' ? JSON.parse(order.items) : order.items;
+            const updatedItems = { ...itemsData, is_printed: true };
+            
+            const { error: updateError } = await supabase
+              .from('orders')
+              .update({ items: updatedItems })
+              .eq('id', order.id);
+            
+            if (updateError) {
+              console.error("Failed to mark order as printed:", updateError);
+              continue;
+            }
+
+            // 2. Format and print
+            const mappedOrder = formatSupabaseOrder(order);
+            triggerChime();
+            if (mappedOrder) {
+              printReceipt(mappedOrder);
+            }
+          }
+
+          // Trigger state refresh so the cashier list updates immediately
+          fetchOrders();
+        }
+      } catch (err) {
+        console.error("Error polling for auto-print:", err);
+      }
+    }, 8000); // Check every 8 seconds
+
+    return () => clearInterval(interval);
+  }, [isAutoPrintEnabled, storeName, receiptConfig]);
 
   // Calculate total price in cart
   const cartTotal = cart.reduce((sum, item) => sum + item.totalPrice, 0);
@@ -709,6 +766,21 @@ export default function CashierView({ cashierName, onLogout }) {
           >
             🏁 今日收店結帳
           </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', borderRight: '1px solid var(--border)', paddingRight: '12px', marginRight: '4px' }}>
+            <label style={{ fontSize: '0.8rem', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', userSelect: 'none', color: isAutoPrintEnabled ? '#16a34a' : 'var(--text-muted)' }}>
+              <input 
+                type="checkbox" 
+                checked={isAutoPrintEnabled} 
+                onChange={(e) => {
+                  const val = e.target.checked;
+                  setIsAutoPrintEnabled(val);
+                  localStorage.setItem('is_auto_print_enabled', String(val));
+                }}
+                style={{ cursor: 'pointer' }}
+              />
+              🖨️ 自動出單
+            </label>
+          </div>
           <button 
             onClick={onLogout}
             style={{
@@ -842,7 +914,34 @@ export default function CashierView({ cashierName, onLogout }) {
                       return (
                         <div key={order.id} style={{ padding: '12px', border: '1px solid var(--border)', borderRadius: '8px', backgroundColor: 'var(--bg-card)' }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', fontWeight: 'bold', borderBottom: '1px solid var(--border)', paddingBottom: '4px', marginBottom: '6px' }}>
-                            <span>單號: {order.serialNum} ({order.type === 'dine-in' ? '內用' : '外帶'})</span>
+                            <span>
+                              單號: {order.serialNum} ({order.type === 'dine-in' ? '內用' : '外帶'})
+                              <span style={{
+                                marginLeft: '8px',
+                                padding: '2px 6px',
+                                borderRadius: '10px',
+                                fontSize: '0.65rem',
+                                fontWeight: 'bold',
+                                backgroundColor: 
+                                  order.status === 'received' ? 'rgba(245,158,11,0.1)' :
+                                  order.status === 'preparing' ? 'rgba(59,130,246,0.1)' :
+                                  order.status === 'ready' ? 'rgba(16,185,129,0.1)' :
+                                  order.status === 'completed' ? 'rgba(34,197,94,0.1)' : 'rgba(100,116,139,0.1)',
+                                color:
+                                  order.status === 'received' ? '#f59e0b' :
+                                  order.status === 'preparing' ? '#3b82f6' :
+                                  order.status === 'ready' ? '#10b981' :
+                                  order.status === 'completed' ? '#22c55e' : '#64748b'
+                              }}>
+                                {
+                                  order.status === 'received' ? '待接單' :
+                                  order.status === 'preparing' ? '製作中' :
+                                  order.status === 'ready' ? '已出餐' :
+                                  order.status === 'completed' ? '已結案' :
+                                  order.status === 'deleted' ? '已取消' : order.status
+                                }
+                              </span>
+                            </span>
                             {(order.status === 'declined' || order.status === 'refunded') && (
                               <span style={{ color: '#ef4444' }}>🪙 已退貨</span>
                             )}
@@ -858,8 +957,41 @@ export default function CashierView({ cashierName, onLogout }) {
                           )}
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '6px' }}>
                             <span style={{ fontSize: '0.8rem', fontWeight: 'bold', color: 'var(--primary)' }}>總額: ${order.total}</span>
-                            <div style={{ display: 'flex', gap: '6px' }}>
-                              {order.status !== 'declined' && order.status !== 'refunded' && order.status !== 'archived' && (
+                            <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                              {order.status === 'received' && (
+                                <button
+                                  onClick={async () => {
+                                    await supabase.from('orders').update({ status: 'preparing' }).eq('id', order.id);
+                                    fetchOrders();
+                                  }}
+                                  style={{ padding: '4px 8px', fontSize: '0.7rem', backgroundColor: '#10b981', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}
+                                >
+                                  👨‍🍳 接單製作
+                                </button>
+                              )}
+                              {order.status === 'preparing' && (
+                                <button
+                                  onClick={async () => {
+                                    await supabase.from('orders').update({ status: 'ready' }).eq('id', order.id);
+                                    fetchOrders();
+                                  }}
+                                  style={{ padding: '4px 8px', fontSize: '0.7rem', backgroundColor: '#3b82f6', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}
+                                >
+                                  🔔 呼叫出餐
+                                </button>
+                              )}
+                              {order.status === 'ready' && (
+                                <button
+                                  onClick={async () => {
+                                    await supabase.from('orders').update({ status: 'completed', payment_status: 'paid' }).eq('id', order.id);
+                                    fetchOrders();
+                                  }}
+                                  style={{ padding: '4px 8px', fontSize: '0.7rem', backgroundColor: '#16a34a', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}
+                                >
+                                  ✅ 結案完成
+                                </button>
+                              )}
+                              {order.status !== 'declined' && order.status !== 'refunded' && order.status !== 'archived' && order.status !== 'completed' && (
                                 <button
                                   onClick={async () => {
                                     if (confirm("確定退貨此訂單嗎？")) {

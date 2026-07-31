@@ -339,6 +339,54 @@ export default function CustomerView({ tableNumber, onBackToDemo }) {
   // Find active order object
   const activeOrder = allOrders.find(o => o.id === activeOrderId);
 
+  // Edit and Cancel Order handlers
+  const handleEditOrder = async (orderToEdit) => {
+    if (!window.confirm("確定要修改這筆訂單嗎？這將會把原訂單取消並將品項放回購物車，您可以修改後重新送單。")) return;
+    try {
+      // Delete original order from Supabase
+      const { error } = await supabase.from('orders').delete().eq('id', orderToEdit.id);
+      if (error) throw error;
+      
+      // Put items back into cart
+      // Re-map db spec formatting back to cart state item spec if needed
+      const rawCart = orderToEdit.items.cart || [];
+      setCart(rawCart);
+      
+      // Restore details
+      if (orderToEdit.type === 'takeout') {
+        setCustName(orderToEdit.items.customerName || '');
+        setCustPhone(orderToEdit.items.customerPhone || '');
+        setPickupTime(orderToEdit.items.pickupTime || '');
+      }
+      
+      // Clear active order state
+      localStorage.removeItem('active_customer_order_id');
+      setActiveOrderId(null);
+      setViewState('cart');
+      alert("已取消原訂單，品項已放回購物車，請修改後重新送單！");
+    } catch (err) {
+      alert("無法修改訂單：" + err.message);
+    }
+  };
+
+  const handleCancelOrder = async (orderToCancel) => {
+    if (!window.confirm("確定要取消這筆訂單嗎？取消後將無法復原。")) return;
+    try {
+      // Soft delete by updating status to 'deleted'
+      const { error } = await supabase.from('orders').update({
+        status: 'deleted'
+      }).eq('id', orderToCancel.id);
+      if (error) throw error;
+      
+      alert("訂單已成功取消！");
+      localStorage.removeItem('active_customer_order_id');
+      setActiveOrderId(null);
+      setViewState('menu');
+    } catch (err) {
+      alert("無法取消訂單：" + err.message);
+    }
+  };
+
   // Cart operations
   const handleAddToCart = (cartItem) => {
     setCart(prev => {
@@ -922,12 +970,14 @@ export default function CustomerView({ tableNumber, onBackToDemo }) {
         <OrderTracker 
           order={activeOrder} 
           onBackToMenu={() => {
-            if (activeOrder.status === 'completed') {
+            if (activeOrder.status === 'completed' || activeOrder.status === 'deleted') {
               localStorage.removeItem('active_customer_order_id');
               setActiveOrderId(null);
             }
             setViewState('menu');
           }}
+          onEditOrder={handleEditOrder}
+          onCancelOrder={handleCancelOrder}
         />
       )}
 
