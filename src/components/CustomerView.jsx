@@ -136,23 +136,41 @@ export default function CustomerView({ tableNumber, onBackToDemo }) {
           try { currentAddons = JSON.parse(addonsItem.description); } catch (e) {}
         }
 
+        const condimentsItem = data.find(item => item.name === 'SYSTEM_SETTING_GLOBAL_CONDIMENTS');
+        let currentCondiments = [
+          { name: '香菜', choices: ['正常', '多一點', '不要香菜'], default: '正常' },
+          { name: '蒜末', choices: ['正常', '多一點', '不要蒜頭'], default: '正常' },
+          { name: '烏醋', choices: ['正常', '多一點', '不要烏醋'], default: '正常' },
+          { name: '辣醬', choices: ['不辣', '微辣', '中辣', '大辣'], default: '不辣' }
+        ];
+        if (condimentsItem && condimentsItem.description) {
+          try { currentCondiments = JSON.parse(condimentsItem.description); } catch (e) {}
+        }
+
         const visibleItems = data.filter(item => 
           !item.name.startsWith('SYSTEM_SETTING_') &&
           item.customizations?.is_published !== false
         ).map(item => {
-          if (item.customizations && item.customizations.addons) {
-            return {
-              ...item,
-              customizations: {
-                ...item.customizations,
-                addons: {
-                  ...item.customizations.addons,
-                  options: currentAddons
-                }
-              }
-            };
+          let updatedCust = item.customizations;
+          if (updatedCust) {
+            updatedCust = { ...updatedCust };
+            if (updatedCust.addons) {
+              updatedCust.addons = {
+                ...updatedCust.addons,
+                options: currentAddons
+              };
+            }
+            if (updatedCust.condiments) {
+              updatedCust.condiments = {
+                ...updatedCust.condiments,
+                options: currentCondiments
+              };
+            }
           }
-          return item;
+          return {
+            ...item,
+            customizations: updatedCust
+          };
         });
 
         if (orderList.length > 0) {
@@ -459,7 +477,7 @@ export default function CustomerView({ tableNumber, onBackToDemo }) {
           settings = { type: 'notify', notifyToken: lineNotifyToken };
         }
 
-        const msgText = `\n【{storeName}】您的外帶點餐驗證碼為：${code}\n請於 5 分鐘內輸入此認證碼以完成驗證。`;
+        const msgText = `\n【${storeName}】您的外帶點餐驗證碼為：${code}\n請於 5 分鐘內輸入此認證碼以完成驗證。`;
 
         const requestBody = settings.type === 'bot' 
           ? {
@@ -499,7 +517,7 @@ export default function CustomerView({ tableNumber, onBackToDemo }) {
 
     if (!hasSentReal) {
       // Fallback simulation banner
-      setSimulatedNotification(`💬 LINE ({storeName}官方帳號): 您的點餐驗證碼為【${code}】。(請至後台系統設定 LINE 密鑰以開啟真實發送)`);
+      setSimulatedNotification(`💬 LINE (${storeName}官方帳號): 您的點餐驗證碼為【${code}】。(請至後台系統設定 LINE 密鑰以開啟真實發送)`);
     }
 
     setTimeout(() => setSimulatedNotification(null), 10000);

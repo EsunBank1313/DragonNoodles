@@ -25,6 +25,16 @@ export default function ManagementView({ onBackToDemo, onLogout }) {
   ]);
   const [showAddonModal, setShowAddonModal] = useState(false);
   const [tempAddons, setTempAddons] = useState([]);
+  
+  const [globalCondiments, setGlobalCondiments] = useState([
+    { name: '香菜', choices: ['正常', '多一點', '不要香菜'], default: '正常' },
+    { name: '蒜末', choices: ['正常', '多一點', '不要蒜頭'], default: '正常' },
+    { name: '烏醋', choices: ['正常', '多一點', '不要烏醋'], default: '正常' },
+    { name: '辣醬', choices: ['不辣', '微辣', '中辣', '大辣'], default: '不辣' }
+  ]);
+  const [tempCondiments, setTempCondiments] = useState([]);
+  const [showCondimentModal, setShowCondimentModal] = useState(false);
+
   const [activeTab, setActiveTab] = useState('products');
   
   // Product edit states
@@ -96,22 +106,45 @@ export default function ManagementView({ onBackToDemo, onLogout }) {
           setGlobalAddons(currentAddons);
         }
 
+        const condimentsItem = data.find(item => item.name === 'SYSTEM_SETTING_GLOBAL_CONDIMENTS');
+        let currentCondiments = [
+          { name: '香菜', choices: ['正常', '多一點', '不要香菜'], default: '正常' },
+          { name: '蒜末', choices: ['正常', '多一點', '不要蒜頭'], default: '正常' },
+          { name: '烏醋', choices: ['正常', '多一點', '不要烏醋'], default: '正常' },
+          { name: '辣醬', choices: ['不辣', '微辣', '中辣', '大辣'], default: '不辣' }
+        ];
+        if (condimentsItem && condimentsItem.description) {
+          try {
+            currentCondiments = JSON.parse(condimentsItem.description);
+            setGlobalCondiments(currentCondiments);
+          } catch (e) {}
+        } else {
+          setGlobalCondiments(currentCondiments);
+        }
+
         const visibleItems = data.filter(item => 
           !item.name.startsWith('SYSTEM_SETTING_')
         ).map(item => {
-          if (item.customizations && item.customizations.addons) {
-            return {
-              ...item,
-              customizations: {
-                ...item.customizations,
-                addons: {
-                  ...item.customizations.addons,
-                  options: currentAddons
-                }
-              }
-            };
+          let updatedCust = item.customizations;
+          if (updatedCust) {
+            updatedCust = { ...updatedCust };
+            if (updatedCust.addons) {
+              updatedCust.addons = {
+                ...updatedCust.addons,
+                options: currentAddons
+              };
+            }
+            if (updatedCust.condiments) {
+              updatedCust.condiments = {
+                ...updatedCust.condiments,
+                options: currentCondiments
+              };
+            }
           }
-          return item;
+          return {
+            ...item,
+            customizations: updatedCust
+          };
         });
         setMenuItems(visibleItems);
 
@@ -179,6 +212,57 @@ export default function ManagementView({ onBackToDemo, onLogout }) {
     } catch (e) {
       console.error("Failed to save global addons:", e);
       alert("儲存加料設定失敗：" + e.message);
+    }
+  };
+
+  const handleSaveGlobalCondiments = async (newCondiments) => {
+    try {
+      // 1. Check if the setting exists
+      const { data: exist } = await supabase.from('menu_items').select('*').eq('name', 'SYSTEM_SETTING_GLOBAL_CONDIMENTS');
+      
+      if (exist && exist.length > 0) {
+        // Update
+        const { error } = await supabase.from('menu_items').update({
+          description: JSON.stringify(newCondiments)
+        }).eq('name', 'SYSTEM_SETTING_GLOBAL_CONDIMENTS');
+        if (error) throw error;
+      } else {
+        // Insert
+        const { error } = await supabase.from('menu_items').insert([{
+          name: 'SYSTEM_SETTING_GLOBAL_CONDIMENTS',
+          description: JSON.stringify(newCondiments),
+          price: 0,
+          category: 'system',
+          image: ''
+        }]);
+        if (error) throw error;
+      }
+      
+      // Update local state
+      setGlobalCondiments(newCondiments);
+      
+      // Also update the condiment options on all menuItems in the local state so the UI updates immediately!
+      setMenuItems(prev => prev.map(item => {
+        if (item.customizations && item.customizations.condiments) {
+          return {
+            ...item,
+            customizations: {
+              ...item.customizations,
+              condiments: {
+                ...item.customizations.condiments,
+                options: newCondiments
+              }
+            }
+          };
+        }
+        return item;
+      }));
+
+      alert("全域調料客製設定已成功儲存並同步雲端！");
+      setShowCondimentModal(false);
+    } catch (e) {
+      console.error("Failed to save global condiments:", e);
+      alert("儲存調料設定失敗：" + e.message);
     }
   };
 
@@ -578,6 +662,27 @@ export default function ManagementView({ onBackToDemo, onLogout }) {
             }}
           >
             ⚙️ 全局加料項目管理
+          </button>
+        </div>
+
+        {/* Global Condiments Toggle */}
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', borderLeft: '1px solid var(--border)', paddingLeft: '20px' }}>
+          <button
+            type="button"
+            onClick={() => {
+              setTempCondiments(globalCondiments.map(c => ({
+                name: c.name || '',
+                choices: Array.isArray(c.choices) ? [...c.choices] : typeof c.choices === 'string' ? c.choices.split(',').map(s => s.trim()) : [],
+                default: c.default || ''
+              })));
+              setShowCondimentModal(true);
+            }}
+            style={{
+              padding: '6px 14px', fontSize: '0.85rem', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold',
+              backgroundColor: '#10b981', color: 'white'
+            }}
+          >
+            🌶️ 全局調料品項管理
           </button>
         </div>
 
@@ -997,6 +1102,127 @@ export default function ManagementView({ onBackToDemo, onLogout }) {
                 onClick={() => {
                   const filtered = tempAddons.filter(a => a && a.label && typeof a.label === 'string' && a.label.trim() !== '');
                   handleSaveGlobalAddons(filtered);
+                }}
+                style={{ flex: 1.5, padding: '8px', border: 'none', borderRadius: '6px', backgroundColor: 'var(--primary)', color: 'white', fontWeight: 'bold', cursor: 'pointer', fontSize: '0.85rem' }}
+              >
+                💾 儲存並同步雲端
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* GLOBAL CONDIMENT MANAGEMENT MODAL */}
+      {showCondimentModal && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.6)', display: 'flex',
+          justifyContent: 'center', alignItems: 'center', zIndex: 1000,
+          backdropFilter: 'blur(4px)'
+        }}>
+          <div style={{
+            backgroundColor: 'var(--bg-card)', padding: '24px', borderRadius: '12px',
+            border: '1px solid var(--border)', width: '500px', maxWidth: '95%',
+            maxHeight: '85vh', display: 'flex', flexDirection: 'column', gap: '16px',
+            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)', textAlign: 'left'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 'bold' }}>🌶️ 全局調料品項與客製管理</h3>
+              <button 
+                type="button"
+                onClick={() => setShowCondimentModal(false)}
+                style={{ background: 'none', border: 'none', fontSize: '1.2rem', cursor: 'pointer', color: 'var(--text-muted)' }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '14px', paddingRight: '4px' }}>
+              {tempCondiments.map((cond, idx) => (
+                <div key={idx} style={{ padding: '10px', border: '1px solid var(--border)', borderRadius: '8px', backgroundColor: 'var(--bg-body)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <div style={{ flex: 2, display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                      <span style={{ fontSize: '0.7rem', fontWeight: 'bold', color: 'var(--text-muted)' }}>調料名稱</span>
+                      <input 
+                        type="text" 
+                        placeholder="調料名稱 (如: 香菜)"
+                        value={cond.name || ''}
+                        onChange={(e) => {
+                          const updated = [...tempCondiments];
+                          updated[idx].name = e.target.value;
+                          setTempCondiments(updated);
+                        }}
+                        style={{ padding: '6px', fontSize: '0.85rem', borderRadius: '4px', border: '1px solid var(--border)', color: 'var(--text-main)', backgroundColor: 'var(--bg-card)' }}
+                      />
+                    </div>
+                    
+                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                      <span style={{ fontSize: '0.7rem', fontWeight: 'bold', color: 'var(--text-muted)' }}>預設選項</span>
+                      <input 
+                        type="text" 
+                        placeholder="如: 正常"
+                        value={cond.default || ''}
+                        onChange={(e) => {
+                          const updated = [...tempCondiments];
+                          updated[idx].default = e.target.value;
+                          setTempCondiments(updated);
+                        }}
+                        style={{ padding: '6px', fontSize: '0.85rem', borderRadius: '4px', border: '1px solid var(--border)', color: 'var(--text-main)', backgroundColor: 'var(--bg-card)' }}
+                      />
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTempCondiments(tempCondiments.filter((_, i) => i !== idx));
+                      }}
+                      style={{ alignSelf: 'flex-end', height: '34px', padding: '0 10px', backgroundColor: '#ef4444', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '0.8rem' }}
+                    >
+                      🗑️ 刪除
+                    </button>
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                    <span style={{ fontSize: '0.7rem', fontWeight: 'bold', color: 'var(--text-muted)' }}>客製選項 (以半角逗號隔開)</span>
+                    <input 
+                      type="text" 
+                      placeholder="如: 正常, 多一點, 不要香菜"
+                      value={Array.isArray(cond.choices) ? cond.choices.join(', ') : ''}
+                      onChange={(e) => {
+                        const updated = [...tempCondiments];
+                        updated[idx].choices = e.target.value.split(',').map(s => s.trim());
+                        setTempCondiments(updated);
+                      }}
+                      style={{ padding: '6px', fontSize: '0.85rem', borderRadius: '4px', border: '1px solid var(--border)', color: 'var(--text-main)', backgroundColor: 'var(--bg-card)' }}
+                    />
+                  </div>
+                </div>
+              ))}
+              
+              <button
+                type="button"
+                onClick={() => {
+                  setTempCondiments([...tempCondiments, { name: '', choices: ['正常', '多一點', '不要'], default: '正常' }]);
+                }}
+                style={{ padding: '8px', backgroundColor: 'var(--bg-body)', border: '1px dashed var(--border)', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 'bold', width: '100%', marginTop: '6px', color: 'var(--text-main)' }}
+              >
+                ＋ 新增調料項目
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button
+                type="button"
+                onClick={() => setShowCondimentModal(false)}
+                style={{ flex: 1, padding: '8px', border: '1px solid var(--border)', borderRadius: '6px', backgroundColor: 'transparent', cursor: 'pointer', fontSize: '0.85rem', color: 'var(--text-main)' }}
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const filtered = tempCondiments.filter(c => c && c.name && typeof c.name === 'string' && c.name.trim() !== '');
+                  handleSaveGlobalCondiments(filtered);
                 }}
                 style={{ flex: 1.5, padding: '8px', border: 'none', borderRadius: '6px', backgroundColor: 'var(--primary)', color: 'white', fontWeight: 'bold', cursor: 'pointer', fontSize: '0.85rem' }}
               >

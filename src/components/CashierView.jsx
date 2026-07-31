@@ -253,23 +253,40 @@ export default function CashierView({ cashierName, onLogout }) {
           try { currentAddons = JSON.parse(addonsItem.description); } catch (e) {}
         }
 
+        const condimentsItem = data.find(item => item.name === 'SYSTEM_SETTING_GLOBAL_CONDIMENTS');
+        let currentCondiments = [
+          { name: '香菜', choices: ['正常', '多一點', '不要香菜'], default: '正常' },
+          { name: '蒜末', choices: ['正常', '多一點', '不要蒜頭'], default: '正常' },
+          { name: '烏醋', choices: ['正常', '多一點', '不要烏醋'], default: '正常' },
+          { name: '辣醬', choices: ['不辣', '微辣', '中辣', '大辣'], default: '不辣' }
+        ];
+        if (condimentsItem && condimentsItem.description) {
+          try { currentCondiments = JSON.parse(condimentsItem.description); } catch (e) {}
+        }
+
         const visibleItems = data.filter(item => 
-          !item.name.startsWith('SYSTEM_SETTING_') &&
-          item.customizations?.is_published !== false
+          !item.name.startsWith('SYSTEM_SETTING_')
         ).map(item => {
-          if (item.customizations && item.customizations.addons) {
-            return {
-              ...item,
-              customizations: {
-                ...item.customizations,
-                addons: {
-                  ...item.customizations.addons,
-                  options: currentAddons
-                }
-              }
-            };
+          let updatedCust = item.customizations;
+          if (updatedCust) {
+            updatedCust = { ...updatedCust };
+            if (updatedCust.addons) {
+              updatedCust.addons = {
+                ...updatedCust.addons,
+                options: currentAddons
+              };
+            }
+            if (updatedCust.condiments) {
+              updatedCust.condiments = {
+                ...updatedCust.condiments,
+                options: currentCondiments
+              };
+            }
           }
-          return item;
+          return {
+            ...item,
+            customizations: updatedCust
+          };
         });
 
         if (orderList.length > 0) {
