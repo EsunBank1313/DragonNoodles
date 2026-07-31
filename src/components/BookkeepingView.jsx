@@ -265,7 +265,9 @@ export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDa
         const manualRevItem = data.find(item => item.name === 'SYSTEM_SETTING_MANUAL_REVENUE');
         if (manualRevItem && manualRevItem.description) {
           try {
-            setManualRevenues(JSON.parse(manualRevItem.description));
+            const parsed = JSON.parse(manualRevItem.description);
+            setManualRevenues(parsed);
+            localStorage.setItem('restaurant_manual_revenues', JSON.stringify(parsed));
           } catch (e) {
             setManualRevenues({});
           }
@@ -407,10 +409,18 @@ export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDa
   const [activeTab, setActiveTab] = useState('sales'); // 'sales', 'variable', 'fixed', 'monthly'
   
   // Manual revenues states
-  const [manualRevenues, setManualRevenues] = useState({});
+  const [manualRevenues, setManualRevenues] = useState(() => {
+    const saved = localStorage.getItem('restaurant_manual_revenues');
+    return saved ? JSON.parse(saved) : {};
+  });
   const [showManualRevModal, setShowManualRevModal] = useState(false);
   const [manualRevDate, setManualRevDate] = useState(getTodayLocalDate());
   const [manualRevAmount, setManualRevAmount] = useState('');
+
+  // Editing existing inventory settings
+  const [editingInvItem, setEditingInvItem] = useState(null);
+  const [editInvUnit, setEditInvUnit] = useState('');
+  const [editInvMinStock, setEditInvMinStock] = useState('');
   
   // Daily Closing State
   const [localClosedDates, setLocalClosedDates] = useState(() => {
@@ -1006,6 +1016,36 @@ export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDa
     }
   };
 
+  // Update inventory item settings (unit and minStock threshold)
+  const handleSaveInvItemSettings = (e) => {
+    e.preventDefault();
+    if (!editingInvItem) return;
+
+    const minStockVal = Number(editInvMinStock);
+    if (isNaN(minStockVal) || minStockVal < 0) {
+      alert("安全警戒線必須是有效的數字！");
+      return;
+    }
+
+    setInventory(prev => {
+      const updated = prev.map(item => {
+        if (item.name === editingInvItem.name) {
+          return {
+            ...item,
+            unit: editInvUnit.trim(),
+            minStock: minStockVal
+          };
+        }
+        return item;
+      });
+      localStorage.setItem('restaurant_inventory', JSON.stringify(updated));
+      return updated;
+    });
+
+    alert(`物料「${editingInvItem.name}」的設定已更新！`);
+    setEditingInvItem(null);
+  };
+
   // Helper for manual adjustment submission
   const handleManualInventoryAdjustment = (e) => {
     e.preventDefault();
@@ -1140,6 +1180,10 @@ export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDa
       [date]: Number(amount) || 0
     };
     
+    // Save locally first
+    setManualRevenues(updated);
+    localStorage.setItem('restaurant_manual_revenues', JSON.stringify(updated));
+
     try {
       const { data: exist } = await supabase.from('menu_items').select('*').eq('name', 'SYSTEM_SETTING_MANUAL_REVENUE');
       if (exist && exist.length > 0) {
@@ -1157,11 +1201,10 @@ export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDa
         }]);
         if (error) throw error;
       }
-      setManualRevenues(updated);
       alert(`${date} 的手動登錄人工營業額更新成功！`);
       setShowManualRevModal(false);
     } catch (err) {
-      alert("儲存手動營業額失敗：" + err.message);
+      alert("同步雲端失敗（已儲存於本機）：" + err.message);
     }
   };
 
@@ -1170,6 +1213,10 @@ export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDa
     const updated = { ...manualRevenues };
     delete updated[date];
     
+    // Save locally first
+    setManualRevenues(updated);
+    localStorage.setItem('restaurant_manual_revenues', JSON.stringify(updated));
+
     try {
       const { data: exist } = await supabase.from('menu_items').select('*').eq('name', 'SYSTEM_SETTING_MANUAL_REVENUE');
       if (exist && exist.length > 0) {
@@ -1187,10 +1234,9 @@ export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDa
         }]);
         if (error) throw error;
       }
-      setManualRevenues(updated);
       alert(`${date} 的手動登錄人工營業額已成功清除！`);
     } catch (err) {
-      alert("清除手動營業額失敗：" + err.message);
+      alert("同步雲端失敗（已於本機清除）：" + err.message);
     }
   };
 
@@ -2418,6 +2464,16 @@ export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDa
                                   盤點登記
                                 </button>
                                 <button 
+                                  onClick={() => {
+                                    setEditingInvItem(item);
+                                    setEditInvUnit(item.unit || '');
+                                    setEditInvMinStock(String(item.minStock || 0));
+                                  }}
+                                  style={{ padding: '2px 6px', fontSize: '0.7rem', borderRadius: '4px', border: '1px solid var(--primary)', color: 'var(--primary)', backgroundColor: 'transparent', cursor: 'pointer', fontWeight: 'bold' }}
+                                >
+                                  ✏️ 編輯
+                                </button>
+                                <button 
                                   onClick={() => handleDeleteInventoryItem(item.name)}
                                   style={{ padding: '2px 6px', fontSize: '0.7rem', borderRadius: '4px', border: '1px solid #ef4444', color: '#ef4444', backgroundColor: 'transparent', cursor: 'pointer', fontWeight: 'bold' }}
                                 >
@@ -3160,6 +3216,73 @@ export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDa
                   style={{ padding: '8px 16px', fontSize: '0.8rem', borderRadius: '6px', border: 'none', backgroundColor: 'var(--primary)', color: 'white', fontWeight: 'bold', cursor: 'pointer' }}
                 >
                   💾 儲存並同步雲端
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* EDIT INVENTORY ITEM SETTINGS MODAL */}
+      {editingInvItem && (
+        <div className="modal-backdrop" style={{ zIndex: 1100 }}>
+          <div className="modal-content" style={{ maxWidth: '400px', padding: '24px', borderRadius: '16px', boxSizing: 'border-box', textAlign: 'left' }}>
+            <div className="modal-header" style={{ padding: 0, borderBottom: 'none', marginBottom: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h3 style={{ fontSize: '1.1rem', fontWeight: 'bold', margin: 0 }}>
+                ✏️ 編輯物料設定
+              </h3>
+              <button className="close-btn" style={{ background: 'none', border: 'none', fontSize: '1.5rem', cursor: 'pointer', color: 'var(--text-muted)' }} onClick={() => setEditingInvItem(null)}>&times;</button>
+            </div>
+            
+            <form onSubmit={handleSaveInvItemSettings} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <label style={{ fontSize: '0.75rem', fontWeight: 'bold' }}>物料名稱</label>
+                <input 
+                  type="text"
+                  disabled
+                  value={editingInvItem.name}
+                  style={{ padding: '8px', fontSize: '0.85rem', borderRadius: '6px', border: '1px solid var(--border)', color: 'var(--text-muted)', backgroundColor: 'var(--bg-input)' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <label style={{ fontSize: '0.75rem', fontWeight: 'bold' }}>物料單位</label>
+                <input 
+                  type="text"
+                  required
+                  placeholder="如: 斤, 個, 包, 罐"
+                  value={editInvUnit}
+                  onChange={(e) => setEditInvUnit(e.target.value)}
+                  style={{ padding: '8px', fontSize: '0.85rem', borderRadius: '6px', border: '1px solid var(--border)', color: 'var(--text-main)', backgroundColor: 'var(--bg-card)' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <label style={{ fontSize: '0.75rem', fontWeight: 'bold' }}>安全警戒值</label>
+                <input 
+                  type="number"
+                  required
+                  min="0"
+                  placeholder="低於此值會顯示黃色偏低警告"
+                  value={editInvMinStock}
+                  onChange={(e) => setEditInvMinStock(e.target.value)}
+                  style={{ padding: '8px', fontSize: '0.85rem', borderRadius: '6px', border: '1px solid var(--border)', color: 'var(--text-main)', backgroundColor: 'var(--bg-card)' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '12px' }}>
+                <button 
+                  type="button"
+                  onClick={() => setEditingInvItem(null)}
+                  style={{ padding: '8px 16px', fontSize: '0.8rem', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'transparent', color: 'var(--text-main)', cursor: 'pointer' }}
+                >
+                  取消
+                </button>
+                <button 
+                  type="submit"
+                  style={{ padding: '8px 16px', fontSize: '0.8rem', borderRadius: '6px', border: 'none', backgroundColor: 'var(--primary)', color: 'white', fontWeight: 'bold', cursor: 'pointer' }}
+                >
+                  💾 儲存設定
                 </button>
               </div>
             </form>
