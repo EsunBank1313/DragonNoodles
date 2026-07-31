@@ -78,6 +78,7 @@ export default function CustomerView({ tableNumber, onBackToDemo }) {
   const [activeOrderId, setActiveOrderId] = useState(null);
 
   const [showCart, setShowCart] = useState(false);
+  const [editingCartItem, setEditingCartItem] = useState(null);
   const [remarks, setRemarks] = useState('');
 
   // OTP Verification States (Real Firebase Phone Auth)
@@ -98,7 +99,7 @@ export default function CustomerView({ tableNumber, onBackToDemo }) {
 
   const [menuItemsAvailability, setMenuItemsAvailability] = useState({});
   const [menuItems, setMenuItems] = useState([]);
-  const [storeName, setStoreName] = useState('{storeName}');
+  const [storeName, setStoreName] = useState('龍城麵線');
 
   const confirmationResultRef = useRef(null);
   const recaptchaVerifierRef = useRef(null);
@@ -408,6 +409,12 @@ export default function CustomerView({ tableNumber, onBackToDemo }) {
   // Cart operations
   const handleAddToCart = (cartItem) => {
     setCart(prev => {
+      if (editingCartItem) {
+        // Clear editing state and map cartItem to replace the match
+        setEditingCartItem(null);
+        return prev.map(item => item.cartId === cartItem.cartId ? cartItem : item);
+      }
+
       const existingIdx = prev.findIndex(item => 
         item.id === cartItem.id && 
         JSON.stringify(item.specs) === JSON.stringify(cartItem.specs)
@@ -421,6 +428,7 @@ export default function CustomerView({ tableNumber, onBackToDemo }) {
       }
       return [...prev, cartItem];
     });
+    setEditingCartItem(null);
   };
 
   const handleUpdateQty = (cartId, newQty) => {
@@ -1003,9 +1011,13 @@ export default function CustomerView({ tableNumber, onBackToDemo }) {
       {selectedItem && (
         <ItemModal 
           item={selectedItem} 
-          onClose={() => setSelectedItem(null)} 
+          onClose={() => {
+            setSelectedItem(null);
+            setEditingCartItem(null);
+          }} 
           onAddToCart={handleAddToCart}
           condimentsAvailability={condimentsAvailability}
+          editingCartItem={editingCartItem}
         />
       )}
 
@@ -1018,6 +1030,14 @@ export default function CustomerView({ tableNumber, onBackToDemo }) {
           onCheckout={() => {
             setShowCart(false);
             setViewState('checkout');
+          }}
+          onEditItem={(cartItem) => {
+            const matchedProduct = menuItems.find(p => p.id === cartItem.id);
+            if (matchedProduct) {
+              setEditingCartItem(cartItem);
+              setSelectedItem(matchedProduct);
+              setShowCart(false);
+            }
           }}
         />
       )}

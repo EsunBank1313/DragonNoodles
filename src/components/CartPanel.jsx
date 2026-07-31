@@ -1,6 +1,6 @@
 import React from 'react';
 
-export default function CartPanel({ cart, onClose, onUpdateQty, onRemoveItem, onCheckout }) {
+export default function CartPanel({ cart, onClose, onUpdateQty, onRemoveItem, onCheckout, onEditItem }) {
   const subtotal = cart.reduce((sum, item) => sum + item.totalPrice, 0);
   const serviceCharge = 0; // vermicelli shops usually don't charge service fees! Let's keep it simple.
   const total = subtotal + serviceCharge;
@@ -32,22 +32,43 @@ export default function CartPanel({ cart, onClose, onUpdateQty, onRemoveItem, on
                   </div>
                   <div className="cart-item-bottom">
                     <span className="cart-item-price">NT$ {item.totalPrice}</span>
-                    <div className="qty-counter">
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <button
-                        className="qty-btn"
-                        style={{ width: '28px', height: '28px', fontSize: '0.9rem' }}
-                        onClick={() => onUpdateQty(item.cartId, item.quantity - 1)}
+                        type="button"
+                        onClick={() => onEditItem && onEditItem(item)}
+                        style={{
+                          padding: '3px 8px',
+                          fontSize: '0.75rem',
+                          borderRadius: '6px',
+                          border: '1px solid var(--primary)',
+                          color: 'var(--primary)',
+                          backgroundColor: 'transparent',
+                          cursor: 'pointer',
+                          fontWeight: 'bold',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center'
+                        }}
                       >
-                        -
+                        ✏️ 編輯
                       </button>
-                      <span className="qty-val" style={{ fontSize: '0.95rem' }}>{item.quantity}</span>
-                      <button
-                        className="qty-btn"
-                        style={{ width: '28px', height: '28px', fontSize: '0.9rem' }}
-                        onClick={() => onUpdateQty(item.cartId, item.quantity + 1)}
-                      >
-                        +
-                      </button>
+                      <div className="qty-counter" style={{ margin: 0 }}>
+                        <button
+                          className="qty-btn"
+                          style={{ width: '28px', height: '28px', fontSize: '0.9rem' }}
+                          onClick={() => onUpdateQty(item.cartId, item.quantity - 1)}
+                        >
+                          -
+                        </button>
+                        <span className="qty-val" style={{ fontSize: '0.95rem' }}>{item.quantity}</span>
+                        <button
+                          className="qty-btn"
+                          style={{ width: '28px', height: '28px', fontSize: '0.9rem' }}
+                          onClick={() => onUpdateQty(item.cartId, item.quantity + 1)}
+                        >
+                          +
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -61,10 +82,6 @@ export default function CartPanel({ cart, onClose, onUpdateQty, onRemoveItem, on
             <div className="summary-row">
               <span>小計</span>
               <span>NT$ {subtotal}</span>
-            </div>
-            <div className="summary-row">
-              <span>清潔服務費</span>
-              <span>NT$ {serviceCharge}</span>
             </div>
             <div className="summary-row total">
               <span>總金額</span>

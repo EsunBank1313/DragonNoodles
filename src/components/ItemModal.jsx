@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 
-export default function ItemModal({ item, onClose, onAddToCart, condimentsAvailability, isPos = false }) {
+export default function ItemModal({ item, onClose, onAddToCart, condimentsAvailability, isPos = false, editingCartItem = null }) {
   const [quantity, setQuantity] = useState(1);
   const [selectedRadioOptions, setSelectedRadioOptions] = useState({});
   const [addonQuantities, setAddonQuantities] = useState({});
@@ -34,10 +34,29 @@ export default function ItemModal({ item, onClose, onAddToCart, condimentsAvaila
       }
     });
 
+    // If editing an existing item from the cart, prefill selections and quantity!
+    if (editingCartItem && editingCartItem.customizationsSelections) {
+      const selections = editingCartItem.customizationsSelections;
+      if (selections.radios) {
+        Object.assign(initialRadio, selections.radios);
+      }
+      if (selections.addons) {
+        Object.assign(initialAddons, selections.addons);
+      }
+      if (selections.dropdowns) {
+        Object.entries(selections.dropdowns).forEach(([grpKey, grpVals]) => {
+          initialDropdown[grpKey] = { ...initialDropdown[grpKey], ...grpVals };
+        });
+      }
+      setQuantity(editingCartItem.quantity || 1);
+    } else {
+      setQuantity(1);
+    }
+
     setSelectedRadioOptions(initialRadio);
     setSelectedDropdowns(initialDropdown);
     setAddonQuantities(initialAddons);
-  }, [item, condimentsAvailability]);
+  }, [item, condimentsAvailability, editingCartItem]);
 
   // Recalculate price whenever selections change
   useEffect(() => {
@@ -127,7 +146,7 @@ export default function ItemModal({ item, onClose, onAddToCart, condimentsAvaila
     }
 
     const cartItem = {
-      cartId: `${item.id}-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+      cartId: editingCartItem ? editingCartItem.cartId : `${item.id}-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
       id: item.id,
       name: item.name,
       basePrice: item.price,
