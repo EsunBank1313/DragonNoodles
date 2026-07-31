@@ -159,6 +159,7 @@ function App() {
     sessionStorage.removeItem('is_cashier_authenticated');
     localStorage.removeItem('cashier_name');
     sessionStorage.removeItem('cashier_name');
+    localStorage.removeItem('pos_session_id');
   };
 
   const handleBookkeepingAuthSuccess = (remember) => {

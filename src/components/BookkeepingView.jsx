@@ -407,6 +407,7 @@ export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDa
   const [editingVendorIndex, setEditingVendorIndex] = useState(null);
     const [selectedBookkeepingDate, setSelectedBookkeepingDate] = useState(getTodayLocalDate());
   const [activeTab, setActiveTab] = useState('sales'); // 'sales', 'variable', 'fixed', 'monthly'
+  const [variableCostRange, setVariableCostRange] = useState('day'); // 'day', 'week', 'month', 'all'
   
   // Manual revenues states
   const [manualRevenues, setManualRevenues] = useState(() => {
@@ -1411,6 +1412,37 @@ export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDa
   const purchasesForDate = purchases.filter(p => p.date === selectedBookkeepingDate);
   const totalPurchasesCost = purchasesForDate.reduce((sum, p) => sum + p.cost, 0);
 
+  const getCalendarWeekRange = (dateStr) => {
+    const current = new Date(dateStr);
+    const day = current.getDay(); // 0 is Sun, 1 is Mon
+    const diff = current.getDate() - day + (day === 0 ? -6 : 1);
+    const monday = new Date(current.setDate(diff));
+    const sunday = new Date(monday);
+    sunday.setDate(monday.getDate() + 6);
+    return {
+      start: monday.toLocaleDateString('sv-SE'),
+      end: sunday.toLocaleDateString('sv-SE')
+    };
+  };
+
+  const getFilteredPurchasesForRange = () => {
+    if (variableCostRange === 'day') {
+      return purchases.filter(p => p.date === selectedBookkeepingDate);
+    }
+    if (variableCostRange === 'week') {
+      const { start, end } = getCalendarWeekRange(selectedBookkeepingDate);
+      return purchases.filter(p => p.date >= start && p.date <= end);
+    }
+    if (variableCostRange === 'month') {
+      const monthPrefix = selectedBookkeepingDate.slice(0, 7); // YYYY-MM
+      return purchases.filter(p => p.date.startsWith(monthPrefix));
+    }
+    return purchases; // 'all'
+  };
+
+  const purchasesForSelectedRange = getFilteredPurchasesForRange();
+  const totalPurchasesCostForSelectedRange = purchasesForSelectedRange.reduce((sum, p) => sum + p.cost, 0);
+
   // Active Fixed Costs for selected month
   const selectedYearMonth = selectedBookkeepingDate.slice(0, 7); // YYYY-MM
   const activeFixedCostsForMonth = fixedCosts.filter(fc => {
@@ -2036,11 +2068,30 @@ export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDa
                 </form>
 
                 {/* Purchase List Table */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '10px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ fontSize: '0.8rem', fontWeight: 'bold' }}>📅 檢視區間:</span>
+                    <select 
+                      value={variableCostRange}
+                      onChange={(e) => setVariableCostRange(e.target.value)}
+                      style={{ padding: '6px 12px', fontSize: '0.8rem', borderRadius: '6px', border: '1px solid var(--border)', color: 'var(--text-main)', backgroundColor: 'var(--bg-card)' }}
+                    >
+                      <option value="day">單日紀錄</option>
+                      <option value="week">當週紀錄 (週一至週日)</option>
+                      <option value="month">當月紀錄</option>
+                      <option value="all">全部紀錄</option>
+                    </select>
+                  </div>
+                  <span style={{ fontSize: '0.85rem', fontWeight: 'bold', color: 'var(--primary)' }}>
+                    區間支出總計: NT$ {totalPurchasesCostForSelectedRange}
+                  </span>
+                </div>
+
                 <div style={{ overflowX: 'auto' }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem', textAlign: 'left' }}>
                     <thead>
                       <tr style={{ backgroundColor: 'var(--bg-input)', borderBottom: '1px solid var(--border)', color: 'var(--text-muted)' }}>
-                        <th style={{ padding: '10px 12px' }}>時間</th>
+                        <th style={{ padding: '10px 12px' }}>進貨日期</th>
                         <th style={{ padding: '10px 12px' }}>進貨廠商</th>
                         <th style={{ padding: '10px 12px' }}>品項</th>
                         <th style={{ padding: '10px 12px' }}>數量/重量</th>
@@ -2050,14 +2101,14 @@ export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDa
                       </tr>
                     </thead>
                     <tbody>
-                      {purchasesForDate.length === 0 ? (
+                      {purchasesForSelectedRange.length === 0 ? (
                         <tr>
-                          <td colSpan="7" style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)' }}>該日無變動進貨支出紀錄</td>
+                          <td colSpan="7" style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)' }}>此區間無變動進貨支出紀錄</td>
                         </tr>
                       ) : (
-                        purchasesForDate.map(p => (
+                        purchasesForSelectedRange.map(p => (
                           <tr key={p.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                            <td style={{ padding: '10px 12px' }}>{p.time}</td>
+                            <td style={{ padding: '10px 12px' }}>{p.date}</td>
                             <td style={{ padding: '10px 12px' }}>{p.vendor}</td>
                             <td style={{ padding: '10px 12px', fontWeight: 'bold' }}>{p.itemName}</td>
                             <td style={{ padding: '10px 12px' }}>{p.quantity}</td>

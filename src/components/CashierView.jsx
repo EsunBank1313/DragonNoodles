@@ -4,10 +4,41 @@ import { formatSupabaseOrder } from './CustomerView';
 import ItemModal from './ItemModal';
 
 export default function CashierView({ cashierName, onLogout }) {
+  const [sessionId] = useState(() => {
+    let sid = localStorage.getItem('pos_session_id');
+    if (!sid) {
+      sid = `${cashierName}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      localStorage.setItem('pos_session_id', sid);
+    }
+    return sid;
+  });
+
   const locallyPrintedOrders = useRef(new Set());
   const [menuItems, setMenuItems] = useState([]);
   const [activeCategory, setActiveCategory] = useState('mee-sua');
   const [cart, setCart] = useState([]);
+
+  useEffect(() => {
+    const registerSession = async () => {
+      try {
+        const { data: exist } = await supabase.from('menu_items').select('*').eq('name', 'SYSTEM_SETTING_ACTIVE_POS_SESSION');
+        const sessionPayload = { user: cashierName, sessionId, lastActive: Date.now() };
+        if (exist && exist.length > 0) {
+          await supabase.from('menu_items').update({ description: JSON.stringify(sessionPayload) }).eq('name', 'SYSTEM_SETTING_ACTIVE_POS_SESSION');
+        } else {
+          await supabase.from('menu_items').insert([{
+            name: 'SYSTEM_SETTING_ACTIVE_POS_SESSION',
+            price: 0,
+            category: 'settings',
+            description: JSON.stringify(sessionPayload)
+          }]);
+        }
+      } catch (err) {
+        console.error("Failed to register POS session:", err);
+      }
+    };
+    registerSession();
+  }, [sessionId, cashierName]);
   
   // Checkout details
   const [orderType, setOrderType] = useState('dine-in'); // Default to counter takeout
@@ -313,6 +344,24 @@ export default function CashierView({ cashierName, onLogout }) {
 
   const fetchOrders = async () => {
     try {
+      // Check active POS session
+      const { data: activeSessionData } = await supabase
+        .from('menu_items')
+        .select('*')
+        .eq('name', 'SYSTEM_SETTING_ACTIVE_POS_SESSION');
+      if (activeSessionData && activeSessionData.length > 0) {
+        try {
+          const activeSession = JSON.parse(activeSessionData[0].description);
+          if (activeSession && activeSession.sessionId && activeSession.sessionId !== sessionId) {
+            alert(`⚠️ 偵測到此收銀系統帳號已在其他裝置/視窗登入 (${activeSession.user})。您已被本系統自動登出！`);
+            onLogout();
+            return;
+          }
+        } catch (e) {
+          console.error("Failed to parse active POS session:", e);
+        }
+      }
+
       const { data, error } = await supabase.from('orders').select('*').order('created_at', { ascending: true });
       if (error) throw error;
       if (data) {
