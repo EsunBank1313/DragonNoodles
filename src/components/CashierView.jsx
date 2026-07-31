@@ -50,6 +50,7 @@ export default function CashierView({ cashierName, onLogout }) {
   });
   
   const [isAutoPrintEnabled, setIsAutoPrintEnabled] = useState(() => localStorage.getItem('is_auto_print_enabled') === 'true');
+  const [isPrintBlocked, setIsPrintBlocked] = useState(false);
 
   // Synthesize notification chime
   const triggerChime = () => {
@@ -75,9 +76,10 @@ export default function CashierView({ cashierName, onLogout }) {
   const printReceipt = (order) => {
     const printWindow = window.open('', '_blank', 'width=350,height=500');
     if (!printWindow) {
-      alert("⚠️ 自動列印收據彈出視窗被瀏覽器封鎖！請在瀏覽器網址列設定「永遠允許此網站彈出視窗」以啟動自動出單。");
+      setIsPrintBlocked(true);
       return;
     }
+    setIsPrintBlocked(false);
     
     let cartItems = [];
     if (order) {
@@ -720,7 +722,38 @@ export default function CashierView({ cashierName, onLogout }) {
       fontFamily: 'system-ui, -apple-system, sans-serif',
       position: 'relative'
     }}>
-                  {/* Top Header */}
+      {isPrintBlocked && (
+        <div style={{
+          backgroundColor: '#fee2e2',
+          borderBottom: '1px solid #fca5a5',
+          color: '#b91c1c',
+          padding: '8px 24px',
+          fontSize: '0.85rem',
+          fontWeight: 'bold',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          zIndex: 100
+        }}>
+          <span>⚠️ 偵測到自動列印收據的彈出視窗被您的瀏覽器封鎖！請點擊瀏覽器網址列右側的彈出視窗圖示，並選擇「永遠允許此網站的彈出視窗」以啟動自動出單。</span>
+          <button 
+            onClick={() => setIsPrintBlocked(false)} 
+            style={{ 
+              background: 'none', 
+              border: 'none', 
+              color: '#b91c1c', 
+              cursor: 'pointer', 
+              fontWeight: 'bold',
+              fontSize: '1rem',
+              padding: '0 8px'
+            }}
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
+      {/* Top Header */}
       <header style={{
         display: 'flex',
         justifyContent: 'space-between',
