@@ -1497,7 +1497,8 @@ export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDa
     return (o.status === 'completed' || o.status === 'received') && orderDate === selectedBookkeepingDate;
   });
 
-  const totalRevenue = completedOrders.reduce((sum, o) => sum + o.total, 0);
+  const todayManualRevenue = Number(manualRevenues[selectedBookkeepingDate]) || 0;
+  const totalRevenue = completedOrders.reduce((sum, o) => sum + o.total, 0) + todayManualRevenue;
   const onlineRevenue = completedOrders
     .filter(o => o.paymentMethod === 'online')
     .reduce((sum, o) => sum + o.total, 0);
