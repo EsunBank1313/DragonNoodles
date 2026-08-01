@@ -12,7 +12,10 @@ export default function CashierView({ cashierName, onLogout }) {
     }
     return sid;
   });
+  
+  const [isSessionRegistered, setIsSessionRegistered] = useState(false);
 
+  const systemStartTime = useRef(Date.now());
   const locallyPrintedOrders = useRef(new Set());
   const [menuItems, setMenuItems] = useState([]);
   const [activeCategory, setActiveCategory] = useState('mee-sua');
@@ -33,6 +36,7 @@ export default function CashierView({ cashierName, onLogout }) {
             description: JSON.stringify(sessionPayload)
           }]);
         }
+        setIsSessionRegistered(true);
       } catch (err) {
         console.error("Failed to register POS session:", err);
       }
@@ -240,6 +244,31 @@ export default function CashierView({ cashierName, onLogout }) {
         const merged = cloudDates;
         setClosedDates(merged);
         localStorage.setItem('restaurant_closed_dates', JSON.stringify(merged));
+
+        // Auto Close Shop check at 10 PM
+        const now = new Date();
+        const hours = now.getHours();
+        const todayStr = getTodayLocalDate();
+        if (hours >= 22 && !merged.includes(todayStr)) {
+          supabase.from('orders').insert([{
+            order_number: 'CLOSE',
+            items: {
+              customerName: 'SYSTEM_STORE_CLOSE',
+              customerPhone: 'SYSTEM',
+              cart: []
+            },
+            total: 0,
+            type: 'dine-in',
+            table_number: 'CLOSED',
+            status: 'completed',
+            payment_status: 'paid'
+          }]).then(({ error: insertError }) => {
+            if (!insertError) {
+              console.log("Auto closed store at 10 PM successfully.");
+              fetchClosedDatesFromCloud();
+            }
+          });
+        }
       }
     } catch (err) {
       console.error("Failed to fetch closed dates from cloud in CashierView:", err);
@@ -349,7 +378,7 @@ export default function CashierView({ cashierName, onLogout }) {
         .from('menu_items')
         .select('*')
         .eq('name', 'SYSTEM_SETTING_ACTIVE_POS_SESSION');
-      if (activeSessionData && activeSessionData.length > 0) {
+      if (isSessionRegistered && activeSessionData && activeSessionData.length > 0) {
         try {
           const activeSession = JSON.parse(activeSessionData[0].description);
           if (activeSession && activeSession.sessionId && activeSession.sessionId !== sessionId) {
@@ -444,10 +473,11 @@ export default function CashierView({ cashierName, onLogout }) {
 
         if (error) throw error;
         if (newOrders && newOrders.length > 0) {
-          // Find the ones that don't have is_printed: true in items JSONB
+          // Find the ones that don't have is_printed: true in items JSONB and are created after startup
           const unprintedOrders = newOrders.filter(o => {
             const itemsData = typeof o.items === 'string' ? JSON.parse(o.items) : o.items;
-            return !itemsData || !itemsData.is_printed;
+            const createdTime = new Date(o.created_at).getTime();
+            return (!itemsData || !itemsData.is_printed) && createdTime > systemStartTime.current;
           });
 
           for (const order of unprintedOrders) {

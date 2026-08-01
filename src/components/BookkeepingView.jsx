@@ -439,6 +439,7 @@ export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDa
   const [purchaseStatus, setPurchaseStatus] = useState('paid');
 
   // Inventory States
+  const [isInventoryLoaded, setIsInventoryLoaded] = useState(false);
   const [inventory, setInventory] = useState(() => {
     const saved = localStorage.getItem('restaurant_inventory');
     return saved ? JSON.parse(saved) : defaultInventory;
@@ -755,15 +756,46 @@ export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDa
     }
   };
 
+  const fetchInventoryFromCloud = async () => {
+    try {
+      const { data, error } = await supabase.from('menu_items').select('*').in('name', [
+        'SYSTEM_SETTING_INVENTORY',
+        'SYSTEM_SETTING_INVENTORY_LOGS',
+        'SYSTEM_SETTING_PROCESSED_ORDERS',
+        'SYSTEM_SETTING_CONDIMENTS_AVAILABILITY'
+      ]);
+      if (error) throw error;
+      if (data) {
+        const invItem = data.find(i => i.name === 'SYSTEM_SETTING_INVENTORY');
+        if (invItem && invItem.description) {
+          setInventory(JSON.parse(invItem.description));
+        }
+        const logsItem = data.find(i => i.name === 'SYSTEM_SETTING_INVENTORY_LOGS');
+        if (logsItem && logsItem.description) {
+          setInventoryLogs(JSON.parse(logsItem.description));
+        }
+        const processedItem = data.find(i => i.name === 'SYSTEM_SETTING_PROCESSED_ORDERS');
+        if (processedItem && processedItem.description) {
+          setProcessedOrderIds(JSON.parse(processedItem.description));
+        }
+        const condsItem = data.find(i => i.name === 'SYSTEM_SETTING_CONDIMENTS_AVAILABILITY');
+        if (condsItem && condsItem.description) {
+          setCondimentsAvailability(JSON.parse(condsItem.description));
+        }
+      }
+    } catch (e) {
+      console.error("Failed to load inventory settings from cloud:", e);
+    } finally {
+      setIsInventoryLoaded(true);
+    }
+  };
+
   useEffect(() => {
     fetchOrders();
     fetchPurchases();
     fetchFixedCosts();
     fetchMenuItems();
-    const savedCondiments = localStorage.getItem('condiments_availability');
-    if (savedCondiments) {
-      setCondimentsAvailability(JSON.parse(savedCondiments));
-    }
+    fetchInventoryFromCloud();
   }, []);
 
   // Sync closedDates across storage updates (e.g. from cashier closing shop)
@@ -780,13 +812,85 @@ export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDa
     setPurchaseDate(selectedBookkeepingDate);
   }, [selectedBookkeepingDate]);
 
-  // Save inventory to local storage on changes
+  // Save inventory to local storage & cloud on changes
   useEffect(() => {
+    if (!isInventoryLoaded) return;
     localStorage.setItem('restaurant_inventory', JSON.stringify(inventory));
-  }, [inventory]);
+    const syncInv = async () => {
+      try {
+        const { data } = await supabase.from('menu_items').select('*').eq('name', 'SYSTEM_SETTING_INVENTORY');
+        if (data && data.length > 0) {
+          await supabase.from('menu_items').update({ description: JSON.stringify(inventory) }).eq('name', 'SYSTEM_SETTING_INVENTORY');
+        } else {
+          await supabase.from('menu_items').insert([{ name: 'SYSTEM_SETTING_INVENTORY', price: 0, category: 'settings', description: JSON.stringify(inventory) }]);
+        }
+      } catch (e) {
+        console.error("Failed to sync inventory to cloud:", e);
+      }
+    };
+    syncInv();
+  }, [inventory, isInventoryLoaded]);
+
+  // Save processed order IDs to local storage & cloud on changes
+  useEffect(() => {
+    if (!isInventoryLoaded) return;
+    localStorage.setItem('restaurant_processed_orders', JSON.stringify(processedOrderIds));
+    const syncProcessed = async () => {
+      try {
+        const { data } = await supabase.from('menu_items').select('*').eq('name', 'SYSTEM_SETTING_PROCESSED_ORDERS');
+        if (data && data.length > 0) {
+          await supabase.from('menu_items').update({ description: JSON.stringify(processedOrderIds) }).eq('name', 'SYSTEM_SETTING_PROCESSED_ORDERS');
+        } else {
+          await supabase.from('menu_items').insert([{ name: 'SYSTEM_SETTING_PROCESSED_ORDERS', price: 0, category: 'settings', description: JSON.stringify(processedOrderIds) }]);
+        }
+      } catch (e) {
+        console.error("Failed to sync processed orders to cloud:", e);
+      }
+    };
+    syncProcessed();
+  }, [processedOrderIds, isInventoryLoaded]);
+
+  // Save inventory logs to local storage & cloud on changes
+  useEffect(() => {
+    if (!isInventoryLoaded) return;
+    localStorage.setItem('restaurant_inventory_logs', JSON.stringify(inventoryLogs));
+    const syncLogs = async () => {
+      try {
+        const { data } = await supabase.from('menu_items').select('*').eq('name', 'SYSTEM_SETTING_INVENTORY_LOGS');
+        if (data && data.length > 0) {
+          await supabase.from('menu_items').update({ description: JSON.stringify(inventoryLogs) }).eq('name', 'SYSTEM_SETTING_INVENTORY_LOGS');
+        } else {
+          await supabase.from('menu_items').insert([{ name: 'SYSTEM_SETTING_INVENTORY_LOGS', price: 0, category: 'settings', description: JSON.stringify(inventoryLogs) }]);
+        }
+      } catch (e) {
+        console.error("Failed to sync logs to cloud:", e);
+      }
+    };
+    syncLogs();
+  }, [inventoryLogs, isInventoryLoaded]);
+
+  // Save condiments availability to local storage & cloud on changes
+  useEffect(() => {
+    if (!isInventoryLoaded) return;
+    localStorage.setItem('condiments_availability', JSON.stringify(condimentsAvailability));
+    const syncConds = async () => {
+      try {
+        const { data } = await supabase.from('menu_items').select('*').eq('name', 'SYSTEM_SETTING_CONDIMENTS_AVAILABILITY');
+        if (data && data.length > 0) {
+          await supabase.from('menu_items').update({ description: JSON.stringify(condimentsAvailability) }).eq('name', 'SYSTEM_SETTING_CONDIMENTS_AVAILABILITY');
+        } else {
+          await supabase.from('menu_items').insert([{ name: 'SYSTEM_SETTING_CONDIMENTS_AVAILABILITY', price: 0, category: 'settings', description: JSON.stringify(condimentsAvailability) }]);
+        }
+      } catch (e) {
+        console.error("Failed to sync condiments to cloud:", e);
+      }
+    };
+    syncConds();
+  }, [condimentsAvailability, isInventoryLoaded]);
 
   // Process completed orders to decrease inventory automatically
   useEffect(() => {
+    if (!isInventoryLoaded) return;
     if (orders.length === 0) return;
 
     const completedOrders = orders.filter(o => o.status === 'completed' || o.status === 'received');
@@ -830,25 +934,19 @@ export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDa
         processedAny = true;
       });
 
-      if (processedAny) {
-        localStorage.setItem('restaurant_inventory', JSON.stringify(newInventory));
-      }
       return newInventory;
     });
 
     if (processedAny) {
       setProcessedOrderIds(newProcessedIds);
-      localStorage.setItem('restaurant_processed_orders', JSON.stringify(newProcessedIds));
-
       if (newLogs.length > 0) {
         setInventoryLogs(prev => {
           const updatedLogs = [...newLogs, ...prev].slice(0, 50);
-          localStorage.setItem('restaurant_inventory_logs', JSON.stringify(updatedLogs));
           return updatedLogs;
         });
       }
     }
-  }, [orders, processedOrderIds]);
+  }, [orders, processedOrderIds, isInventoryLoaded]);
 
   // One-time sync of 7/23 purchases into inventory status
   useEffect(() => {

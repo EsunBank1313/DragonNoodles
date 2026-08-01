@@ -102,10 +102,21 @@ export default function CustomerView({ tableNumber, onBackToDemo }) {
   const [storeName, setStoreName] = useState('龍城麵線');
   const [storeAddress, setStoreAddress] = useState('');
   const [storePhone, setStorePhone] = useState('');
+  const [closedDates, setClosedDates] = useState([]);
   const [paymentMethodsConfig, setPaymentMethodsConfig] = useState({
     counter: { enabled: true, name: '店內結帳 (到店付款)', desc: '取餐時於櫃檯付款，支援現金與TWQR共同支付' },
     online: { enabled: true, name: '線上刷卡', desc: '下單即完成付款' }
   });
+
+  const getTodayLocalDate = () => {
+    try {
+      return new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' });
+    } catch (e) {
+      const d = new Date();
+      const tzOffset = d.getTimezoneOffset() * 60000;
+      return new Date(d.getTime() - tzOffset).toISOString().slice(0, 10);
+    }
+  };
 
   const confirmationResultRef = useRef(null);
   const recaptchaVerifierRef = useRef(null);
@@ -313,9 +324,54 @@ export default function CustomerView({ tableNumber, onBackToDemo }) {
     }
   };
 
+  const fetchClosedDates = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('orders')
+        .select('created_at, items');
+      if (error) throw error;
+      if (data) {
+        const cloudDates = data
+          .filter(o => {
+            const itemsData = typeof o.items === 'string' ? JSON.parse(o.items) : o.items;
+            return itemsData?.customerName === 'SYSTEM_STORE_CLOSE';
+          })
+          .map(o => {
+            return new Date(o.created_at).toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' });
+          });
+        setClosedDates(cloudDates);
+
+        // Auto Close Shop check at 10 PM on Customer view
+        const now = new Date();
+        const hours = now.getHours();
+        const todayStr = getTodayLocalDate();
+        if (hours >= 22 && !cloudDates.includes(todayStr)) {
+          supabase.from('orders').insert([{
+            order_number: 'CLOSE',
+            items: {
+              customerName: 'SYSTEM_STORE_CLOSE',
+              customerPhone: 'SYSTEM',
+              cart: []
+            },
+            total: 0,
+            type: 'dine-in',
+            table_number: 'CLOSED',
+            status: 'completed',
+            payment_status: 'paid'
+          }]).then(({ error: insertError }) => {
+            if (!insertError) fetchClosedDates();
+          });
+        }
+      }
+    } catch (e) {
+      console.error("Failed to load closed dates in CustomerView:", e);
+    }
+  };
+
   // Load active order and all orders from Supabase
   useEffect(() => {
     fetchMenuItems();
+    fetchClosedDates();
 
     const savedActiveId = localStorage.getItem('active_customer_order_id');
     if (savedActiveId) {
@@ -713,6 +769,32 @@ export default function CustomerView({ tableNumber, onBackToDemo }) {
       window.location.href = table ? `/?table=${table}` : '/';
     }
   };
+
+  const todayStr = getTodayLocalDate();
+  const isClosed = closedDates.includes(todayStr);
+
+  if (isClosed) {
+    return (
+      <div style={{
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        height: '100vh',
+        backgroundColor: 'var(--bg-body)',
+        color: 'var(--text-main)',
+        padding: '24px',
+        textAlign: 'center',
+        fontFamily: 'system-ui, sans-serif'
+      }}>
+        <span style={{ fontSize: '4rem', marginBottom: '20px' }}>🚪</span>
+        <h2 style={{ fontSize: '1.5rem', fontWeight: 'bold', marginBottom: '10px' }}>本日營業已結束</h2>
+        <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', maxWidth: '300px', lineHeight: '1.6' }}>
+          【{storeName}】今日營業已打烊收店。歡迎您明天再來點餐，謝謝您的支持！
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="customer-view">
