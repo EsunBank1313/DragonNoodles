@@ -24,9 +24,9 @@ const getInitialRoleAndParams = () => {
     params.get('pos') === 'true' || params.get('bookkeeping') === 'true'
   );
 
-  // If user requests an internal staff portal, strictly verify the secret token!
+  // If user requests an internal staff portal, strictly verify the secret token if provided!
   if (isStaffRoute) {
-    if (!isStaffTokenValid(rawStore)) {
+    if (rawStore && !isStaffTokenValid(rawStore)) {
       return { role: 'dead_404', table: null, store, isStaffValid: false };
     }
   }

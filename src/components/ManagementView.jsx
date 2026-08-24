@@ -5,7 +5,7 @@ import QRCode from 'qrcode';
 import { defaultStoreProfile, defaultReceiptConfig, printViaHiddenIframe } from '../utils/printHelpers';
 import { getActiveStoreCode, filterItemsByStore, prefixNameForStore, stripNameForStore, getStoreLinks, syncRegisteredStoresCache, generateRandomStoreToken } from '../utils/storeContext';
 import ThemeSelector from './ThemeSelector';
-import { menuItems as defaultMenuItems } from '../data/menuData';
+import { menuItems as defaultMenuItems, defaultUpgradeCombos } from '../data/menuData';
 
 
 // Preset categories and rich icon collection
