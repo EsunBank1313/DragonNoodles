@@ -16,8 +16,8 @@ export default function ItemModal({
   const [selectedDropdowns, setSelectedDropdowns] = useState({});
   
   // 🍱 Upgrade Combo States & Applicability Matching
-  const allCombos = (upgradeCombos && upgradeCombos.length > 0) ? upgradeCombos : defaultUpgradeCombos;
-  const availableUpgradeCombos = allCombos.filter(pkg => isComboApplicableToItem(pkg, item));
+  const allCombos = (upgradeCombos && Array.isArray(upgradeCombos) && upgradeCombos.length > 0) ? upgradeCombos : defaultUpgradeCombos;
+  const availableUpgradeCombos = (allCombos || []).filter(pkg => isComboApplicableToItem(pkg, item));
   const canUpgrade = availableUpgradeCombos.length > 0;
   
   const [selectedUpgradeId, setSelectedUpgradeId] = useState(null);
@@ -104,10 +104,12 @@ export default function ItemModal({
 
     setSelectedUpgradeId(upgradeId);
     const targetUpgrade = availableUpgradeCombos.find(u => u.id === upgradeId);
-    if (targetUpgrade && targetUpgrade.slots) {
+    if (targetUpgrade && targetUpgrade.slots && Array.isArray(targetUpgrade.slots)) {
       const initialSlots = {};
       targetUpgrade.slots.forEach((slot, sIdx) => {
-        const defOpt = slot.options.find(o => o.default) || slot.options[0];
+        if (!slot) return;
+        const optionsList = Array.isArray(slot.options) ? slot.options : [];
+        const defOpt = optionsList.find(o => o && o.default) || optionsList[0];
         initialSlots[slot.id || `slot_${sIdx}`] = defOpt ? defOpt.name : '';
       });
       setSelectedUpgradeSlots(initialSlots);
@@ -144,11 +146,12 @@ export default function ItemModal({
       unitPrice += Number(activeUpgrade.price) || 0;
 
       // Slot extra price changes (e.g. specialty drink +5)
-      if (activeUpgrade.slots) {
+      if (activeUpgrade.slots && Array.isArray(activeUpgrade.slots)) {
         activeUpgrade.slots.forEach((slot, sIdx) => {
+          if (!slot) return;
           const slotKey = slot.id || `slot_${sIdx}`;
           const chosenName = selectedUpgradeSlots[slotKey];
-          const optMatch = slot.options.find(o => o.name === chosenName);
+          const optMatch = (slot.options || []).find(o => o && o.name === chosenName);
           if (optMatch && optMatch.priceChange) {
             unitPrice += Number(optMatch.priceChange) || 0;
           }
@@ -622,11 +625,13 @@ export default function ItemModal({
                         </div>
 
                         {/* Package Sub-selections (Expanded when selected) */}
-                        {isSelected && pkg.slots && (
+                        {isSelected && pkg.slots && Array.isArray(pkg.slots) && (
                           <div style={{ padding: '10px 14px', borderTop: '1px dashed var(--border)', backgroundColor: 'var(--bg-body)', display: 'flex', flexDirection: 'column', gap: '10px' }}>
                             {pkg.slots.map((slot, sIdx) => {
+                              if (!slot) return null;
                               const slotKey = slot.id || `slot_${sIdx}`;
                               const currentSelectedOpt = selectedUpgradeSlots[slotKey];
+                              const slotOpts = Array.isArray(slot.options) ? slot.options : [];
 
                               return (
                                 <div key={slotKey} style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
@@ -635,7 +640,8 @@ export default function ItemModal({
                                   </span>
 
                                   <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                                    {slot.options.map((opt) => {
+                                    {slotOpts.map((opt) => {
+                                      if (!opt || !opt.name) return null;
                                       const isOptActive = (currentSelectedOpt === opt.name);
                                       return (
                                         <button
