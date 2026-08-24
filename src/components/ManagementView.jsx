@@ -1773,6 +1773,180 @@ const handleSaveGlobalAddons = async (newAddons) => {
 
       {/* Main Workspace */}
       <div style={{ flex: 1, padding: '0 24px 40px 24px', display: 'flex', flexDirection: 'column' }}>
+                {/* 🍱 Dedicated Upgrade Combos Workspace Tab */}
+        {activeTab === 'upgrades' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', maxWidth: '850px', textAlign: 'left' }}>
+            <div style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '14px', padding: '24px', display: 'flex', flexDirection: 'column', gap: '18px', boxShadow: 'var(--shadow-sm)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border)', paddingBottom: '14px' }}>
+                <div>
+                  <h3 style={{ margin: '0 0 4px 0', fontSize: '1.25rem', fontWeight: 'bold', color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    🍱 全店主餐加價升級套餐方案
+                  </h3>
+                  <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                    當顧客在線上點餐或收銀員在 POS 機點選招牌麵線/主餐時，可選擇以下套餐方案以特惠價加購小菜與冷飲。
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const current = tempUpgradeCombos.length > 0 ? tempUpgradeCombos : (upgradeCombos || defaultUpgradeCombos);
+                    setTempUpgradeCombos([...current, {
+                      id: 'upgrade_' + Date.now().toString(36),
+                      name: '新自選升級套餐',
+                      tag: '⭐ 推薦',
+                      price: 45,
+                      description: '精選小菜 ＋ 沁涼特調冷飲 1杯',
+                      slots: [
+                        {
+                          id: 'side',
+                          title: '🥬 開胃小菜 (選 1)',
+                          options: [
+                            { name: '特製黃金辣泡菜', priceChange: 0, default: true },
+                            { name: '熱騰騰招牌大肉包 (1顆)', priceChange: 0 }
+                          ]
+                        },
+                        {
+                          id: 'drink',
+                          title: '🥤 沁涼冷飲 (選 1)',
+                          hasDrinkOptions: true,
+                          options: [
+                            { name: '古早味冰紅茶 (500cc)', priceChange: 0, default: true },
+                            { name: '鮮檸冬瓜露', priceChange: 5 }
+                          ]
+                        }
+                      ]
+                    }]);
+                  }}
+                  style={{
+                    padding: '10px 16px', backgroundColor: '#10b981', color: 'white', border: 'none',
+                    borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.85rem',
+                    display: 'flex', alignItems: 'center', gap: '4px', boxShadow: '0 2px 6px rgba(16, 185, 129, 0.25)'
+                  }}
+                >
+                  ➕ 新增升級方案
+                </button>
+              </div>
+
+              {/* Package cards list */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                {(tempUpgradeCombos.length > 0 ? tempUpgradeCombos : (upgradeCombos || defaultUpgradeCombos)).map((pkg, pIdx) => {
+                  const currentList = tempUpgradeCombos.length > 0 ? tempUpgradeCombos : (upgradeCombos || defaultUpgradeCombos);
+                  return (
+                    <div key={pkg.id || pIdx} style={{ padding: '16px', border: '1px solid var(--border)', borderRadius: '12px', backgroundColor: 'var(--bg-body)', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                      <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+                        <div style={{ flex: 2, display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                          <span style={{ fontSize: '0.75rem', fontWeight: 'bold', color: 'var(--text-muted)' }}>方案名稱</span>
+                          <input
+                            type="text"
+                            value={pkg.name}
+                            onChange={(e) => {
+                              const updated = [...currentList];
+                              updated[pIdx].name = e.target.value;
+                              setTempUpgradeCombos(updated);
+                            }}
+                            placeholder="如: A. 開胃小資套餐"
+                            style={{ padding: '8px 12px', fontSize: '0.9rem', fontWeight: 'bold', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-card)', color: 'var(--text-main)' }}
+                          />
+                        </div>
+
+                        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                          <span style={{ fontSize: '0.75rem', fontWeight: 'bold', color: '#ea580c' }}>加價金額 (NT$)</span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <span style={{ fontSize: '0.9rem', fontWeight: 'bold', color: '#ea580c' }}>+NT$</span>
+                            <input
+                              type="number"
+                              min="0"
+                              value={pkg.price}
+                              onChange={(e) => {
+                                const updated = [...currentList];
+                                updated[pIdx].price = Number(e.target.value) || 0;
+                                setTempUpgradeCombos(updated);
+                              }}
+                              style={{ width: '100%', padding: '8px 10px', fontSize: '0.9rem', fontWeight: 'bold', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-card)', color: '#ea580c' }}
+                            />
+                          </div>
+                        </div>
+
+                        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                          <span style={{ fontSize: '0.75rem', fontWeight: 'bold', color: 'var(--text-muted)' }}>促銷標籤 (可選)</span>
+                          <input
+                            type="text"
+                            value={pkg.tag || ''}
+                            onChange={(e) => {
+                              const updated = [...currentList];
+                              updated[pIdx].tag = e.target.value;
+                              setTempUpgradeCombos(updated);
+                            }}
+                            placeholder="如: 🔥 超值省 $20"
+                            style={{ padding: '8px 10px', fontSize: '0.85rem', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-card)', color: 'var(--text-main)' }}
+                          />
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (currentList.length <= 1) return alert("至少須保留一個升級套餐方案！");
+                            setTempUpgradeCombos(currentList.filter((_, i) => i !== pIdx));
+                          }}
+                          style={{ alignSelf: 'flex-end', height: '38px', padding: '0 12px', backgroundColor: '#ef4444', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 'bold' }}
+                          title="刪除此方案"
+                        >
+                          🗑️ 刪除
+                        </button>
+                      </div>
+
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                        <span style={{ fontSize: '0.75rem', fontWeight: 'bold', color: 'var(--text-muted)' }}>方案優惠說明</span>
+                        <input
+                          type="text"
+                          value={pkg.description || ''}
+                          onChange={(e) => {
+                            const updated = [...currentList];
+                            updated[pIdx].description = e.target.value;
+                            setTempUpgradeCombos(updated);
+                          }}
+                          placeholder="例如: 特製黃金辣泡菜 1份 ＋ 沁涼冷飲 1杯 (現省 $20)"
+                          style={{ padding: '8px 12px', fontSize: '0.85rem', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-card)', color: 'var(--text-main)' }}
+                        />
+                      </div>
+
+                      {/* Package slots */}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '10px 14px', borderRadius: '8px', backgroundColor: 'var(--bg-card)', border: '1px solid var(--border)' }}>
+                        <span style={{ fontSize: '0.8rem', fontWeight: 'bold', color: 'var(--primary)' }}>內含自選項目內容：</span>
+                        {(pkg.slots || []).map((slot, sIdx) => (
+                          <div key={sIdx} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem' }}>
+                            <span style={{ fontWeight: 'bold', minWidth: '130px', color: 'var(--text-main)' }}>{slot.title}:</span>
+                            <span style={{ color: 'var(--text-muted)' }}>
+                              {(slot.options || []).map(o => o.name).join(' / ')}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', borderTop: '1px solid var(--border)', paddingTop: '16px' }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const listToSave = tempUpgradeCombos.length > 0 ? tempUpgradeCombos : (upgradeCombos || defaultUpgradeCombos);
+                    handleSaveGlobalUpgradeCombos(listToSave);
+                  }}
+                  style={{
+                    padding: '12px 28px', backgroundColor: 'var(--primary)', color: 'white', border: 'none',
+                    borderRadius: '8px', cursor: 'pointer', fontWeight: '900', fontSize: '0.95rem',
+                    boxShadow: 'var(--shadow-md)', display: 'flex', alignItems: 'center', gap: '6px'
+                  }}
+                >
+                  💾 儲存並同步雲端升級方案
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {activeTab === 'products' && (
           <div style={{ display: 'flex', gap: '24px', alignItems: 'flex-start' }}>
             {/* Products List Table */}
