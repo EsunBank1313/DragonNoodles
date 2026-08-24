@@ -382,7 +382,7 @@ export default function ManagementView({ storeCode: propStoreCode, onSwitchStore
   
   const [upgradeCombos, setUpgradeCombos] = useState(defaultUpgradeCombos);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
-  const [tempUpgradeCombos, setTempUpgradeCombos] = useState([]);
+  const [tempUpgradeCombos, setTempUpgradeCombos] = useState(() => JSON.parse(JSON.stringify(defaultUpgradeCombos)));
   const [canUpgradeCombo, setCanUpgradeCombo] = useState(true);
 
   const [globalCondiments, setGlobalCondiments] = useState([
@@ -1044,6 +1044,20 @@ const [closedDates, setClosedDates] = useState(() => {
         setMenuItems(visibleItems);
 
         
+        // Load upgrade combos setting
+        const upgradeCombosItem = storeItems.find(item => item.name === 'SYSTEM_SETTING_UPGRADE_COMBOS');
+        if (upgradeCombosItem && upgradeCombosItem.description) {
+          try {
+            const parsed = JSON.parse(upgradeCombosItem.description);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              setUpgradeCombos(parsed);
+              setTempUpgradeCombos(parsed);
+            }
+          } catch (e) {
+            console.error("Failed to parse upgrade combos in management:", e);
+          }
+        }
+
         // Load categories setting
         const categoriesItem = storeItems.find(item => item.name === 'SYSTEM_SETTING_PRODUCT_CATEGORIES');
         if (categoriesItem && categoriesItem.description) {
@@ -1203,6 +1217,37 @@ const handleSaveGlobalAddons = async (newAddons) => {
     } catch (e) {
       console.error("Failed to save global addons:", e);
       alert("儲存加料設定失敗：" + e.message);
+    }
+  };
+
+  const handleSaveGlobalUpgradeCombos = async (updatedList) => {
+    try {
+      const upgradeKey = prefixNameForStore('SYSTEM_SETTING_UPGRADE_COMBOS', storeCode);
+      const { data: exist } = await supabase.from('menu_items').select('*').eq('name', upgradeKey);
+      
+      if (exist && exist.length > 0) {
+        const { error } = await supabase.from('menu_items').update({
+          description: JSON.stringify(updatedList)
+        }).eq('name', upgradeKey);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from('menu_items').insert([{
+          name: upgradeKey,
+          description: JSON.stringify(updatedList),
+          price: 0,
+          category: 'settings',
+          image: ''
+        }]);
+        if (error) throw error;
+      }
+      
+      setUpgradeCombos(updatedList);
+      setTempUpgradeCombos(updatedList);
+      alert("🎉 全店加價升級套餐方案已成功儲存並同步雲端！");
+      setShowUpgradeModal(false);
+    } catch (e) {
+      console.error("Failed to save global upgrade combos:", e);
+      alert("儲存升級套餐方案失敗：" + e.message);
     }
   };
 
