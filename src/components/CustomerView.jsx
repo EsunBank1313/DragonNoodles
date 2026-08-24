@@ -211,6 +211,7 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
 
   const [storeAddress, setStoreAddress] = useState('');
   const [storePhone, setStorePhone] = useState('');
+  const [storeOpenStatus, setStoreOpenStatus] = useState(null);
   const [closedDates, setClosedDates] = useState([]);
   const [showOrderConfirmModal, setShowOrderConfirmModal] = useState(false);
   const [receiptConfig, setReceiptConfig] = useState({
@@ -322,6 +323,13 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
         let orderList = [];
         if (orderItem && orderItem.description) {
           try { orderList = JSON.parse(orderItem.description); } catch (e) {}
+        }
+
+        const openStatusItem = storeItems.find(item => item.name === 'SYSTEM_SETTING_STORE_OPEN_STATUS');
+        if (openStatusItem && openStatusItem.description) {
+          try {
+            setStoreOpenStatus(JSON.parse(openStatusItem.description));
+          } catch (e) {}
         }
 
         const upgradeCombosItem = storeItems.find(item => item.name === 'SYSTEM_SETTING_UPGRADE_COMBOS');
@@ -1015,6 +1023,77 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
   const currentHour = parseInt(nowTaipei.toLocaleTimeString('en-US', { timeZone: 'Asia/Taipei', hour12: false, hour: '2-digit' }), 10);
   const isPast10PM = currentHour >= 22 || currentHour < 6;
   const isClosed = closedDates.includes(todayStr) || isPast10PM;
+  const isStoreOpenToday = Boolean(storeOpenStatus && storeOpenStatus.is_open && storeOpenStatus.open_date === todayStr);
+
+  if (!isStoreOpenToday && !closedDates.includes(todayStr) && !isPast10PM) {
+    return (
+      <div style={{
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        minHeight: '100vh',
+        backgroundColor: 'var(--bg-body)',
+        color: 'var(--text-main)',
+        padding: '24px',
+        textAlign: 'center',
+        fontFamily: 'system-ui, sans-serif'
+      }}>
+        <div style={{
+          backgroundColor: 'var(--bg-card)',
+          border: '1px solid var(--border)',
+          borderRadius: '16px',
+          padding: '36px 24px',
+          maxWidth: '420px',
+          width: '100%',
+          boxShadow: 'var(--shadow-md)',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          gap: '14px'
+        }}>
+          <span style={{ fontSize: '3.8rem' }}>🛎️</span>
+          <h2 style={{ fontSize: '1.4rem', fontWeight: 'bold', margin: '0', color: 'var(--primary)' }}>
+            本日尚未開始營業
+          </h2>
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.92rem', lineHeight: '1.7', margin: 0 }}>
+            歡迎光臨【{storeName}】！<br />
+            目前店家<strong>尚未開店</strong>，暫未開放線上點餐。<br />
+            請稍候門市人員開店營業後再進行點餐，感謝您的耐心等候！
+          </p>
+          {storePhone && (
+            <div style={{ marginTop: '8px', fontSize: '0.85rem', fontWeight: 'bold', color: 'var(--text-main)' }}>
+              📞 門市電話：{storePhone}
+            </div>
+          )}
+          {storeAddress && (
+            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+              📍 門市地址：{storeAddress}
+            </div>
+          )}
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            style={{
+              marginTop: '10px',
+              padding: '10px 20px',
+              borderRadius: '8px',
+              border: 'none',
+              backgroundColor: 'var(--primary)',
+              color: 'white',
+              fontSize: '0.9rem',
+              fontWeight: 'bold',
+              cursor: 'pointer',
+              boxShadow: '0 2px 4px rgba(234, 88, 12, 0.3)'
+            }}
+          >
+            🔄 重新整理頁面
+          </button>
+        </div>
+      </div>
+    );
+  }
+
 
   if (receiptConfig && receiptConfig.enableOnlineOrdering === false) {
     return (

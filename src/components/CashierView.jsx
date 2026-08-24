@@ -190,6 +190,10 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
   // Search state
   const [searchQuery, setSearchQuery] = useState('');
 
+  // Store Open / Daily Opening Status
+  const [storeOpenStatus, setStoreOpenStatus] = useState(null);
+  const isStoreOpenToday = Boolean(storeOpenStatus && storeOpenStatus.is_open && storeOpenStatus.open_date === getTodayLocalDate());
+
   // Closed Dates for Locking
   const [closedDates, setClosedDates] = useState([]);
 
@@ -709,6 +713,13 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
           try { setReceiptConfig({ ...defaultReceiptConfig, ...JSON.parse(receiptItem.description) }); } catch (e) {}
         }
 
+        const openStatusItem = storeItems.find(item => item.name === 'SYSTEM_SETTING_STORE_OPEN_STATUS');
+        if (openStatusItem && openStatusItem.description) {
+          try {
+            setStoreOpenStatus(JSON.parse(openStatusItem.description));
+          } catch (e) {}
+        }
+
         const upgradeCombosItem = storeItems.find(item => item.name === 'SYSTEM_SETTING_UPGRADE_COMBOS');
         if (upgradeCombosItem && upgradeCombosItem.description) {
           try {
@@ -1025,6 +1036,70 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
       setCart([...cart, newCartItem]);
     }
     setActiveItemForModal(null);
+  };
+
+  // 🛎️ POS Store Opening / Closing Toggle (開店 / 打烊)
+  const handleToggleStoreOpen = async () => {
+    const todayStr = getTodayLocalDate();
+    const openStatusKey = prefixNameForStore('SYSTEM_SETTING_STORE_OPEN_STATUS', storeCode);
+
+    if (isStoreOpenToday) {
+      if (!confirm("⚠️ 確定要【暫停/打烊】今日線上點餐嗎？\n顧客將無法繼續透過線上掃碼送出點餐。")) {
+        return;
+      }
+      const newStatus = {
+        is_open: false,
+        open_date: todayStr,
+        closed_at: new Date().toISOString(),
+        closed_by: cashierName || '櫃檯人員'
+      };
+      setStoreOpenStatus(newStatus);
+      try {
+        const { data: exist } = await supabase.from('menu_items').select('*').eq('name', openStatusKey);
+        if (exist && exist.length > 0) {
+          await supabase.from('menu_items').update({ description: JSON.stringify(newStatus) }).eq('name', openStatusKey);
+        } else {
+          await supabase.from('menu_items').insert([{ name: openStatusKey, price: 0, category: 'settings', description: JSON.stringify(newStatus) }]);
+        }
+        alert("🔴 已暫停今日線上點餐服務。");
+      } catch (err) {
+        console.error("Failed to update store open status:", err);
+      }
+    } else {
+      if (!confirm("🛎️ 確定要執行【今日開店】嗎？\n開店後將正式開放顧客進行線上點餐！")) {
+        return;
+      }
+      const newStatus = {
+        is_open: true,
+        open_date: todayStr,
+        opened_at: new Date().toISOString(),
+        opened_by: cashierName || '櫃檯人員'
+      };
+      setStoreOpenStatus(newStatus);
+
+      // If today was marked closed in closedDates, automatically unlock!
+      if (closedDates.includes(todayStr)) {
+        const updatedClosed = closedDates.filter(d => d !== todayStr);
+        setClosedDates(updatedClosed);
+        localStorage.setItem('restaurant_closed_dates', JSON.stringify(updatedClosed));
+        const closedKey = prefixNameForStore('SYSTEM_SETTING_CLOSED_DATES', storeCode);
+        try {
+          await supabase.from('menu_items').update({ description: JSON.stringify(updatedClosed) }).eq('name', closedKey);
+        } catch (e) {}
+      }
+
+      try {
+        const { data: exist } = await supabase.from('menu_items').select('*').eq('name', openStatusKey);
+        if (exist && exist.length > 0) {
+          await supabase.from('menu_items').update({ description: JSON.stringify(newStatus) }).eq('name', openStatusKey);
+        } else {
+          await supabase.from('menu_items').insert([{ name: openStatusKey, price: 0, category: 'settings', description: JSON.stringify(newStatus) }]);
+        }
+        alert("🟢 【今日開店】成功！顧客線上點餐已正式開放。");
+      } catch (err) {
+        console.error("Failed to update store open status:", err);
+      }
+    }
   };
 
   // Open edit modal for submitted POS order
@@ -2729,6 +2804,7 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
           condimentsAvailability={null} // POS cashier has full options
           isPos={true}
           editingCartItem={editingCartItem}
+          upgradeCombos={upgradeCombos}
         />
       )}
 
