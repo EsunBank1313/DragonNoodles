@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 import { formatSupabaseOrder } from './CustomerView';
+import { defaultUpgradeCombos } from '../data/menuData';
 import ItemModal from './ItemModal';
 import ThermalPrintPortal from './ThermalPrintPortal';
 import { defaultStoreProfile, defaultReceiptConfig, printThermalReceipt, printDailyClosingReport } from '../utils/printHelpers';
@@ -2066,7 +2067,7 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                                 padding: '1px 5px',
                                 borderRadius: '4px'
                               }}>
-                                ⚙️客製
+                                {(item.category === 'mee-sua' || item.customizations?.can_upgrade_combo === true || item.name.includes('麵線')) ? '🍱可升級' : '⚙️客製'}
                               </span>
                             )}
                           </>

@@ -380,6 +380,11 @@ export default function ManagementView({ storeCode: propStoreCode, onSwitchStore
   const [showAddonModal, setShowAddonModal] = useState(false);
   const [tempAddons, setTempAddons] = useState([]);
   
+  const [upgradeCombos, setUpgradeCombos] = useState(defaultUpgradeCombos);
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  const [tempUpgradeCombos, setTempUpgradeCombos] = useState([]);
+  const [canUpgradeCombo, setCanUpgradeCombo] = useState(true);
+
   const [globalCondiments, setGlobalCondiments] = useState([
     { name: '香菜', choices: ['正常', '多一點', '不要香菜'], default: '正常' },
     { name: '蒜末', choices: ['正常', '多一點', '不要蒜頭'], default: '正常' },
@@ -1921,6 +1926,7 @@ const handleSaveGlobalAddons = async (newAddons) => {
                               setProdDescription(item.description || '');
                               setProdAvailable(isAvailable);
                               setProdPublished(item.customizations?.is_published !== false);
+                              setCanUpgradeCombo(item.customizations?.can_upgrade_combo !== false);
 
                               if (item.customizations?.size?.options && Array.isArray(item.customizations.size.options) && item.customizations.size.options.length > 0) {
                                 setHasSizeVariants(true);
@@ -2132,137 +2138,19 @@ const handleSaveGlobalAddons = async (newAddons) => {
                     <label htmlFor="publish-check" style={{ fontSize: '0.85rem', fontWeight: 'bold', cursor: 'pointer' }}>上架此商品 (勾選為上架顯示，取消為下架隱藏)</label>
                   </div>
 
-                  {/* 🍱 Combo Set Builder in Product Modal */}
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', border: '2px solid', borderColor: isComboMode ? 'var(--primary)' : 'var(--border)', padding: '14px', borderRadius: '10px', backgroundColor: isComboMode ? 'rgba(255, 107, 53, 0.04)' : 'var(--bg-body)', marginTop: '6px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.9rem', fontWeight: '900', cursor: 'pointer', color: isComboMode ? 'var(--primary)' : 'var(--text-main)' }}>
-                        <input 
-                          type="checkbox"
-                          checked={isComboMode}
-                          onChange={(e) => {
-                            const checked = e.target.checked;
-                            setIsComboMode(checked);
-                            if (checked) {
-                              setProdCategory('combos');
-                              setHasSizeVariants(false);
-                            }
-                          }}
-                          style={{ width: '18px', height: '18px', cursor: 'pointer' }}
-                        />
-                        🍱 設為超值套餐組合 (啟用多步驟分組自選餐點)
-                      </label>
-                      <span style={{ fontSize: '0.75rem', color: isComboMode ? 'var(--primary)' : 'var(--text-muted)', fontWeight: 'bold' }}>
-                        {isComboMode ? '🍱 套餐模式已啟用' : '⚪ 一般單點商品'}
-                      </span>
-                    </div>
-
-                    {isComboMode && (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', paddingTop: '10px', borderTop: '1px dashed var(--border)' }}>
-                        <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                          💡 您可以在此設定套餐的分組（例如：主餐、副食、飲料），並為各選項設定加價金額。
-                        </div>
-
-                        {comboSections.map((sec, sIdx) => (
-                          <div key={sIdx} style={{ padding: '10px', backgroundColor: 'var(--bg-card)', borderRadius: '8px', border: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                              <input
-                                type="text"
-                                value={sec.title}
-                                onChange={(e) => {
-                                  const updated = [...comboSections];
-                                  updated[sIdx].title = e.target.value;
-                                  setComboSections(updated);
-                                }}
-                                placeholder="分組標題 (如: 🍜 選擇主餐 (選 1))"
-                                style={{ flex: 1, padding: '6px 8px', fontSize: '0.85rem', fontWeight: 'bold', borderRadius: '4px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-body)', color: 'var(--text-main)' }}
-                              />
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  if (comboSections.length <= 1) return alert("套餐至少須保留一個自選分組！");
-                                  setComboSections(comboSections.filter((_, i) => i !== sIdx));
-                                }}
-                                style={{ border: 'none', background: 'none', color: '#ef4444', fontSize: '0.8rem', cursor: 'pointer', padding: '0 8px', fontWeight: 'bold' }}
-                              >
-                                ✕ 刪除此分組
-                              </button>
-                            </div>
-
-                            {/* Section Options */}
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', paddingLeft: '8px' }}>
-                              {sec.options.map((opt, oIdx) => (
-                                <div key={oIdx} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>•</span>
-                                  <input
-                                    type="text"
-                                    value={opt.name}
-                                    onChange={(e) => {
-                                      const updated = [...comboSections];
-                                      updated[sIdx].options[oIdx].name = e.target.value;
-                                      setComboSections(updated);
-                                    }}
-                                    placeholder="品項名稱 (如: 綜合麵線(小))"
-                                    style={{ flex: 2, padding: '4px 8px', fontSize: '0.8rem', borderRadius: '4px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-body)', color: 'var(--text-main)' }}
-                                  />
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: '2px', flex: 1 }}>
-                                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>+NT$</span>
-                                    <input
-                                      type="number"
-                                      min="0"
-                                      value={opt.priceChange}
-                                      onChange={(e) => {
-                                        const updated = [...comboSections];
-                                        updated[sIdx].options[oIdx].priceChange = Number(e.target.value) || 0;
-                                        setComboSections(updated);
-                                      }}
-                                      style={{ width: '100%', padding: '4px 6px', fontSize: '0.8rem', borderRadius: '4px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-body)', color: 'var(--text-main)', fontWeight: 'bold' }}
-                                    />
-                                  </div>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      const updated = [...comboSections];
-                                      updated[sIdx].options = updated[sIdx].options.filter((_, i) => i !== oIdx);
-                                      setComboSections(updated);
-                                    }}
-                                    style={{ border: 'none', background: 'none', color: '#ef4444', fontSize: '0.75rem', cursor: 'pointer' }}
-                                  >
-                                    ✕
-                                  </button>
-                                </div>
-                              ))}
-
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  const updated = [...comboSections];
-                                  updated[sIdx].options.push({ name: '', priceChange: 0 });
-                                  setComboSections(updated);
-                                }}
-                                style={{ alignSelf: 'flex-start', padding: '4px 8px', fontSize: '0.75rem', borderRadius: '4px', border: '1px dashed var(--border)', backgroundColor: 'transparent', cursor: 'pointer', color: 'var(--primary)', fontWeight: 'bold', marginTop: '2px' }}
-                              >
-                                ＋ 新增選項品項
-                              </button>
-                            </div>
-                          </div>
-                        ))}
-
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setComboSections([...comboSections, {
-                              id: 'sec_' + Date.now().toString(36),
-                              title: '新套餐分組 (選 1)',
-                              required: true,
-                              options: [{ name: '', priceChange: 0 }]
-                            }]);
-                          }}
-                          style={{ padding: '8px', borderRadius: '6px', border: '1px dashed var(--primary)', backgroundColor: 'rgba(255, 107, 53, 0.08)', color: 'var(--primary)', fontWeight: 'bold', cursor: 'pointer', fontSize: '0.85rem' }}
-                        >
-                          ＋ 新增套餐自選分組 (例如：主餐/小菜/飲品)
-                        </button>
-                      </div>
-                    )}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 14px', borderRadius: '8px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-body)', margin: '4px 0' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.88rem', fontWeight: 'bold', cursor: 'pointer', color: 'var(--text-main)' }}>
+                      <input 
+                        type="checkbox"
+                        checked={canUpgradeCombo}
+                        onChange={(e) => setCanUpgradeCombo(e.target.checked)}
+                        style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                      />
+                      🍱 允許此商品加價升級套餐 (顧客點餐時可加購小菜與冷飲)
+                    </label>
+                    <span style={{ fontSize: '0.75rem', color: canUpgradeCombo ? 'var(--primary)' : 'var(--text-muted)', fontWeight: 'bold' }}>
+                      {canUpgradeCombo ? '🟢 支援加價升級' : '⚪ 不支援升級'}
+                    </span>
                   </div>
 
                   {/* ⚙️ Full-Featured Size Variants & Price Editor (Add & Edit) */}

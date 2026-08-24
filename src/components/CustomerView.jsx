@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { menuCategories, menuItems as defaultMenuItems } from '../data/menuData';
+import { menuCategories, menuItems as defaultMenuItems, defaultUpgradeCombos } from '../data/menuData';
 import ItemModal from './ItemModal';
 
 import CartPanel from './CartPanel';
@@ -178,6 +178,7 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
   const [showCart, setShowCart] = useState(false);
   const [editingCartItem, setEditingCartItem] = useState(null);
   const [remarks, setRemarks] = useState('');
+  const [upgradeCombos, setUpgradeCombos] = useState(defaultUpgradeCombos);
 
   // OTP Verification States (Real Firebase Phone Auth)
   const [showOtpModal, setShowOtpModal] = useState(false);
