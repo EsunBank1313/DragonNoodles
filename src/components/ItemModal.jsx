@@ -29,7 +29,7 @@ export default function ItemModal({
 
   const [totalPrice, setTotalPrice] = useState(item.price);
 
-  const activeUpgrade = (upgradeCombos || defaultUpgradeCombos).find(u => u.id === selectedUpgradeId);
+  const activeUpgrade = availableUpgradeCombos.find(u => u.id === selectedUpgradeId);
 
   // Initialize selections based on item's customizations & editingCartItem
   useEffect(() => {
@@ -103,7 +103,7 @@ export default function ItemModal({
     }
 
     setSelectedUpgradeId(upgradeId);
-    const targetUpgrade = (upgradeCombos || defaultUpgradeCombos).find(u => u.id === upgradeId);
+    const targetUpgrade = availableUpgradeCombos.find(u => u.id === upgradeId);
     if (targetUpgrade && targetUpgrade.slots) {
       const initialSlots = {};
       targetUpgrade.slots.forEach((slot, sIdx) => {

@@ -975,7 +975,8 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
       alert(`「${item.name}」已售完！無法加入訂單。`);
       return;
     }
-    if (item.customizations) {
+    const canUpgrade = (upgradeCombos || defaultUpgradeCombos).some(pkg => isComboApplicableToItem(pkg, item));
+    if (item.customizations || canUpgrade) {
       // Open customization modal
       setActiveItemForModal(item);
     } else {
