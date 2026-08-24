@@ -1925,15 +1925,140 @@ const handleSaveGlobalAddons = async (newAddons) => {
                         />
                       </div>
 
-                      {/* Package slots */}
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '10px 14px', borderRadius: '8px', backgroundColor: 'var(--bg-card)', border: '1px solid var(--border)' }}>
-                        <span style={{ fontSize: '0.8rem', fontWeight: 'bold', color: 'var(--primary)' }}>內含自選項目內容：</span>
+                      {/* Package slots (Fully Editable) */}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', padding: '14px', borderRadius: '10px', backgroundColor: 'var(--bg-card)', border: '1px solid var(--border)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                          <span style={{ fontSize: '0.85rem', fontWeight: 'bold', color: 'var(--primary)' }}>
+                            📋 內含自選分組與可選品項設定 (供顧客自由挑選)：
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const updated = [...currentList];
+                              const slots = updated[pIdx].slots ? [...updated[pIdx].slots] : [];
+                              slots.push({
+                                id: 'slot_' + Date.now().toString(36),
+                                title: '新自選分組 (選 1)',
+                                hasDrinkOptions: false,
+                                options: [
+                                  { name: '新可選品項', priceChange: 0, default: true }
+                                ]
+                              });
+                              updated[pIdx].slots = slots;
+                              setTempUpgradeCombos(updated);
+                            }}
+                            style={{ padding: '4px 10px', fontSize: '0.78rem', backgroundColor: 'rgba(255, 107, 53, 0.1)', color: 'var(--primary)', border: '1px solid var(--primary)', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}
+                          >
+                            ＋ 新增自選分組 (如小菜/飲品)
+                          </button>
+                        </div>
+
                         {(pkg.slots || []).map((slot, sIdx) => (
-                          <div key={sIdx} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem' }}>
-                            <span style={{ fontWeight: 'bold', minWidth: '130px', color: 'var(--text-main)' }}>{slot.title}:</span>
-                            <span style={{ color: 'var(--text-muted)' }}>
-                              {(slot.options || []).map(o => o.name).join(' / ')}
-                            </span>
+                          <div key={slot.id || sIdx} style={{ padding: '12px', backgroundColor: 'var(--bg-body)', borderRadius: '8px', border: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                              <div style={{ flex: 2, display: 'flex', alignItems: 'center', gap: '8px', minWidth: '220px' }}>
+                                <span style={{ fontSize: '0.78rem', fontWeight: 'bold', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>分組名稱:</span>
+                                <input
+                                  type="text"
+                                  value={slot.title}
+                                  onChange={(e) => {
+                                    const updated = [...currentList];
+                                    updated[pIdx].slots[sIdx].title = e.target.value;
+                                    setTempUpgradeCombos(updated);
+                                  }}
+                                  placeholder="如: 🥬 開胃小菜 (選 1)"
+                                  style={{ width: '100%', padding: '6px 10px', fontSize: '0.85rem', fontWeight: 'bold', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-card)', color: 'var(--text-main)' }}
+                                />
+                              </div>
+
+                              <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.78rem', color: 'var(--text-muted)', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                                <input
+                                  type="checkbox"
+                                  checked={slot.hasDrinkOptions === true}
+                                  onChange={(e) => {
+                                    const updated = [...currentList];
+                                    updated[pIdx].slots[sIdx].hasDrinkOptions = e.target.checked;
+                                    setTempUpgradeCombos(updated);
+                                  }}
+                                  style={{ cursor: 'pointer', width: '14px', height: '14px' }}
+                                />
+                                🥤 包含甜度/冰塊選擇
+                              </label>
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (pkg.slots.length <= 1) return alert("每個套餐至少須保留一個自選分組！");
+                                  const updated = [...currentList];
+                                  updated[pIdx].slots = updated[pIdx].slots.filter((_, i) => i !== sIdx);
+                                  setTempUpgradeCombos(updated);
+                                }}
+                                style={{ border: 'none', background: 'none', color: '#ef4444', fontSize: '0.8rem', cursor: 'pointer', fontWeight: 'bold' }}
+                              >
+                                ✕ 刪除分組
+                              </button>
+                            </div>
+
+                            {/* Options list for this slot */}
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', paddingLeft: '8px', borderLeft: '2px solid var(--border)' }}>
+                              <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 'bold' }}>供顧客選擇之品項清單與升級加價差額：</span>
+                              {(slot.options || []).map((opt, oIdx) => (
+                                <div key={oIdx} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>•</span>
+                                  <input
+                                    type="text"
+                                    value={opt.name}
+                                    onChange={(e) => {
+                                      const updated = [...currentList];
+                                      updated[pIdx].slots[sIdx].options[oIdx].name = e.target.value;
+                                      setTempUpgradeCombos(updated);
+                                    }}
+                                    placeholder="品項名稱 (如: 特製黃金辣泡菜)"
+                                    style={{ flex: 2, padding: '4px 8px', fontSize: '0.8rem', borderRadius: '4px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-card)', color: 'var(--text-main)' }}
+                                  />
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flex: 1, maxWidth: '140px' }}>
+                                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>+NT$</span>
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      value={opt.priceChange || 0}
+                                      onChange={(e) => {
+                                        const updated = [...currentList];
+                                        updated[pIdx].slots[sIdx].options[oIdx].priceChange = Number(e.target.value) || 0;
+                                        setTempUpgradeCombos(updated);
+                                      }}
+                                      style={{ width: '100%', padding: '4px 8px', fontSize: '0.8rem', borderRadius: '4px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-card)', color: 'var(--text-main)', fontWeight: 'bold' }}
+                                    />
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      if (slot.options.length <= 1) return alert("每個分組至少須保留一個可選品項！");
+                                      const updated = [...currentList];
+                                      updated[pIdx].slots[sIdx].options = updated[pIdx].slots[sIdx].options.filter((_, i) => i !== oIdx);
+                                      setTempUpgradeCombos(updated);
+                                    }}
+                                    style={{ border: 'none', background: 'none', color: '#ef4444', fontSize: '0.75rem', cursor: 'pointer', padding: '0 4px' }}
+                                    title="刪除此品項"
+                                  >
+                                    ✕
+                                  </button>
+                                </div>
+                              ))}
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const updated = [...currentList];
+                                  if (!updated[pIdx].slots[sIdx].options) updated[pIdx].slots[sIdx].options = [];
+                                  updated[pIdx].slots[sIdx].options.push({ name: '', priceChange: 0 });
+                                  setTempUpgradeCombos(updated);
+                                }}
+                                style={{ alignSelf: 'flex-start', padding: '4px 10px', fontSize: '0.75rem', borderRadius: '4px', border: '1px dashed var(--border)', backgroundColor: 'transparent', cursor: 'pointer', color: 'var(--primary)', fontWeight: 'bold', marginTop: '2px' }}
+                              >
+                                ＋ 新增可選品項
+                              </button>
+                            </div>
                           </div>
                         ))}
                       </div>
