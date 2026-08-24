@@ -1,4 +1,5 @@
 export const menuCategories = [
+  { id: 'combos', name: '超值套餐', icon: '🍱' },
   { id: 'mee-sua', name: '招牌麵線', icon: '🍜' },
   { id: 'specialties', name: '特色產品', icon: '🔥' }
 ];
@@ -49,7 +50,171 @@ const plainMeeSuaCustomizations = {
   condiments: standardMeeSuaCustomizations.condiments
 };
 
+// Standard Combo Sections definitions
+export const defaultComboSections = {
+  classicSolo: [
+    {
+      id: 'main',
+      title: '🍜 選擇主餐麵線 (選 1)',
+      required: true,
+      hasCondiments: true,
+      options: [
+        { name: '綜合麵線 (小碗)', priceChange: 0, default: true },
+        { name: '蚵仔麵線 (小碗)', priceChange: 0 },
+        { name: '大腸麵線 (小碗)', priceChange: 0 },
+        { name: '肉羹麵線 (小碗)', priceChange: 0 },
+        { name: '升級大碗綜合麵線', priceChange: 15 }
+      ]
+    },
+    {
+      id: 'side',
+      title: '🥬 選擇副食/小菜 (選 1)',
+      required: true,
+      options: [
+        { name: '招牌特製開胃泡菜', priceChange: 0, default: true },
+        { name: '熱騰騰招牌大肉包 (1顆)', priceChange: 0 },
+        { name: '極品肉羹湯', priceChange: 15 }
+      ]
+    },
+    {
+      id: 'drink',
+      title: '🥤 選擇冷飲/甜品 (選 1)',
+      required: true,
+      hasDrinkOptions: true,
+      options: [
+        { name: '古早味冰紅茶 (500cc)', priceChange: 0, default: true },
+        { name: '鮮檸冬瓜露', priceChange: 5 },
+        { name: '無糖高山冷泡茶', priceChange: 5 }
+      ]
+    }
+  ],
+  deluxeCombo: [
+    {
+      id: 'main',
+      title: '🍜 選擇豪華大碗主餐 (選 1)',
+      required: true,
+      hasCondiments: true,
+      options: [
+        { name: '綜合麵線 (大碗)', priceChange: 0, default: true },
+        { name: '雙倍大腸麵線 (大碗)', priceChange: 10 },
+        { name: '蚵仔加量麵線 (大碗)', priceChange: 10 }
+      ]
+    },
+    {
+      id: 'side',
+      title: '🥬 選擇招牌小吃 (選 1)',
+      required: true,
+      options: [
+        { name: '招牌特製開胃泡菜', priceChange: 0, default: true },
+        { name: '熱騰騰招牌大肉包 (2顆)', priceChange: 15 },
+        { name: '雙寶肉羹貢丸湯', priceChange: 20 }
+      ]
+    },
+    {
+      id: 'drink',
+      title: '🥤 選擇特調冷飲 (選 1)',
+      required: true,
+      hasDrinkOptions: true,
+      options: [
+        { name: '古早味冰紅茶', priceChange: 0, default: true },
+        { name: '鮮檸冬瓜露', priceChange: 5 },
+        { name: '無糖高山冷泡茶', priceChange: 5 }
+      ]
+    }
+  ],
+  doubleFeast: [
+    {
+      id: 'main1',
+      title: '🍜 選擇第一份麵線 (選 1)',
+      required: true,
+      hasCondiments: true,
+      options: [
+        { name: '綜合麵線 (小碗)', priceChange: 0, default: true },
+        { name: '大腸麵線 (小碗)', priceChange: 0 },
+        { name: '蚵仔麵線 (小碗)', priceChange: 0 },
+        { name: '升級大碗綜合麵線', priceChange: 15 }
+      ]
+    },
+    {
+      id: 'main2',
+      title: '🍜 選擇第二份麵線 (選 1)',
+      required: true,
+      hasCondiments: true,
+      options: [
+        { name: '綜合麵線 (小碗)', priceChange: 0, default: true },
+        { name: '大腸麵線 (小碗)', priceChange: 0 },
+        { name: '肉羹麵線 (小碗)', priceChange: 0 },
+        { name: '升級大碗綜合麵線', priceChange: 15 }
+      ]
+    },
+    {
+      id: 'side',
+      title: '🥬 選擇雙人小菜分享盤 (選 1)',
+      required: true,
+      options: [
+        { name: '雙份特製開胃泡菜', priceChange: 0, default: true },
+        { name: '招牌大肉包 (2顆)', priceChange: 0 },
+        { name: '泡菜1份 + 肉包1顆組合', priceChange: 10 }
+      ]
+    },
+    {
+      id: 'drink',
+      title: '🥤 選擇雙人冷飲 (各選 1 杯，共 2 杯)',
+      required: true,
+      hasDrinkOptions: true,
+      options: [
+        { name: '冰紅茶 2 杯', priceChange: 0, default: true },
+        { name: '冰紅茶 1 杯 + 冬瓜露 1 杯', priceChange: 5 },
+        { name: '鮮檸冬瓜露 2 杯', priceChange: 10 },
+        { name: '冷泡茶 2 杯', priceChange: 10 }
+      ]
+    }
+  ]
+};
+
 export const menuItems = [
+  // 🍱 Combos / Set Meals
+  {
+    id: 'combo_a',
+    category: 'combos',
+    name: '【A. 經典獨享套餐】',
+    description: '熱門首選！人氣招牌麵線1碗 ＋ 特製手作開胃泡菜1份 ＋ 古早味冷飲1杯，超值滿足。',
+    price: 105,
+    image: '/images/mixed_mee_sua.jpg',
+    customizations: {
+      is_combo: true,
+      combo_sections: defaultComboSections.classicSolo,
+      condiments: standardMeeSuaCustomizations.condiments
+    }
+  },
+  {
+    id: 'combo_b',
+    category: 'combos',
+    name: '【B. 豪華雙響飽足套餐】',
+    description: '大份量飽足享受！綜合大碗麵線 ＋ 精選手作點心 ＋ 沁涼特調飲品。',
+    price: 145,
+    image: '/images/intestine_mee_sua.jpg',
+    customizations: {
+      is_combo: true,
+      combo_sections: defaultComboSections.deluxeCombo,
+      condiments: standardMeeSuaCustomizations.condiments
+    }
+  },
+  {
+    id: 'combo_c',
+    category: 'combos',
+    name: '【C. 雙人同樂招牌全席】',
+    description: '雙人同享超划算！招牌麵線任選2碗 ＋ 雙人小菜分享盤 ＋ 沁涼特調飲品2杯。',
+    price: 230,
+    image: '/images/oyster_mee_sua.jpg',
+    customizations: {
+      is_combo: true,
+      combo_sections: defaultComboSections.doubleFeast,
+      condiments: standardMeeSuaCustomizations.condiments
+    }
+  },
+
+  // 🍜 Single Mee-Sua Items
   {
     id: 'm1',
     category: 'mee-sua',
@@ -176,5 +341,5 @@ export const menuItems = [
     price: 210,
     image: '/images/spicy_kimchi.jpg',
     customizations: null
-  },
+  }
 ];

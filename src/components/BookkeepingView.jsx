@@ -1,7 +1,102 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
 import { formatSupabaseOrder } from './CustomerView';
 import { menuItems as defaultMenuItems } from '../data/menuData';
+import { printDailyClosingReport, defaultStoreProfile, defaultReceiptConfig } from '../utils/printHelpers';
+import { getActiveStoreCode, filterItemsByStore, filterOrdersByStore, prefixNameForStore, stripNameForStore, getStoreStorage, setStoreStorage } from '../utils/storeContext';
+
+// Dynamic Item & Addon Cost Calculation Engine
+export const calculateItemCost = (item) => {
+  if (!item) return 0;
+  const name = item.name || '';
+  const qty = Number(item.quantity) || 1;
+  
+  // 1. Check size (小碗 vs 大碗)
+  let isBig = false;
+  if (Array.isArray(item.specs)) {
+    isBig = item.specs.some(s => {
+      const val = typeof s === 'object' && s ? (s.value || s.label || '') : String(s);
+      return val.includes('大碗') || val.includes('大');
+    });
+  } else if (typeof item.specs === 'string') {
+    isBig = item.specs.includes('大碗') || item.specs.includes('大');
+  }
+  if (name.includes('大碗') || name.includes('(大)')) {
+    isBig = true;
+  }
+
+  // 2. Base dish cost
+  let baseUnitCost = 0;
+  if (name.includes('清麵線')) {
+    baseUnitCost = isBig ? 17 : 11;
+  } else if (name.includes('蚵仔')) {
+    baseUnitCost = isBig ? 36 : 28;
+  } else if (name.includes('花枝羹')) {
+    baseUnitCost = isBig ? 45 : 35;
+  } else if (name.includes('肉羹')) {
+    baseUnitCost = isBig ? 45 : 35;
+  } else if (name.includes('貢丸')) {
+    baseUnitCost = isBig ? 31 : 23;
+  } else if (name.includes('豬肚')) {
+    baseUnitCost = isBig ? 40 : 30;
+  } else if (name.includes('雙腸') || name.includes('大腸')) {
+    baseUnitCost = isBig ? 40 : 30;
+  } else if (name.includes('綜合')) {
+    baseUnitCost = isBig ? 45 : 35;
+  } else if (name.includes('肉包')) {
+    if (name.includes('量販') || name.includes('包(10') || name.includes('10入')) {
+      baseUnitCost = 150;
+    } else {
+      baseUnitCost = 15;
+    }
+  } else if (name.includes('優格氣泡飲') || name.includes('氣泡飲')) {
+    baseUnitCost = 15;
+  } else if (name.includes('麥根沙士') || name.includes('A&W') || name.includes('沙士')) {
+    baseUnitCost = 19;
+  } else if (name.includes('辣泡菜') || name.includes('泡菜')) {
+    baseUnitCost = 90;
+  } else if (name.includes('要你命1000')) {
+    baseUnitCost = 85;
+  } else if (name.includes('要你命2000')) {
+    baseUnitCost = 85;
+  } else if (name.includes('要你命3000')) {
+    baseUnitCost = 105;
+  } else if (name.includes('要你命')) {
+    baseUnitCost = 85;
+  } else if (item.customizations?.cost_price !== undefined && item.customizations?.cost_price !== null) {
+    baseUnitCost = Number(item.customizations.cost_price);
+  } else {
+    const price = Number(item.price) || (item.totalPrice ? Number(item.totalPrice) / qty : 0);
+    baseUnitCost = Math.round(price * 0.45);
+  }
+
+  // 3. Addons cost
+  let addonsCost = 0;
+  const parseAddonCost = (addonStr) => {
+    if (!addonStr) return 0;
+    const str = String(addonStr);
+    let cost = 0;
+    if (str.includes('皮蛋')) cost += 10;
+    if (str.includes('貢丸')) cost += (isBig ? 14 : 12);
+    if (str.includes('蚵仔')) cost += (isBig ? 19 : 17);
+    if (str.includes('雙腸') || str.includes('大腸')) cost += (isBig ? 23 : 19);
+    if (str.includes('豬肚')) cost += (isBig ? 23 : 19);
+    if (str.includes('花枝羹')) cost += (isBig ? 28 : 24);
+    if (str.includes('肉羹')) cost += (isBig ? 28 : 24);
+    return cost;
+  };
+
+  if (Array.isArray(item.specs)) {
+    item.specs.forEach(s => {
+      const val = typeof s === 'object' && s ? (s.value || s.label || '') : String(s);
+      addonsCost += parseAddonCost(val);
+    });
+  } else if (typeof item.specs === 'string') {
+    addonsCost += parseAddonCost(item.specs);
+  }
+
+  return (baseUnitCost + addonsCost) * qty;
+};
 
 const defaultInventory = [
   { name: '紅麵線', qty: 100, unit: '斤', minStock: 20 },
@@ -120,13 +215,9 @@ const mapPurchaseUnit = (purchaseItemName) => {
   return mapping[purchaseItemName] || '個';
 };
 
-export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDates, parentSetClosedDates }) {
-    const [condimentsAvailability, setCondimentsAvailability] = useState({
-    '香菜': true,
-    '蒜末': true,
-    '烏醋': true,
-    '辣醬': true
-  });
+export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo, onLogout, parentClosedDates, parentSetClosedDates }) {
+  const storeCode = propStoreCode || getActiveStoreCode();
+    const [condimentsAvailability, setCondimentsAvailability] = useState({});
   const [menuItems, setMenuItems] = useState([]);
   const [selectedManageType, setSelectedManageType] = useState('general');
   const [editingCondimentName, setEditingCondimentName] = useState(null);
@@ -259,25 +350,29 @@ export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDa
       const { data, error } = await supabase.from('menu_items').select('*').order('id', { ascending: true });
       if (error) throw error;
       if (data && data.length > 0) {
-        setMenuItems(data.filter(item => !item.name.startsWith('SYSTEM_SETTING_')));
+        const storeItems = filterItemsByStore(data, storeCode);
+        const visible = storeItems.filter(item => !item.name.startsWith('SYSTEM_SETTING_')).map(item => ({
+          ...item,
+          name: stripNameForStore(item.name, storeCode)
+        }));
+        setMenuItems(visible);
         
         // Load manual revenue setting
-        const manualRevItem = data.find(item => item.name === 'SYSTEM_SETTING_MANUAL_REVENUE');
+        const manualRevItem = storeItems.find(item => item.name === 'SYSTEM_SETTING_MANUAL_REVENUE');
         if (manualRevItem && manualRevItem.description) {
           try {
             const parsed = JSON.parse(manualRevItem.description);
             setManualRevenues(parsed);
-            localStorage.setItem('restaurant_manual_revenues', JSON.stringify(parsed));
           } catch (e) {
             setManualRevenues({});
           }
         }
       } else {
-        setMenuItems(defaultMenuItems);
+        setMenuItems([]);
       }
     } catch (err) {
       console.error("Failed to load from Supabase menu_items in BookkeepingView:", err);
-      setMenuItems(defaultMenuItems);
+      setMenuItems([]);
     }
   };
 
@@ -407,13 +502,11 @@ export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDa
   const [editingVendorIndex, setEditingVendorIndex] = useState(null);
     const [selectedBookkeepingDate, setSelectedBookkeepingDate] = useState(getTodayLocalDate());
   const [activeTab, setActiveTab] = useState('sales'); // 'sales', 'variable', 'fixed', 'monthly'
+  const [selectedMonthlyReportMonth, setSelectedMonthlyReportMonth] = useState('all');
   const [variableCostRange, setVariableCostRange] = useState('day'); // 'day', 'week', 'month', 'all'
   
   // Manual revenues states
-  const [manualRevenues, setManualRevenues] = useState(() => {
-    const saved = localStorage.getItem('restaurant_manual_revenues');
-    return saved ? JSON.parse(saved) : {};
-  });
+  const [manualRevenues, setManualRevenues] = useState({});
   const [showManualRevModal, setShowManualRevModal] = useState(false);
   const [manualRevDate, setManualRevDate] = useState(getTodayLocalDate());
   const [manualRevAmount, setManualRevAmount] = useState('');
@@ -422,11 +515,20 @@ export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDa
   const [editingInvItem, setEditingInvItem] = useState(null);
   const [editInvUnit, setEditInvUnit] = useState('');
   const [editInvMinStock, setEditInvMinStock] = useState('');
+  const [editInvIsWatched, setEditInvIsWatched] = useState(true);
+  const [newInvIsWatched, setNewInvIsWatched] = useState(true);
+  const [storeProfile, setStoreProfile] = useState(defaultStoreProfile);
+  const defaultInitialStoreName = storeCode === 'luzhou' ? '蘆洲七號店' : (storeCode !== 'dragon' ? `門市 [${storeCode}]` : '龍城麵線');
+  const [storeName, setStoreName] = useState(defaultInitialStoreName);
+  const [receiptConfig, setReceiptConfig] = useState(defaultReceiptConfig);
+
+  // Financial report date range filtering
+  const [reportRangeType, setReportRangeType] = useState('30days'); // '30days', 'thisMonth', 'lastMonth', '6months', '1year', 'all', 'custom'
+  const [reportCustomStartDate, setReportCustomStartDate] = useState('');
+  const [reportCustomEndDate, setReportCustomEndDate] = useState(getTodayLocalDate());
   
   // Daily Closing State
-  const [localClosedDates, setLocalClosedDates] = useState(() => {
-    return JSON.parse(localStorage.getItem('restaurant_closed_dates') || '[]');
-  });
+  const [localClosedDates, setLocalClosedDates] = useState([]);
   const closedDates = parentClosedDates || localClosedDates;
   const setClosedDates = parentSetClosedDates || setLocalClosedDates;
 
@@ -440,56 +542,21 @@ export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDa
 
   // Inventory States
   const [isInventoryLoaded, setIsInventoryLoaded] = useState(false);
-  const [inventory, setInventory] = useState(() => {
-    const saved = localStorage.getItem('restaurant_inventory');
-    return saved ? JSON.parse(saved) : defaultInventory;
-  });
-  const [processedOrderIds, setProcessedOrderIds] = useState(() => {
-    const saved = localStorage.getItem('restaurant_processed_orders');
-    return saved ? JSON.parse(saved) : [];
-  });
-  const [inventoryLogs, setInventoryLogs] = useState(() => {
-    const saved = localStorage.getItem('restaurant_inventory_logs');
-    return saved ? JSON.parse(saved) : [];
-  });
+  const [inventory, setInventory] = useState([]);
+  const [processedOrderIds, setProcessedOrderIds] = useState([]);
+  const [inventoryLogs, setInventoryLogs] = useState([]);
   // Vendor Management States (V2: multi-items support)
-  const [vendors, setVendors] = useState(() => {
-    const saved = localStorage.getItem('restaurant_vendors_v2');
-    return saved ? JSON.parse(saved) : [
-      {
-        id: 'v1',
-        name: '小周',
-        items: [
-          { name: '紅麵線', qty: '10斤', cost: 600 },
-          { name: '特製辣醬', qty: '5斤', cost: 500 }
-        ]
-      },
-      {
-        id: 'v2',
-        name: '大鼎大腸',
-        items: [
-          { name: '滷大腸', qty: '5斤', cost: 800 },
-          { name: '豬肚', qty: '5斤', cost: 700 }
-        ]
-      },
-      {
-        id: 'v3',
-        name: '阿水鮮肉羹',
-        items: [
-          { name: '新鮮蚵仔', qty: '5斤', cost: 450 },
-          { name: '肉羹', qty: '5斤', cost: 400 }
-        ]
-      },
-      {
-        id: 'v4',
-        name: '萬里花枝羹',
-        items: [
-          { name: '新鮮香菜', qty: '5斤', cost: 350 },
-          { name: '大蒜/辛香料', qty: '5斤', cost: 300 }
-        ]
-      }
-    ];
-  });
+  // Bookkeeping Order Editing State
+  const [editingBookkeepingOrder, setEditingBookkeepingOrder] = useState(null);
+  const [editOrderTotal, setEditOrderTotal] = useState('');
+  const [editOrderType, setEditOrderType] = useState('dine-in');
+  const [editOrderCust, setEditOrderCust] = useState('');
+  const [editOrderPayment, setEditOrderPayment] = useState('');
+  const [editOrderRemarks, setEditOrderRemarks] = useState('');
+  const [editOrderCashier, setEditOrderCashier] = useState('店長 (Admin)');
+  const [editOrderItems, setEditOrderItems] = useState([]);
+
+  const [vendors, setVendors] = useState([]);
   const [selectedVendorId, setSelectedVendorId] = useState('v1');
   const [selectedVendorItemIndex, setSelectedVendorItemIndex] = useState('0'); // index or 'custom'
   const [customItemName, setCustomItemName] = useState('');
@@ -520,6 +587,25 @@ export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDa
     }
   }, [selectedVendorId, selectedVendorItemIndex, customItemName, vendors]);
 
+  // Recalculate purchaseCost automatically when user updates purchaseQty based on default item ratio
+  useEffect(() => {
+    if (!purchaseQty || !selectedVendorId || selectedVendorId === 'manage-vendors') return;
+    const v = vendors.find(item => item.id === selectedVendorId);
+    if (!v || !v.items || selectedVendorItemIndex === 'custom') return;
+    
+    const defaultItem = v.items[Number(selectedVendorItemIndex)];
+    if (!defaultItem || defaultItem.name !== purchaseItemName) return;
+    
+    const defaultQtyNum = parseFloat(defaultItem.qty.replace(/[^0-9.]/g, ''));
+    const inputQtyNum = parseFloat(purchaseQty.replace(/[^0-9.]/g, ''));
+    
+    if (defaultQtyNum > 0 && inputQtyNum > 0 && defaultItem.cost > 0) {
+      const ratio = inputQtyNum / defaultQtyNum;
+      const newCost = Math.round(defaultItem.cost * ratio);
+      setPurchaseCost(String(newCost));
+    }
+  }, [purchaseQty, selectedVendorId, selectedVendorItemIndex, purchaseItemName, vendors]);
+
   const handleAddVendor = (e) => {
     e.preventDefault();
     if (!newVendorName) return;
@@ -544,6 +630,7 @@ export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDa
     const updated = [...vendors, newV];
     setVendors(updated);
     localStorage.setItem('restaurant_vendors_v2', JSON.stringify(updated));
+    saveVendorsToCloud(updated);
     setNewVendorName('');
     setNewVendorItems([{ name: '紅麵線', qty: '10斤', cost: '600' }]);
     setSelectedVendorId(newV.id);
@@ -556,6 +643,7 @@ export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDa
       const updated = vendors.filter(v => v.id !== id);
       setVendors(updated);
       localStorage.setItem('restaurant_vendors_v2', JSON.stringify(updated));
+      saveVendorsToCloud(updated);
       if (selectedVendorId === id) {
         if (updated.length > 0) {
           setSelectedVendorId(updated[0].id);
@@ -630,49 +718,882 @@ export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDa
     }
   };
 
-  // Exporter for Monthly/Daily reports
-  const handleExportMonthlyCSV = () => {
-    if (monthlyReports.length === 0) {
+  const handleMoveInventoryItem = (idx, direction) => {
+    const newIdx = idx + direction;
+    if (newIdx < 0 || newIdx >= inventory.length) return;
+    const updated = [...inventory];
+    const temp = updated[idx];
+    updated[idx] = updated[newIdx];
+    updated[newIdx] = temp;
+    setInventory(updated);
+    localStorage.setItem('restaurant_inventory', JSON.stringify(updated));
+  };
+
+  // Helper for computing date range for financial reports
+  const getReportDateRange = () => {
+    const today = new Date();
+    const todayStr = getTodayLocalDate();
+    
+    if (reportRangeType === 'thisMonth') {
+      const start = `${todayStr.slice(0, 7)}-01`;
+      return { start, end: todayStr, label: '🗓️ 本月' };
+    }
+    if (reportRangeType === 'lastMonth') {
+      const prevMonthDate = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+      const prevMonthStr = prevMonthDate.toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' }).slice(0, 7);
+      const lastDay = new Date(today.getFullYear(), today.getMonth(), 0).getDate();
+      return { start: `${prevMonthStr}-01`, end: `${prevMonthStr}-${String(lastDay).padStart(2, '0')}`, label: `📅 上個月 (${prevMonthStr})` };
+    }
+    if (reportRangeType === '30days') {
+      const d = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000);
+      const start = d.toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' });
+      return { start, end: todayStr, label: '⏱️ 近 30 天' };
+    }
+    if (reportRangeType === '6months') {
+      const d = new Date(today.getTime() - 180 * 24 * 60 * 60 * 1000);
+      const start = d.toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' });
+      return { start, end: todayStr, label: '📊 近半年 (180天)' };
+    }
+    if (reportRangeType === '1year') {
+      const d = new Date(today.getTime() - 365 * 24 * 60 * 60 * 1000);
+      const start = d.toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' });
+      return { start, end: todayStr, label: '📈 近一年 (365天)' };
+    }
+    if (reportRangeType === 'custom') {
+      return { 
+        start: reportCustomStartDate || '2000-01-01', 
+        end: reportCustomEndDate || todayStr, 
+        label: `✏️ 自訂區間 (${reportCustomStartDate || '起始'} ~ ${reportCustomEndDate || todayStr})` 
+      };
+    }
+    if (selectedMonthlyReportMonth && selectedMonthlyReportMonth !== 'all') {
+      const start = `${selectedMonthlyReportMonth}-01`;
+      const end = `${selectedMonthlyReportMonth}-31`;
+      return { start, end, label: `📅 ${selectedMonthlyReportMonth.replace('-', '年 ')}月` };
+    }
+    return { start: '2000-01-01', end: '2099-12-31', label: '🌐 全部歷史紀錄' };
+  };
+
+  // Toggle Watched status on inventory item for POS alerts
+  const handleToggleWatchInventoryItem = (itemName) => {
+    const updated = inventory.map(i => {
+      if (i.name === itemName) {
+        const isWatched = i.isWatched !== false;
+        return { ...i, isWatched: !isWatched };
+      }
+      return i;
+    });
+    setInventory(updated);
+    localStorage.setItem('restaurant_inventory', JSON.stringify(updated));
+    supabase.from('menu_items').select('*').eq('name', 'SYSTEM_SETTING_INVENTORY').then(({ data }) => {
+      if (data && data.length > 0) {
+        supabase.from('menu_items').update({ description: JSON.stringify(updated) }).eq('name', 'SYSTEM_SETTING_INVENTORY');
+      }
+    });
+  };
+
+  // Dedicated CSV Exporter for Monthly Financial & Revenue Reports
+  const handleExportMonthlyDataCSV = () => {
+    const range = getReportDateRange();
+    const targetReports = monthlyReports.filter(r => r.month >= range.start && r.month <= range.end);
+
+    if (targetReports.length === 0) {
       alert("目前尚無損益對帳資料可供匯出！");
       return;
     }
-    let csvContent = "\ufeff對帳日期,營業總收入(NT$),進貨變動成本(NT$)\n";
-    let totalRevenue = 0;
-    let totalVariable = 0;
 
-    monthlyReports.forEach(r => {
-      csvContent += `${r.month},${r.revenue},${r.variableCosts}\n`;
-      totalRevenue += r.revenue;
-      totalVariable += r.variableCosts;
+    let totalRevenue = 0;
+    let totalSystemRevenue = 0;
+    let totalManualRevenue = 0;
+    let totalVariable = 0;
+    let totalFixed = 0;
+
+    targetReports.forEach(r => {
+      totalRevenue += (Number(r.revenue) || 0);
+      totalSystemRevenue += (Number(r.systemRevenue) || 0);
+      totalManualRevenue += (Number(r.manualRev) || 0);
+      totalVariable += (Number(r.variableCosts) || 0);
     });
 
-    // Calculate complete full-amount fixed costs for the unique months in the report
-    const uniqueMonths = Array.from(new Set(monthlyReports.map(r => r.month.slice(0, 7))));
-    let totalFixed = 0;
+    const uniqueMonths = Array.from(new Set(targetReports.map(r => r.month.slice(0, 7))));
     uniqueMonths.forEach(m => {
       const activeFixed = fixedCosts.filter(fc => fc.expiryDate.slice(0, 7) >= m);
       totalFixed += activeFixed.reduce((sum, fc) => sum + fc.cost, 0);
     });
 
-    const totalCost = totalVariable + totalFixed;
-    const netProfit = totalRevenue - totalCost;
+    const totalGrossProfit = totalRevenue - totalVariable;
+    const grossMarginPercent = totalRevenue > 0 ? ((totalGrossProfit / totalRevenue) * 100) : 0;
+    const netProfit = totalGrossProfit - totalFixed;
+    const netMarginPercent = totalRevenue > 0 ? ((netProfit / totalRevenue) * 100) : 0;
 
-    csvContent += "\n";
-    csvContent += `總結項目,金額(NT$),備註\n`;
-    csvContent += `總計營業總收入,${totalRevenue},\n`;
-    csvContent += `總計進貨變動成本,${totalVariable},\n`;
-    csvContent += `總計固定成本支出,${totalFixed},完整月度固定成本總額\n`;
-    csvContent += `合計總成本,${totalCost},進貨變動成本 + 完整固定成本\n`;
-    csvContent += `預估總利潤,${netProfit},營業總收入 - 合計總成本\n`;
+    const activeDays = targetReports.filter(r => (Number(r.revenue) || 0) > 0 || (Number(r.orderCount) || 0) > 0).map(r => r.month);
+    const filteredOrders = orders.filter(o => {
+      if (o.status !== 'completed' && o.status !== 'received') return false;
+      const orderDate = new Date(o.timestamp).toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' });
+      return activeDays.includes(orderDate);
+    });
+    const totalOrdersCount = filteredOrders.length;
+    const avgOrderValue = totalOrdersCount > 0 ? Math.round(totalRevenue / totalOrdersCount) : 0;
+    const avgDailyRevenue = activeDays.length > 0 ? Math.round(totalRevenue / activeDays.length) : 0;
 
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    // Item sales breakdown
+    const itemSalesMap = {};
+    filteredOrders.forEach(o => {
+      const orderItems = Array.isArray(o.items) ? o.items : [];
+      orderItems.forEach(item => {
+        const name = item.name || '未知品項';
+        const qty = Number(item.quantity) || 1;
+        const price = Number(item.price) || (item.totalPrice ? Number(item.totalPrice) / qty : 0);
+        const itemTotal = Number(item.totalPrice) || (price * qty);
+        const itemCost = calculateItemCost(item);
+
+        if (!itemSalesMap[name]) {
+          itemSalesMap[name] = { name, qty: 0, revenue: 0, cost: 0 };
+        }
+        itemSalesMap[name].qty += qty;
+        itemSalesMap[name].revenue += itemTotal;
+        itemSalesMap[name].cost += itemCost;
+      });
+    });
+
+    const itemSalesList = Object.values(itemSalesMap).map(item => {
+      const grossProfit = item.revenue - item.cost;
+      const grossMargin = item.revenue > 0 ? (grossProfit / item.revenue * 100) : 0;
+      return { ...item, grossProfit, grossMargin };
+    }).sort((a, b) => b.revenue - a.revenue);
+
+    let csv = "\uFEFF";
+    csv += `龍城麵線 - 財務損益與營業額對帳報表\n`;
+    csv += `統計區間, ${range.label} (${range.start} ~ ${range.end})\n`;
+    csv += `匯出時間, ${new Date().toLocaleString('zh-TW', { hour12: false })}\n\n`;
+
+    // 1. Summary KPI Section
+    csv += `=== 營運財務與營業額總覽 ===\n`;
+    csv += `指標項目, 金額 / 數值, 備註說明\n`;
+    csv += `營業總額 (營業額), NT$ ${totalRevenue}, 統計期間全部實收營業額 (系統 + 人工補登)\n`;
+    csv += `系統點餐營業額, NT$ ${totalSystemRevenue}, 由 POS 與顧客手機點餐產生之營業額\n`;
+    csv += `人工補登營業額, NT$ ${totalManualRevenue}, 手動登錄之非系統營業額\n`;
+    csv += `訂單總筆數, ${totalOrdersCount} 筆, 已結算之成交訂單數\n`;
+    csv += `平均客單價, NT$ ${avgOrderValue}, 營業總額 ÷ 訂單總筆數\n`;
+    csv += `平均每日營業額, NT$ ${avgDailyRevenue}, 營業總額 ÷ 營業天數 (${activeDays.length} 天)\n`;
+    csv += `進貨食材成本, -NT$ ${totalVariable}, 原物料進貨變動支出\n`;
+    csv += `營業總毛利, NT$ ${totalGrossProfit}, 毛利率: ${grossMarginPercent.toFixed(1)}%\n`;
+    csv += `固定成本總額, -NT$ ${totalFixed}, 房租水電人事等固定成本\n`;
+    csv += `營運淨利, NT$ ${netProfit}, 淨利率: ${netMarginPercent.toFixed(1)}%\n\n`;
+
+    // 2. Daily Details Section
+    csv += `=== 每日營業額與收支損益明細表 ===\n`;
+    csv += `對帳日期, 營業總額 (營業額), 系統點餐營業額, 手動補登營業額, 訂單筆數, 食材進貨成本, 固定成本分攤, 營業毛利, 毛利率(%), 營運淨利, 淨利率(%), 經營狀態\n`;
+    
+    targetReports.forEach(r => {
+      const dayGross = r.revenue - r.variableCosts;
+      const dayGrossMargin = r.revenue > 0 ? ((dayGross / r.revenue) * 100).toFixed(1) : '0.0';
+      const dayNet = dayGross - r.fixedCosts;
+      const dayNetMargin = r.revenue > 0 ? ((dayNet / r.revenue) * 100).toFixed(1) : '0.0';
+      const statusStr = dayNet >= 0 ? '盈餘' : '虧損';
+
+      csv += `${r.month},${r.revenue},${r.systemRevenue || 0},${r.manualRev || 0},${r.orderCount || 0},${r.variableCosts},${r.fixedCosts},${dayGross},${dayGrossMargin}%,${dayNet},${dayNetMargin}%,${statusStr}\n`;
+    });
+
+    csv += `合計/總結,${totalRevenue},${totalSystemRevenue},${totalManualRevenue},${totalOrdersCount},${totalVariable},${totalFixed},${totalGrossProfit},${grossMarginPercent.toFixed(1)}%,${netProfit},${netMarginPercent.toFixed(1)}%,\n\n`;
+
+    // 3. Product Sales Ranking Section
+    csv += `=== 各餐點品項銷售與營業額排行 ===\n`;
+    csv += `排行, 品項名稱, 累積銷量, 銷售營業額(NT$), 食材總成本(NT$), 毛利額(NT$), 毛利率(%)\n`;
+    itemSalesList.forEach((item, idx) => {
+      csv += `${idx + 1},${item.name.replace(/,/g, ' ')},${item.qty},${item.revenue},${item.cost},${item.grossProfit},${item.grossMargin.toFixed(1)}%\n`;
+    });
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.setAttribute("href", url);
-    link.setAttribute("download", `龍城麵線_對帳收支總表.csv`);
+    link.setAttribute("download", `龍城麵線_按月財務營業額報表_${range.start}_${range.end}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  };
+
+  // Exporter for Monthly HTML interactive report
+  const handleExportMonthlyCSV = () => {
+    const range = getReportDateRange();
+    const targetReports = monthlyReports.filter(r => r.month >= range.start && r.month <= range.end);
+
+    if (targetReports.length === 0) {
+      alert("目前尚無損益對帳資料可供匯出！");
+      return;
+    }
+
+    // Calculations
+    let totalRevenue = 0;
+    let totalVariable = 0;
+    let totalFixed = 0;
+    const reportsWithProfit = targetReports.map(r => {
+      const dayGross = r.revenue - r.variableCosts;
+      const dayGrossMargin = r.revenue > 0 ? ((dayGross / r.revenue) * 100) : 0;
+      const dayNetProfit = dayGross - r.fixedCosts;
+      const dayNetMargin = r.revenue > 0 ? ((dayNetProfit / r.revenue) * 100) : 0;
+      return { 
+        ...r, 
+        grossProfit: dayGross,
+        grossMargin: dayGrossMargin,
+        profit: dayNetProfit,
+        netMargin: dayNetMargin
+      };
+    });
+
+    let totalSystemRevenue = 0;
+    let totalManualRevenue = 0;
+    targetReports.forEach(r => {
+      totalRevenue += (Number(r.revenue) || 0);
+      totalSystemRevenue += (Number(r.systemRevenue) || 0);
+      totalManualRevenue += (Number(r.manualRev) || 0);
+      totalVariable += (Number(r.variableCosts) || 0);
+    });
+
+    const uniqueMonths = Array.from(new Set(targetReports.map(r => r.month.slice(0, 7))));
+    uniqueMonths.forEach(m => {
+      const activeFixed = fixedCosts.filter(fc => fc.expiryDate.slice(0, 7) >= m);
+      totalFixed += activeFixed.reduce((sum, fc) => sum + fc.cost, 0);
+    });
+
+    const totalGrossProfit = totalRevenue - totalVariable;
+    const grossMarginPercent = totalRevenue > 0 ? ((totalGrossProfit / totalRevenue) * 100) : 0;
+    const netProfit = totalGrossProfit - totalFixed;
+    const netMarginPercent = totalRevenue > 0 ? ((netProfit / totalRevenue) * 100) : 0;
+
+    // Hourly order peak calculations
+    const activeDays = targetReports.filter(r => (Number(r.revenue) || 0) > 0 || (Number(r.orderCount) || 0) > 0).map(r => r.month);
+    const filteredOrders = orders.filter(o => {
+      if (o.status !== 'completed' && o.status !== 'received') return false;
+      const orderDate = new Date(o.timestamp).toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' });
+      return activeDays.includes(orderDate);
+    });
+
+    const hourlyCounts = Array(24).fill(0);
+    filteredOrders.forEach(o => {
+      try {
+        const dateObj = new Date(o.timestamp);
+        const hr = parseInt(new Intl.DateTimeFormat('zh-TW', { hour: 'numeric', hour12: false, timeZone: 'Asia/Taipei' }).format(dateObj)) || 0;
+        if (hr >= 0 && hr < 24) {
+          hourlyCounts[hr] += 1;
+        }
+      } catch (e) {
+        const hr = new Date(o.timestamp).getHours();
+        hourlyCounts[hr] += 1;
+      }
+    });
+
+    const dayCount = activeDays.length || 1;
+    const hourlyAvgs = hourlyCounts.map(count => count / dayCount);
+
+    // Item & Mee-Sua Sales Analysis calculation
+    const itemSalesMap = {};
+    let totalItemsQty = 0;
+    let totalItemsRevenue = 0;
+    let totalItemsCost = 0;
+
+    filteredOrders.forEach(o => {
+      const orderItems = Array.isArray(o.items) ? o.items : [];
+      orderItems.forEach(item => {
+        const name = item.name || '未知品項';
+        const qty = Number(item.quantity) || 1;
+        const price = Number(item.price) || (item.totalPrice ? Number(item.totalPrice) / qty : 0);
+        const itemTotal = Number(item.totalPrice) || (price * qty);
+        const itemCost = calculateItemCost(item);
+
+        if (!itemSalesMap[name]) {
+          itemSalesMap[name] = {
+            name,
+            qty: 0,
+            revenue: 0,
+            cost: 0,
+            isMeeSua: name.includes('麵線') || name.includes('羹')
+          };
+        }
+        itemSalesMap[name].qty += qty;
+        itemSalesMap[name].revenue += itemTotal;
+        itemSalesMap[name].cost += itemCost;
+        totalItemsQty += qty;
+        totalItemsRevenue += itemTotal;
+        totalItemsCost += itemCost;
+      });
+    });
+
+    const itemSalesList = Object.values(itemSalesMap).map(item => {
+      const grossProfit = item.revenue - item.cost;
+      const grossMargin = item.revenue > 0 ? (grossProfit / item.revenue * 100) : 0;
+      return {
+        ...item,
+        grossProfit,
+        grossMargin
+      };
+    }).sort((a, b) => b.qty - a.qty);
+
+    const meeSuaSalesList = itemSalesList.filter(item => item.isMeeSua);
+    const itemSalesLabelsJson = JSON.stringify(itemSalesList.map(i => i.name));
+    const itemSalesQtyJson = JSON.stringify(itemSalesList.map(i => i.qty));
+    const itemSalesRevenueJson = JSON.stringify(itemSalesList.map(i => i.revenue));
+    const itemSalesProfitJson = JSON.stringify(itemSalesList.map(i => i.grossProfit));
+
+    // Dynamic JSON serialization for embedding in HTML
+    const dailyDataJson = JSON.stringify([...reportsWithProfit].reverse().map(r => ({
+      date: r.month,
+      revenue: r.revenue,
+      cost: r.fixedCosts + r.variableCosts,
+      profit: r.profit
+    })));
+
+    const hourlyLabelsJson = JSON.stringify(Array(24).fill(0).map((_, hr) => 
+      `${String(hr).padStart(2, '0')}:00-${String((hr + 1) % 24).padStart(2, '0')}:00`
+    ));
+    const hourlyAvgsJson = JSON.stringify(hourlyAvgs.map(v => parseFloat(v.toFixed(2))));
+
+    // Standalone Interactive HTML Dashboard template
+    const htmlContent = `<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${storeName || '龍城麵線'} - 財務損益對帳與客群時段分析報告 (${selectedMonthlyReportMonth})</title>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=Noto+Sans+TC:wght@300;400;700;900&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    :root {
+      --primary: #ea580c;
+      --primary-hover: #c2410c;
+      --bg: #0f172a;
+      --card-bg: #1e293b;
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+      --border: #334155;
+      --success: #10b981;
+      --danger: #ef4444;
+      --card-gradient: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+    }
+    body {
+      font-family: 'Outfit', 'Noto Sans TC', sans-serif;
+      background-color: var(--bg);
+      color: var(--text);
+      margin: 0;
+      padding: 40px 20px;
+      line-height: 1.5;
+    }
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 2px solid var(--border);
+      padding-bottom: 20px;
+      margin-bottom: 30px;
+    }
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 15px;
+    }
+    .logo {
+      font-size: 2.2rem;
+      background: var(--primary);
+      padding: 10px;
+      border-radius: 12px;
+      display: inline-block;
+    }
+    h1 {
+      margin: 0;
+      font-size: 1.8rem;
+      font-weight: 900;
+      color: #fff;
+    }
+    .report-badge {
+      display: inline-block;
+      background-color: rgba(234, 88, 12, 0.15);
+      color: var(--primary);
+      padding: 4px 12px;
+      border-radius: 20px;
+      font-size: 0.8rem;
+      font-weight: bold;
+      border: 1px solid rgba(234, 88, 12, 0.3);
+      margin-top: 5px;
+    }
+    .btn-print {
+      background-color: var(--primary);
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 10px;
+      font-weight: bold;
+      cursor: pointer;
+      font-size: 0.95rem;
+      transition: all 0.2s;
+      box-shadow: 0 4px 6px rgba(234, 88, 12, 0.2);
+    }
+    .btn-print:hover {
+      background-color: var(--primary-hover);
+      transform: translateY(-2px);
+      box-shadow: 0 6px 12px rgba(234, 88, 12, 0.3);
+    }
+    .kpis {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 20px;
+      margin-bottom: 45px;
+    }
+    .kpi-card {
+      background: var(--card-gradient);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 24px;
+      box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3);
+      transition: transform 0.2s;
+    }
+    .kpi-card:hover {
+      transform: translateY(-4px);
+    }
+    .kpi-title {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      font-weight: bold;
+      letter-spacing: 0.05em;
+    }
+    .kpi-value {
+      font-size: 2rem;
+      font-weight: 900;
+      margin-top: 10px;
+    }
+    .kpi-value.profit { color: var(--success); }
+    .kpi-value.loss { color: var(--danger); }
+    .charts-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 30px;
+      margin-bottom: 45px;
+    }
+    @media (min-width: 992px) {
+      .charts-grid { grid-template-columns: 1fr 1fr; }
+    }
+    .chart-card {
+      background: var(--card-gradient);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 28px;
+      box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3);
+    }
+    .chart-title {
+      font-size: 1.15rem;
+      font-weight: bold;
+      margin-bottom: 24px;
+      color: var(--primary);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .table-card {
+      background: var(--card-gradient);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 28px;
+      box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3);
+      margin-bottom: 40px;
+    }
+    .table-container {
+      overflow-x: auto;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.9rem;
+      text-align: left;
+    }
+    th {
+      border-bottom: 2px solid var(--border);
+      padding: 14px;
+      color: var(--primary);
+      font-weight: 700;
+      font-size: 0.95rem;
+    }
+    td {
+      padding: 14px;
+      border-bottom: 1px solid var(--border);
+    }
+    tr:last-child td {
+      border-bottom: none;
+    }
+    .text-success { color: var(--success); font-weight: bold; }
+    .text-danger { color: var(--danger); font-weight: bold; }
+    
+    @media print {
+      body {
+        background-color: white;
+        color: black;
+        padding: 0;
+      }
+      .btn-print { display: none; }
+      .kpi-card, .chart-card, .table-card {
+        box-shadow: none;
+        border: 1px solid #ccc;
+        background: white;
+        color: black;
+      }
+      h1, .report-badge, .chart-title, th {
+        color: black !important;
+        -webkit-text-fill-color: black;
+      }
+      .kpi-value.profit { color: #15803d !important; }
+      .kpi-value.loss { color: #b91c1c !important; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="header-left">
+        <div class="logo">🥢</div>
+        <div>
+          <h1>${storeName || '龍城麵線'} - 財務損益對帳與客群時段分析報告</h1>
+          <div class="report-badge">📅 統計時段: <strong>${range.label} (${range.start === '2000-01-01' ? '全部歷史' : range.start} ~ ${range.end === '2099-12-31' ? '至今' : range.end})</strong></div>
+        </div>
+      </div>
+      <button class="btn-print" onclick="window.print()">🖨️ 列印報告 / 存為 PDF</button>
+    </header>
+
+    <div class="kpis">
+      <div class="kpi-card" style="border: 2px solid #ea580c; background: linear-gradient(135deg, rgba(234, 88, 12, 0.15) 0%, #1e293b 100%);">
+        <div class="kpi-title">💰 營業總額 (營業額)</div>
+        <div class="kpi-value" style="color: #fb923c;">NT$ ${totalRevenue.toLocaleString()}</div>
+        <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 8px; line-height: 1.5;">
+          <span>📱 系統點餐: NT$ ${totalSystemRevenue.toLocaleString()}</span><br/>
+          <span>✍️ 手動補登: NT$ ${totalManualRevenue.toLocaleString()}</span>
+        </div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-title">🧾 訂單數與客單價</div>
+        <div class="kpi-value" style="color: #38bdf8;">${filteredOrders.length.toLocaleString()} <span style="font-size: 1rem; font-weight: normal;">筆</span></div>
+        <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 8px; line-height: 1.5;">
+          <span>🏷️ 平均客單價: NT$ ${filteredOrders.length > 0 ? Math.round(totalRevenue / filteredOrders.length) : 0}</span><br/>
+          <span>📅 日均營業額: NT$ ${activeDays.length > 0 ? Math.round(totalRevenue / activeDays.length).toLocaleString() : 0}</span>
+        </div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-title">💸 進貨變動成本</div>
+        <div class="kpi-value" style="color: #ef4444;">-NT$ ${totalVariable.toLocaleString()}</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-title">🥗 營業總毛利</div>
+        <div class="kpi-value ${totalGrossProfit >= 0 ? 'profit' : 'loss'}">NT$ ${totalGrossProfit.toLocaleString()}</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-title">📊 營業毛利率</div>
+        <div class="kpi-value ${grossMarginPercent >= 0 ? 'profit' : 'loss'}">${grossMarginPercent.toFixed(1)}%</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-title">🏢 固定成本總額</div>
+        <div class="kpi-value" style="color: #ef4444;">-NT$ ${totalFixed.toLocaleString()}</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-title">📈 營運淨利與淨利率</div>
+        <div class="kpi-value ${netProfit >= 0 ? 'profit' : 'loss'}">
+          NT$ ${netProfit.toLocaleString()}
+          <span style="font-size: 0.85rem; font-weight: normal; opacity: 0.85;">(${netMarginPercent.toFixed(1)}%)</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="charts-grid">
+      <div class="chart-card">
+        <div class="chart-title">📈 每日收支淨利趨勢曲線</div>
+        <div style="height: 320px; position: relative;">
+          <canvas id="profitTrendChart"></canvas>
+        </div>
+      </div>
+      <div class="chart-card">
+        <div class="chart-title">⏰ 平均點單時段分佈 (每小時)</div>
+        <div style="height: 320px; position: relative;">
+          <canvas id="hourlyOrderChart"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <!-- Mee-Sua & Item Sales Analysis Charts -->
+    <div class="charts-grid">
+      <div class="chart-card">
+        <div class="chart-title">🍜 各麵線與品項銷售數量佔比</div>
+        <div style="height: 320px; position: relative;">
+          <canvas id="itemQtyDoughnutChart"></canvas>
+        </div>
+      </div>
+      <div class="chart-card">
+        <div class="chart-title">💵 各麵線與品項銷售總金額排行</div>
+        <div style="height: 320px; position: relative;">
+          <canvas id="itemRevenueBarChart"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <!-- Mee-Sua & Item Sales Analysis Table -->
+    <div class="table-card">
+      <div class="chart-title">🍜 各類麵線與餐點品項銷售與毛利深度分析表</div>
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th>排行</th>
+              <th>餐點/麵線品項名稱</th>
+              <th>累積銷售量</th>
+              <th>銷售總額 (NT$)</th>
+              <th>食材總成本 (NT$)</th>
+              <th>毛利額 (NT$)</th>
+              <th>毛利率 (%)</th>
+              <th>平均售價</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${itemSalesList.length === 0 ? '<tr><td colspan="8" style="text-align: center; color: #94a3b8;">此期間無銷售明細數據</td></tr>' : 
+              itemSalesList.map((item, idx) => {
+                const avgPrice = item.qty > 0 ? Math.round(item.revenue / item.qty) : 0;
+                const isProfitable = item.grossProfit >= 0;
+                return `
+                <tr>
+                  <td style="font-weight: bold; color: ${idx < 3 ? '#ea580c' : 'inherit'};">${idx === 0 ? '🥇 1' : idx === 1 ? '🥈 2' : idx === 2 ? '🥉 3' : String(idx + 1)}</td>
+                  <td style="font-weight: bold;">
+                    ${item.name}
+                    ${item.isMeeSua ? '<span style="margin-left: 6px; padding: 2px 6px; font-size: 0.65rem; border-radius: 4px; background-color: rgba(234,88,12,0.15); color: #ea580c; font-weight: bold;">麵線類</span>' : ''}
+                  </td>
+                  <td style="font-weight: bold; color: #38bdf8;">${item.qty.toLocaleString()} 份</td>
+                  <td style="font-weight: bold;">NT$ ${item.revenue.toLocaleString()}</td>
+                  <td style="color: #ef4444;">NT$ ${item.cost.toLocaleString()}</td>
+                  <td style="font-weight: bold; color: ${isProfitable ? '#10b981' : '#ef4444'};">NT$ ${item.grossProfit.toLocaleString()}</td>
+                  <td style="font-weight: bold; color: ${isProfitable ? '#10b981' : '#ef4444'};">${item.grossMargin.toFixed(1)}%</td>
+                  <td>NT$ ${avgPrice}</td>
+                </tr>`;
+              }).join('')
+            }
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="table-card">
+      <div class="chart-title">📊 每日收支損益與毛利明細對帳表</div>
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th>對帳日期</th>
+              <th>營業總額 (營業額)</th>
+              <th>系統營業額</th>
+              <th>手動補登</th>
+              <th>訂單數</th>
+              <th>進貨變動成本</th>
+              <th>營業毛利</th>
+              <th>毛利率</th>
+              <th>固定成本</th>
+              <th>單日淨利</th>
+              <th>狀態</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${reportsWithProfit.map(r => {
+              const isProfitable = r.profit >= 0;
+              return `
+              <tr>
+                <td style="font-weight: bold; color: var(--primary);">${r.month}</td>
+                <td style="font-weight: bold; color: #fb923c; font-size: 0.95rem;">NT$ ${r.revenue.toLocaleString()}</td>
+                <td style="color: var(--text-muted);">NT$ ${(r.systemRevenue || 0).toLocaleString()}</td>
+                <td style="color: var(--text-muted);">NT$ ${(r.manualRev || 0).toLocaleString()}</td>
+                <td style="color: #38bdf8; font-weight: bold;">${r.orderCount || 0} 筆</td>
+                <td style="color: #ef4444;">NT$ ${r.variableCosts.toLocaleString()}</td>
+                <td style="font-weight: bold; color: ${r.grossProfit >= 0 ? '#10b981' : '#ef4444'};">NT$ ${r.grossProfit.toLocaleString()}</td>
+                <td style="font-weight: bold;">${r.grossMargin.toFixed(1)}%</td>
+                <td style="color: #ef4444;">NT$ ${r.fixedCosts.toLocaleString()}</td>
+                <td class="${isProfitable ? 'text-success' : 'text-danger'}" style="font-weight: bold; font-size: 0.95rem;">NT$ ${r.profit.toLocaleString()}</td>
+                <td>
+                  <span style="background-color: ${isProfitable ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)'}; color: ${isProfitable ? '#10b981' : '#ef4444'}; padding: 2px 8px; border-radius: 20px; font-size: 0.75rem; font-weight: bold;">
+                    ${isProfitable ? '盈餘' : '虧損'}
+                  </span>
+                </td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Embed data sets
+    const dailyData = ${dailyDataJson};
+    const hourlyLabels = ${hourlyLabelsJson};
+    const hourlyAvgs = ${hourlyAvgsJson};
+
+    // 1. Render Daily Profit Trend Line Chart
+    const ctx1 = document.getElementById('profitTrendChart').getContext('2d');
+    new Chart(ctx1, {
+      type: 'line',
+      data: {
+        labels: dailyData.map(d => d.date),
+        datasets: [
+          {
+            label: '單日淨利潤 (NT$)',
+            data: dailyData.map(d => d.profit),
+            borderColor: '#ea580c',
+            backgroundColor: 'rgba(234, 88, 12, 0.1)',
+            fill: true,
+            tension: 0.4,
+            borderWidth: 3,
+            pointBackgroundColor: '#ea580c'
+          },
+          {
+            label: '單日營業額 (NT$)',
+            data: dailyData.map(d => d.revenue),
+            borderColor: '#10b981',
+            backgroundColor: 'rgba(16, 185, 129, 0.1)',
+            fill: false,
+            tension: 0.3,
+            borderWidth: 3,
+            pointBackgroundColor: '#10b981',
+            hidden: false
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: {
+            labels: { color: '#94a3b8', font: { family: 'Noto Sans TC' } }
+          }
+        },
+        scales: {
+          x: {
+            grid: { color: '#334155' },
+            ticks: { color: '#94a3b8' }
+          },
+          y: {
+            grid: { color: '#334155' },
+            ticks: { color: '#94a3b8' }
+          }
+        }
+      }
+    });
+
+    // 2. Render Hourly Order Distribution Bar Chart
+    const ctx2 = document.getElementById('hourlyOrderChart').getContext('2d');
+    new Chart(ctx2, {
+      type: 'bar',
+      data: {
+        labels: hourlyLabels,
+        datasets: [{
+          label: '平均訂單筆數 (筆/日)',
+          data: hourlyAvgs,
+          backgroundColor: 'rgba(234, 88, 12, 0.75)',
+          borderColor: '#ea580c',
+          borderWidth: 1,
+          borderRadius: 4
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: {
+            labels: { color: '#94a3b8' }
+          }
+        },
+        scales: {
+          x: {
+            grid: { display: false },
+            ticks: { color: '#94a3b8', maxRotation: 45, minRotation: 45 }
+          },
+          y: {
+            grid: { color: '#334155' },
+            ticks: { color: '#94a3b8' }
+          }
+        }
+      }
+    });
+
+    // 3. Render Item Qty Doughnut Chart
+    const itemLabels = ${itemSalesLabelsJson};
+    const itemQtys = ${itemSalesQtyJson};
+    const itemRevenues = ${itemSalesRevenueJson};
+
+    const palette = [
+      '#ea580c', '#38bdf8', '#10b981', '#f59e0b', '#8b5cf6',
+      '#ec4899', '#06b6d4', '#84cc16', '#6366f1', '#14b8a6', '#f43f5e'
+    ];
+
+    const ctx3 = document.getElementById('itemQtyDoughnutChart').getContext('2d');
+    new Chart(ctx3, {
+      type: 'doughnut',
+      data: {
+        labels: itemLabels,
+        datasets: [{
+          data: itemQtys,
+          backgroundColor: palette.slice(0, itemLabels.length),
+          borderColor: '#1e293b',
+          borderWidth: 2
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: {
+            position: 'right',
+            labels: { color: '#94a3b8', font: { family: 'Noto Sans TC', size: 11 } }
+          }
+        }
+      }
+    });
+
+    // 4. Render Item Revenue Bar Chart
+    const ctx4 = document.getElementById('itemRevenueBarChart').getContext('2d');
+    new Chart(ctx4, {
+      type: 'bar',
+      data: {
+        labels: itemLabels,
+        datasets: [{
+          label: '銷售總額 (NT$)',
+          data: itemRevenues,
+          backgroundColor: 'rgba(16, 185, 129, 0.8)',
+          borderColor: '#10b981',
+          borderWidth: 1,
+          borderRadius: 4
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        indexAxis: 'y',
+        plugins: {
+          legend: {
+            labels: { color: '#94a3b8', font: { family: 'Noto Sans TC' } }
+          }
+        },
+        scales: {
+          x: {
+            grid: { color: '#334155' },
+            ticks: { color: '#94a3b8' }
+          },
+          y: {
+            grid: { color: '#334155' },
+            ticks: { color: '#94a3b8' }
+          }
+        }
+      }
+    });
+  </script>
+</body>
+</html>`;
+
+    const blob = new Blob([htmlContent], { type: "text/html;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    window.open(url, '_blank');
   };
 
   // Fetch orders from Supabase
@@ -681,15 +1602,16 @@ export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDa
       const { data, error } = await supabase.from('orders').select('*').order('created_at', { ascending: false });
       if (error) throw error;
       if (data) {
+        const storeOrders = filterOrdersByStore(data, storeCode);
         // Filter out SYSTEM_STORE_CLOSE
-        const clientOrders = data.filter(o => {
+        const clientOrders = storeOrders.filter(o => {
           const itemsData = typeof o.items === 'string' ? JSON.parse(o.items) : o.items;
           return itemsData?.customerName !== 'SYSTEM_STORE_CLOSE';
         });
         setOrders(clientOrders.map(formatSupabaseOrder).filter(Boolean));
         
         // Extract SYSTEM_STORE_CLOSE dates
-        const cloudClosedDates = data
+        const cloudClosedDates = storeOrders
           .filter(o => {
             const itemsData = typeof o.items === 'string' ? JSON.parse(o.items) : o.items;
             return itemsData?.customerName === 'SYSTEM_STORE_CLOSE';
@@ -704,7 +1626,7 @@ export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDa
       }
     } catch (err) {
       console.error("Failed to load orders in BookkeepingView:", err);
-      setOrders(JSON.parse(localStorage.getItem('restaurant_orders') || '[]'));
+      setOrders([]);
     }
   };
 
@@ -714,12 +1636,19 @@ export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDa
       const { data, error } = await supabase.from('purchases').select('*').order('created_at', { ascending: false });
       if (error) throw error;
       if (data) {
-        const mapped = data.map(p => ({
+        const storePurchases = data.filter(p => {
+          if (storeCode === 'dragon') {
+            return !p.item_name?.startsWith('[') || p.item_name?.startsWith('[dragon] ');
+          }
+          return p.item_name?.startsWith(`[${storeCode}] `);
+        });
+
+        const mapped = storePurchases.map(p => ({
           id: String(p.id),
           date: p.date,
           time: p.time,
           vendor: p.vendor,
-          itemName: p.item_name,
+          itemName: stripNameForStore(p.item_name, storeCode),
           quantity: p.quantity,
           cost: Number(p.cost),
           status: p.status
@@ -728,9 +1657,29 @@ export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDa
         setIsPurchasesOnCloud(true);
       }
     } catch (err) {
-      console.warn("Supabase purchases fallback to localStorage in BookkeepingView:", err.message);
-      setPurchases(JSON.parse(localStorage.getItem('restaurant_purchases') || '[]'));
+      console.warn("Supabase purchases fallback in BookkeepingView:", err.message);
+      setPurchases([]);
       setIsPurchasesOnCloud(false);
+    }
+  };
+
+  const updateClosedDatesOnCloud = async (newClosedDates) => {
+    try {
+      const { data: existing } = await supabase.from('menu_items').select('*').eq('name', 'SYSTEM_SETTING_CLOSED_DATES');
+      if (existing && existing.length > 0) {
+        await supabase.from('menu_items').update({
+          description: JSON.stringify(newClosedDates)
+        }).eq('name', 'SYSTEM_SETTING_CLOSED_DATES');
+      } else {
+        await supabase.from('menu_items').insert([{
+          name: 'SYSTEM_SETTING_CLOSED_DATES',
+          price: 0,
+          category: 'settings',
+          description: JSON.stringify(newClosedDates)
+        }]);
+      }
+    } catch (e) {
+      console.error("Failed to sync closed dates to cloud:", e);
     }
   };
 
@@ -740,9 +1689,16 @@ export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDa
       const { data, error } = await supabase.from('fixed_costs').select('*').order('created_at', { ascending: false });
       if (error) throw error;
       if (data) {
-        const mapped = data.map(fc => ({
+        const storeFixedCosts = data.filter(fc => {
+          if (storeCode === 'dragon') {
+            return !fc.name?.startsWith('[') || fc.name?.startsWith('[dragon] ');
+          }
+          return fc.name?.startsWith(`[${storeCode}] `);
+        });
+
+        const mapped = storeFixedCosts.map(fc => ({
           id: String(fc.id),
-          name: fc.name,
+          name: stripNameForStore(fc.name, storeCode),
           cost: Number(fc.cost),
           expiryDate: fc.expiry_date
         }));
@@ -751,36 +1707,92 @@ export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDa
       }
     } catch (err) {
       console.warn("Supabase fixed_costs fallback to localStorage in BookkeepingView:", err.message);
-      setFixedCosts(JSON.parse(localStorage.getItem('restaurant_fixed_costs') || '[]'));
+      setFixedCosts([]);
       setIsFixedCostsOnCloud(false);
+    }
+  };
+
+  const saveVendorsToCloud = async (updatedVendors) => {
+    try {
+      const vendorKey = prefixNameForStore('SYSTEM_SETTING_VENDORS_V2', storeCode);
+      const { data: exist } = await supabase.from('menu_items').select('*').eq('name', vendorKey);
+      if (exist && exist.length > 0) {
+        await supabase.from('menu_items').update({
+          description: JSON.stringify(updatedVendors)
+        }).eq('name', vendorKey);
+      } else {
+        await supabase.from('menu_items').insert([{
+          name: vendorKey,
+          description: JSON.stringify(updatedVendors),
+          price: 0,
+          category: 'settings',
+          image: ''
+        }]);
+      }
+    } catch (err) {
+      console.error("Failed to save vendors to cloud:", err);
     }
   };
 
   const fetchInventoryFromCloud = async () => {
     try {
-      const { data, error } = await supabase.from('menu_items').select('*').in('name', [
-        'SYSTEM_SETTING_INVENTORY',
-        'SYSTEM_SETTING_INVENTORY_LOGS',
-        'SYSTEM_SETTING_PROCESSED_ORDERS',
-        'SYSTEM_SETTING_CONDIMENTS_AVAILABILITY'
-      ]);
+      const { data, error } = await supabase.from('menu_items').select('*');
       if (error) throw error;
       if (data) {
-        const invItem = data.find(i => i.name === 'SYSTEM_SETTING_INVENTORY');
+        const storeItems = filterItemsByStore(data, storeCode);
+        const profileItem = storeItems.find(i => i.name === 'SYSTEM_SETTING_STORE_PROFILE');
+        if (profileItem && profileItem.description) {
+          try {
+            const parsed = JSON.parse(profileItem.description);
+            setStoreProfile(parsed);
+            if (parsed.storeName) setStoreName(parsed.storeName);
+          } catch (e) {}
+        }
+        const nameItem = storeItems.find(i => i.name === 'SYSTEM_SETTING_STORE_NAME');
+        if (nameItem && nameItem.description) {
+          setStoreName(nameItem.description);
+        } else if (!profileItem?.description) {
+          setStoreName(storeCode === 'luzhou' ? '蘆洲七號店' : (storeCode !== 'dragon' ? `門市 [${storeCode}]` : '龍城麵線'));
+        }
+        const receiptItem = storeItems.find(i => i.name === 'SYSTEM_SETTING_RECEIPT_CONFIG');
+        if (receiptItem && receiptItem.description) {
+          try {
+            setReceiptConfig(JSON.parse(receiptItem.description));
+          } catch (e) {}
+        }
+
+        const invItem = storeItems.find(i => i.name === 'SYSTEM_SETTING_INVENTORY');
         if (invItem && invItem.description) {
           setInventory(JSON.parse(invItem.description));
         }
-        const logsItem = data.find(i => i.name === 'SYSTEM_SETTING_INVENTORY_LOGS');
+        const logsItem = storeItems.find(i => i.name === 'SYSTEM_SETTING_INVENTORY_LOGS');
         if (logsItem && logsItem.description) {
           setInventoryLogs(JSON.parse(logsItem.description));
         }
-        const processedItem = data.find(i => i.name === 'SYSTEM_SETTING_PROCESSED_ORDERS');
+        const processedItem = storeItems.find(i => i.name === 'SYSTEM_SETTING_PROCESSED_ORDERS');
         if (processedItem && processedItem.description) {
           setProcessedOrderIds(JSON.parse(processedItem.description));
         }
-        const condsItem = data.find(i => i.name === 'SYSTEM_SETTING_CONDIMENTS_AVAILABILITY');
+        const condsItem = storeItems.find(i => i.name === 'SYSTEM_SETTING_CONDIMENTS_AVAILABILITY');
         if (condsItem && condsItem.description) {
           setCondimentsAvailability(JSON.parse(condsItem.description));
+        }
+        const closedDatesItem = storeItems.find(i => i.name === 'SYSTEM_SETTING_CLOSED_DATES');
+        if (closedDatesItem && closedDatesItem.description) {
+          const cloudClosed = JSON.parse(closedDatesItem.description);
+          setClosedDates(cloudClosed);
+        }
+        
+        const vendorsItem = storeItems.find(i => i.name === 'SYSTEM_SETTING_VENDORS_V2');
+        if (vendorsItem && vendorsItem.description) {
+          try {
+            const parsed = JSON.parse(vendorsItem.description);
+            setVendors(parsed);
+          } catch (e) {
+            console.error("Failed to parse cloud vendors:", e);
+          }
+        } else {
+          setVendors([]);
         }
       }
     } catch (e) {
@@ -796,7 +1808,7 @@ export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDa
     fetchFixedCosts();
     fetchMenuItems();
     fetchInventoryFromCloud();
-  }, []);
+  }, [storeCode]);
 
   // Sync closedDates across storage updates (e.g. from cashier closing shop)
   useEffect(() => {
@@ -818,11 +1830,12 @@ export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDa
     localStorage.setItem('restaurant_inventory', JSON.stringify(inventory));
     const syncInv = async () => {
       try {
-        const { data } = await supabase.from('menu_items').select('*').eq('name', 'SYSTEM_SETTING_INVENTORY');
+        const invKey = prefixNameForStore('SYSTEM_SETTING_INVENTORY', storeCode);
+        const { data } = await supabase.from('menu_items').select('*').eq('name', invKey);
         if (data && data.length > 0) {
-          await supabase.from('menu_items').update({ description: JSON.stringify(inventory) }).eq('name', 'SYSTEM_SETTING_INVENTORY');
+          await supabase.from('menu_items').update({ description: JSON.stringify(inventory) }).eq('name', invKey);
         } else {
-          await supabase.from('menu_items').insert([{ name: 'SYSTEM_SETTING_INVENTORY', price: 0, category: 'settings', description: JSON.stringify(inventory) }]);
+          await supabase.from('menu_items').insert([{ name: invKey, price: 0, category: 'settings', description: JSON.stringify(inventory) }]);
         }
       } catch (e) {
         console.error("Failed to sync inventory to cloud:", e);
@@ -837,11 +1850,12 @@ export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDa
     localStorage.setItem('restaurant_processed_orders', JSON.stringify(processedOrderIds));
     const syncProcessed = async () => {
       try {
-        const { data } = await supabase.from('menu_items').select('*').eq('name', 'SYSTEM_SETTING_PROCESSED_ORDERS');
+        const procKey = prefixNameForStore('SYSTEM_SETTING_PROCESSED_ORDERS', storeCode);
+        const { data } = await supabase.from('menu_items').select('*').eq('name', procKey);
         if (data && data.length > 0) {
-          await supabase.from('menu_items').update({ description: JSON.stringify(processedOrderIds) }).eq('name', 'SYSTEM_SETTING_PROCESSED_ORDERS');
+          await supabase.from('menu_items').update({ description: JSON.stringify(processedOrderIds) }).eq('name', procKey);
         } else {
-          await supabase.from('menu_items').insert([{ name: 'SYSTEM_SETTING_PROCESSED_ORDERS', price: 0, category: 'settings', description: JSON.stringify(processedOrderIds) }]);
+          await supabase.from('menu_items').insert([{ name: procKey, price: 0, category: 'settings', description: JSON.stringify(processedOrderIds) }]);
         }
       } catch (e) {
         console.error("Failed to sync processed orders to cloud:", e);
@@ -856,11 +1870,12 @@ export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDa
     localStorage.setItem('restaurant_inventory_logs', JSON.stringify(inventoryLogs));
     const syncLogs = async () => {
       try {
-        const { data } = await supabase.from('menu_items').select('*').eq('name', 'SYSTEM_SETTING_INVENTORY_LOGS');
+        const logsKey = prefixNameForStore('SYSTEM_SETTING_INVENTORY_LOGS', storeCode);
+        const { data } = await supabase.from('menu_items').select('*').eq('name', logsKey);
         if (data && data.length > 0) {
-          await supabase.from('menu_items').update({ description: JSON.stringify(inventoryLogs) }).eq('name', 'SYSTEM_SETTING_INVENTORY_LOGS');
+          await supabase.from('menu_items').update({ description: JSON.stringify(inventoryLogs) }).eq('name', logsKey);
         } else {
-          await supabase.from('menu_items').insert([{ name: 'SYSTEM_SETTING_INVENTORY_LOGS', price: 0, category: 'settings', description: JSON.stringify(inventoryLogs) }]);
+          await supabase.from('menu_items').insert([{ name: logsKey, price: 0, category: 'settings', description: JSON.stringify(inventoryLogs) }]);
         }
       } catch (e) {
         console.error("Failed to sync logs to cloud:", e);
@@ -875,11 +1890,12 @@ export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDa
     localStorage.setItem('condiments_availability', JSON.stringify(condimentsAvailability));
     const syncConds = async () => {
       try {
-        const { data } = await supabase.from('menu_items').select('*').eq('name', 'SYSTEM_SETTING_CONDIMENTS_AVAILABILITY');
+        const condKey = prefixNameForStore('SYSTEM_SETTING_CONDIMENTS_AVAILABILITY', storeCode);
+        const { data } = await supabase.from('menu_items').select('*').eq('name', condKey);
         if (data && data.length > 0) {
-          await supabase.from('menu_items').update({ description: JSON.stringify(condimentsAvailability) }).eq('name', 'SYSTEM_SETTING_CONDIMENTS_AVAILABILITY');
+          await supabase.from('menu_items').update({ description: JSON.stringify(condimentsAvailability) }).eq('name', condKey);
         } else {
-          await supabase.from('menu_items').insert([{ name: 'SYSTEM_SETTING_CONDIMENTS_AVAILABILITY', price: 0, category: 'settings', description: JSON.stringify(condimentsAvailability) }]);
+          await supabase.from('menu_items').insert([{ name: condKey, price: 0, category: 'settings', description: JSON.stringify(condimentsAvailability) }]);
         }
       } catch (e) {
         console.error("Failed to sync condiments to cloud:", e);
@@ -1028,6 +2044,56 @@ export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDa
     };
   }, []);
 
+  // Open edit modal for sales bookkeeping record
+  const handleOpenEditBookkeepingOrderModal = (order) => {
+    setEditingBookkeepingOrder(order);
+    setEditOrderTotal(String(order.total || 0));
+    setEditOrderType(order.type || 'dine-in');
+    setEditOrderCust(order.customerName || '');
+    setEditOrderPayment(order.paymentMethod || '現金');
+    setEditOrderRemarks(order.remarks || '');
+    setEditOrderCashier(order.cashier || '店長 (Admin)');
+    setEditOrderItems(Array.isArray(order.items) ? order.items.map(i => ({ ...i })) : []);
+  };
+
+  const handleSaveBookkeepingOrderEdit = async (e) => {
+    e.preventDefault();
+    if (!editingBookkeepingOrder) return;
+
+    try {
+      const numericId = Number(editingBookkeepingOrder.id);
+      const newTotal = Number(editOrderTotal) || 0;
+      
+      const updatedItemsPayload = {
+        cart: editOrderItems,
+        cashier: editOrderCashier.trim() || '店長 (Admin)',
+        remarks: editOrderRemarks.trim(),
+        pickupTime: editingBookkeepingOrder.pickupTime,
+        customerName: editOrderCust.trim(),
+        customerPhone: editingBookkeepingOrder.customerPhone,
+        paymentMethod: editOrderPayment.trim()
+      };
+
+      const { error } = await supabase
+        .from('orders')
+        .update({
+          total: newTotal,
+          type: editOrderType,
+          items: updatedItemsPayload
+        })
+        .eq('id', isNaN(numericId) ? editingBookkeepingOrder.id : numericId);
+
+      if (error) throw error;
+
+      alert("🎉 帳目流水訂單修改成功！");
+      setEditingBookkeepingOrder(null);
+      fetchOrders();
+    } catch (err) {
+      console.error("Failed to save bookkeeping order edit:", err);
+      alert("修改失敗：" + (err.message || "請檢查網路連線"));
+    }
+  };
+
   // Soft-delete sales bookkeeping record
   const handleDeleteBookkeepingOrder = async (orderId, currentRemarks) => {
     if (!window.confirm("警告：您確定要刪除此筆已完成的營業流水帳紀錄嗎？\n此操作將從當日營收中扣除，且刪除歷程將被存檔記錄！")) {
@@ -1132,7 +2198,8 @@ export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDa
           return {
             ...item,
             unit: editInvUnit.trim(),
-            minStock: minStockVal
+            minStock: minStockVal,
+            isWatched: editInvIsWatched !== false
           };
         }
         return item;
@@ -1235,7 +2302,7 @@ export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDa
           date: purchaseDate,
           time,
           vendor: vendorName.trim(),
-          item_name: purchaseItemName,
+          item_name: prefixNameForStore(purchaseItemName, storeCode),
           quantity: purchaseQty.trim(),
           cost: costNum,
           status: purchaseStatus
@@ -1274,9 +2341,10 @@ export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDa
 
   // Save / Delete Manual Revenue
   const handleSaveManualRevenue = async (date, amount) => {
+    const key = date.length === 7 ? `${date}-01` : date;
     const updated = {
       ...manualRevenues,
-      [date]: Number(amount) || 0
+      [key]: Number(amount) || 0
     };
     
     // Save locally first
@@ -1309,8 +2377,9 @@ export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDa
 
   const handleDeleteManualRevenue = async (date) => {
     if (!window.confirm(`確定要清除 ${date} 的所有手動登錄人工營業額嗎？`)) return;
+    const key = date.length === 7 ? `${date}-01` : date;
     const updated = { ...manualRevenues };
-    delete updated[date];
+    delete updated[key];
     
     // Save locally first
     setManualRevenues(updated);
@@ -1360,37 +2429,65 @@ export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDa
     }
   };
 
-  // Add Fixed Cost
+  // Add or Edit Fixed Cost
   const handleAddFixedCost = async (e) => {
     e.preventDefault();
     if (!fcName.trim() || !fcCost || !fcExpiry) return;
 
     const costNum = Number(fcCost);
 
-    if (isFixedCostsOnCloud) {
-      try {
-        const { error } = await supabase.from('fixed_costs').insert([{
+    if (editingFixedCostId) {
+      if (isFixedCostsOnCloud) {
+        try {
+          const { error } = await supabase.from('fixed_costs').update({
+            name: fcName.trim(),
+            cost: costNum,
+            expiry_date: fcExpiry
+          }).eq('id', editingFixedCostId);
+          if (error) throw error;
+          fetchFixedCosts();
+        } catch (err) {
+          console.error("Failed to update fixed cost in BookkeepingView:", err);
+          alert("修改固定成本失敗！");
+        }
+      } else {
+        const updated = fixedCosts.map(fc => fc.id === editingFixedCostId ? {
+          ...fc,
           name: fcName.trim(),
           cost: costNum,
-          expiry_date: fcExpiry
-        }]);
-        if (error) throw error;
+          expiryDate: fcExpiry
+        } : fc);
+        setFixedCosts(updated);
+        localStorage.setItem('restaurant_fixed_costs', JSON.stringify(updated));
         fetchFixedCosts();
-      } catch (err) {
-        console.error("Failed to add fixed cost in BookkeepingView:", err);
-        alert("新增固定成本失敗！若您尚未在 Supabase 中建立 fixed_costs 資料表，請依指示執行 SQL 建立資料表並關閉 RLS。");
       }
+      setEditingFixedCostId(null);
     } else {
-      const newFC = {
-        id: `FC-${Date.now()}`,
-        name: fcName.trim(),
-        cost: costNum,
-        expiryDate: fcExpiry
-      };
-      const updated = [newFC, ...fixedCosts];
-      setFixedCosts(updated);
-      localStorage.setItem('restaurant_fixed_costs', JSON.stringify(updated));
-      fetchFixedCosts();
+      if (isFixedCostsOnCloud) {
+        try {
+          const { error } = await supabase.from('fixed_costs').insert([{
+            name: prefixNameForStore(fcName.trim(), storeCode),
+            cost: costNum,
+            expiry_date: fcExpiry
+          }]);
+          if (error) throw error;
+          fetchFixedCosts();
+        } catch (err) {
+          console.error("Failed to add fixed cost in BookkeepingView:", err);
+          alert("新增固定成本失敗！若您尚未在 Supabase 中建立 fixed_costs 資料表，請依指示執行 SQL 建立資料表並關閉 RLS。");
+        }
+      } else {
+        const newFC = {
+          id: `FC-${Date.now()}`,
+          name: fcName.trim(),
+          cost: costNum,
+          expiryDate: fcExpiry
+        };
+        const updated = [newFC, ...fixedCosts];
+        setFixedCosts(updated);
+        localStorage.setItem('restaurant_fixed_costs', JSON.stringify(updated));
+        fetchFixedCosts();
+      }
     }
 
     setFcName('');
@@ -1428,6 +2525,7 @@ export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDa
         setClosedDates(updated);
         localStorage.setItem('restaurant_closed_dates', JSON.stringify(updated));
         window.dispatchEvent(new Event('storage'));
+        updateClosedDatesOnCloud(updated);
         
         // Also update Supabase orders to sync other devices (RLS-friendly update instead of delete)
         supabase.from('orders').select('id, created_at, items')
@@ -1459,6 +2557,29 @@ export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDa
     }
   };
 
+  // Print Daily Closing Report
+  const handlePrintDailyClosingReport = () => {
+    const avgOrderVal = completedOrders.length > 0 ? Math.round(totalRevenue / completedOrders.length) : 0;
+    const dailyData = {
+      date: selectedBookkeepingDate,
+      cashier: '店長 (Admin)',
+      totalRevenue,
+      cashRevenue,
+      onlineRevenue,
+      manualRevenue: todayManualRevenue,
+      totalOrders: completedOrders.length,
+      dineInCount: totalDineIn,
+      takeoutCount: totalTakeout,
+      avgOrderValue: avgOrderVal,
+      topItems: sortedItems
+    };
+
+    printDailyClosingReport(dailyData, {
+      ...storeProfile,
+      storeName: storeName || storeProfile.storeName
+    });
+  };
+
   // Export Daily Ledger CSV
   const handleExportCSV = () => {
     if (completedOrders.length === 0) {
@@ -1467,162 +2588,203 @@ export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDa
     }
     
     let csvContent = "\uFEFF";
+    csvContent += `龍城麵線 - 當日交易對帳明細表 (${selectedBookkeepingDate})\n`;
+    csvContent += `當日營業總額 (營業額):,NT$ ${totalRevenue},訂單總筆數:,${completedOrders.length} 筆,現金營業額:,NT$ ${cashRevenue},線上營業額:,NT$ ${onlineRevenue}\n\n`;
     csvContent += "時間,流水號,類型,顧客姓名/桌號,實收金額(NT$),付款方式,購買明細\n";
     
     completedOrders.forEach(order => {
       const time = order.time;
       const serial = order.serialNum || order.id.slice(-6);
       const type = order.type === 'dine-in' ? '內用' : '外帶';
-      const name = order.customerName.replace(/,/g, ' ');
+      const name = (order.customerName || '').replace(/,/g, ' ');
       const total = order.total;
       const payment = order.paymentMethod === 'online' ? '線上付' : '現金付';
-      const itemsStr = order.items.map(item => `${item.name}x${item.quantity}`).join(' | ');
+      const itemsStr = (order.items || []).map(item => `${item.name}x${item.quantity}`).join(' | ');
       
       csvContent += `${time},${serial},${type},${name},${total},${payment},"${itemsStr}"\n`;
     });
     
+    csvContent += `\n合計,,${completedOrders.length} 筆,,${totalRevenue},,\n`;
+
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.setAttribute("href", url);
-    link.setAttribute("download", `龍城麵線_對帳明細_${selectedBookkeepingDate}.csv`);
+    link.setAttribute("download", `龍城麵線_當日營業額與對帳明細_${selectedBookkeepingDate}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
   };
 
-  // Bookkeeping Computations for Selected Date
-  const completedOrders = orders.filter(o => {
-    const orderDate = new Date(o.timestamp).toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' });
-    return (o.status === 'completed' || o.status === 'received') && orderDate === selectedBookkeepingDate;
-  });
+  // 1. Memoized Completed Orders for Selected Viewing Date
+  const completedOrders = useMemo(() => {
+    return orders.filter(o => {
+      const orderDate = new Date(o.timestamp).toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' });
+      return (o.status === 'completed' || o.status === 'received') && orderDate === selectedBookkeepingDate;
+    });
+  }, [orders, selectedBookkeepingDate]);
 
-  const todayManualRevenue = Number(manualRevenues[selectedBookkeepingDate]) || 0;
-  const totalRevenue = completedOrders.reduce((sum, o) => sum + o.total, 0) + todayManualRevenue;
-  const onlineRevenue = completedOrders
-    .filter(o => o.paymentMethod === 'online')
-    .reduce((sum, o) => sum + o.total, 0);
-  const cashRevenue = totalRevenue - onlineRevenue;
+  // 2. Memoized Daily Summary & Product BOM Costs
+  const { 
+    totalRevenue, 
+    onlineRevenue, 
+    cashRevenue, 
+    totalDineIn, 
+    totalTakeout, 
+    dailyProductCost, 
+    dailyGrossProfit, 
+    dailyGrossMargin, 
+    sortedItems 
+  } = useMemo(() => {
+    const todayManualRevenue = Number(manualRevenues[selectedBookkeepingDate]) || 0;
+    const rev = completedOrders.reduce((sum, o) => sum + o.total, 0) + todayManualRevenue;
+    const online = completedOrders
+      .filter(o => o.paymentMethod === 'online')
+      .reduce((sum, o) => sum + o.total, 0);
+    const cash = rev - online;
 
-  const totalDineIn = completedOrders.filter(o => o.type === 'dine-in').length;
-  const totalTakeout = completedOrders.length - totalDineIn;
+    const dineIn = completedOrders.filter(o => o.type === 'dine-in').length;
+    const takeout = completedOrders.length - dineIn;
 
-  // Purchases (Variable Costs)
-  const purchasesForDate = purchases.filter(p => p.date === selectedBookkeepingDate);
-  const totalPurchasesCost = purchasesForDate.reduce((sum, p) => sum + p.cost, 0);
+    const prodCost = completedOrders.reduce((totalCost, order) => {
+      const orderItems = Array.isArray(order.items) ? order.items : [];
+      const orderCost = orderItems.reduce((sub, item) => sub + calculateItemCost(item), 0);
+      return totalCost + orderCost;
+    }, 0);
 
-  const getCalendarWeekRange = (dateStr) => {
-    const current = new Date(dateStr);
-    const day = current.getDay(); // 0 is Sun, 1 is Mon
-    const diff = current.getDate() - day + (day === 0 ? -6 : 1);
-    const monday = new Date(current.setDate(diff));
-    const sunday = new Date(monday);
-    sunday.setDate(monday.getDate() + 6);
+    const gross = rev - prodCost;
+    const margin = rev > 0 ? ((gross / rev) * 100) : 0;
+
+    const itemCounts = {};
+    completedOrders.forEach(o => {
+      (o.items || []).forEach(item => {
+        itemCounts[item.name] = (itemCounts[item.name] || 0) + item.quantity;
+      });
+    });
+    const sorted = Object.entries(itemCounts).sort((a, b) => b[1] - a[1]);
+
     return {
-      start: monday.toLocaleDateString('sv-SE'),
-      end: sunday.toLocaleDateString('sv-SE')
+      totalRevenue: rev,
+      onlineRevenue: online,
+      cashRevenue: cash,
+      totalDineIn: dineIn,
+      totalTakeout: takeout,
+      dailyProductCost: prodCost,
+      dailyGrossProfit: gross,
+      dailyGrossMargin: margin,
+      sortedItems: sorted
     };
-  };
+  }, [completedOrders, manualRevenues, selectedBookkeepingDate]);
 
-  const getFilteredPurchasesForRange = () => {
+  // 3. Memoized Purchases for Selected Date & Range
+  const purchasesForDate = useMemo(() => {
+    return purchases.filter(p => p.date === selectedBookkeepingDate);
+  }, [purchases, selectedBookkeepingDate]);
+
+  const totalPurchasesCost = useMemo(() => {
+    return purchasesForDate.reduce((sum, p) => sum + p.cost, 0);
+  }, [purchasesForDate]);
+
+  const purchasesForSelectedRange = useMemo(() => {
     if (variableCostRange === 'day') {
       return purchases.filter(p => p.date === selectedBookkeepingDate);
     }
     if (variableCostRange === 'week') {
-      const { start, end } = getCalendarWeekRange(selectedBookkeepingDate);
+      const current = new Date(selectedBookkeepingDate);
+      const day = current.getDay();
+      const diff = current.getDate() - day + (day === 0 ? -6 : 1);
+      const monday = new Date(current.setDate(diff));
+      const sunday = new Date(monday);
+      sunday.setDate(monday.getDate() + 6);
+      const start = monday.toLocaleDateString('sv-SE');
+      const end = sunday.toLocaleDateString('sv-SE');
       return purchases.filter(p => p.date >= start && p.date <= end);
     }
     if (variableCostRange === 'month') {
-      const monthPrefix = selectedBookkeepingDate.slice(0, 7); // YYYY-MM
+      const monthPrefix = selectedBookkeepingDate.slice(0, 7);
       return purchases.filter(p => p.date.startsWith(monthPrefix));
     }
-    return purchases; // 'all'
-  };
+    return purchases;
+  }, [purchases, variableCostRange, selectedBookkeepingDate]);
 
-  const purchasesForSelectedRange = getFilteredPurchasesForRange();
-  const totalPurchasesCostForSelectedRange = purchasesForSelectedRange.reduce((sum, p) => sum + p.cost, 0);
+  const totalPurchasesCostForSelectedRange = useMemo(() => {
+    return purchasesForSelectedRange.reduce((sum, p) => sum + p.cost, 0);
+  }, [purchasesForSelectedRange]);
 
-  // Active Fixed Costs for selected month
-  const selectedYearMonth = selectedBookkeepingDate.slice(0, 7); // YYYY-MM
-  const activeFixedCostsForMonth = fixedCosts.filter(fc => {
-    return fc.expiryDate.slice(0, 7) >= selectedYearMonth;
-  });
-  const totalFixedCostsForMonth = activeFixedCostsForMonth.reduce((sum, fc) => sum + fc.cost, 0);
-  const dailyFixedCostShare = Math.round(totalFixedCostsForMonth / 30);
+  // Selected Year Month (YYYY-MM)
+  const selectedYearMonth = selectedBookkeepingDate ? selectedBookkeepingDate.slice(0, 7) : new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' }).slice(0, 7);
 
-  // Estimated profit
-  const estimatedNetProfit = totalRevenue - totalPurchasesCost - dailyFixedCostShare;
-
-  // Top Sellers
-  const itemCounts = {};
-  completedOrders.forEach(o => {
-    o.items.forEach(item => {
-      itemCounts[item.name] = (itemCounts[item.name] || 0) + item.quantity;
+  // 4. Memoized Active Fixed Costs
+  const { activeFixedCostsForMonth, totalFixedCostsForMonth, dailyFixedCostShare } = useMemo(() => {
+    const active = fixedCosts.filter(fc => {
+      if (!fc.expiryDate) return true;
+      return fc.expiryDate.slice(0, 7) >= selectedYearMonth;
     });
-  });
-  const sortedItems = Object.entries(itemCounts).sort((a, b) => b[1] - a[1]);
+    const total = active.reduce((sum, fc) => sum + (Number(fc.cost) || 0), 0);
+    return {
+      activeFixedCostsForMonth: active,
+      totalFixedCostsForMonth: total,
+      dailyFixedCostShare: Math.round(total / 30)
+    };
+  }, [fixedCosts, selectedYearMonth]);
 
-  // Settle Closing check
+  // Estimated net profit
+  const estimatedNetProfit = totalRevenue - totalPurchasesCost;
   const isClosedToday = closedDates.includes(selectedBookkeepingDate);
 
-  // Generate Monthly report
-  const getMonthlyReports = () => {
-    // Collect all dates that have transactions, are closed, or have manual revenue
-    const datesSet = new Set(closedDates);
-    
+  // 5. Blazing-fast O(N) Memoized Monthly Reports (Eliminates render-loop freezing on keystrokes)
+  const monthlyReports = useMemo(() => {
+    const ordersByDate = {};
     orders.forEach(o => {
       if (o.status === 'completed' || o.status === 'received') {
         const orderDate = new Date(o.timestamp).toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' });
-        datesSet.add(orderDate);
-      }
-    });
-    
-    purchases.forEach(p => {
-      if (p.date) {
-        datesSet.add(p.date);
+        if (!ordersByDate[orderDate]) ordersByDate[orderDate] = [];
+        ordersByDate[orderDate].push(o);
       }
     });
 
-    Object.keys(manualRevenues).forEach(d => {
-      if (Number(manualRevenues[d]) > 0) {
-        datesSet.add(d);
+    const purchasesByDate = {};
+    purchases.forEach(p => {
+      if (p.date) {
+        if (!purchasesByDate[p.date]) purchasesByDate[p.date] = 0;
+        purchasesByDate[p.date] += (Number(p.cost) || 0);
       }
+    });
+
+    const datesSet = new Set(closedDates);
+    Object.keys(ordersByDate).forEach(d => datesSet.add(d));
+    purchases.forEach(p => { if (p.date) datesSet.add(p.date); });
+    Object.keys(manualRevenues).forEach(d => {
+      if (Number(manualRevenues[d]) > 0) datesSet.add(d);
     });
 
     const days = Array.from(datesSet).sort((a, b) => b.localeCompare(a));
-    
+
     return days.map(day => {
-      // 1. Daily Completed Orders Revenue
-      const dayOrders = orders.filter(o => {
-        const orderDate = new Date(o.timestamp).toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' });
-        return (o.status === 'completed' || o.status === 'received') && orderDate === day;
-      });
+      const dayOrders = ordersByDate[day] || [];
+      const dayManual = Number(manualRevenues[day]) || 0;
       const systemRevenue = dayOrders.reduce((sum, o) => sum + o.total, 0);
-      const manualRev = Number(manualRevenues[day]) || 0;
-      const totalRevenue = systemRevenue + manualRev;
+      const totalRevenue = systemRevenue + dayManual;
+      const variableCosts = purchasesByDate[day] || 0;
 
-      // 2. Daily Variable Cost (Purchases)
-      const dayPurchases = purchases.filter(p => p.date === day);
-      const variableCosts = dayPurchases.reduce((sum, p) => sum + p.cost, 0);
-
-      // 3. Daily Fixed Cost Share
       const month = day.slice(0, 7);
-      const activeFixedCostsForMonth = fixedCosts.filter(fc => fc.expiryDate.slice(0, 7) >= month);
-      const totalFixedCostsForMonth = activeFixedCostsForMonth.reduce((sum, fc) => sum + fc.cost, 0);
-      const dailyFixedCostShare = Math.round(totalFixedCostsForMonth / 30);
+      const activeFixed = fixedCosts.filter(fc => fc.expiryDate.slice(0, 7) >= month);
+      const totalFixed = activeFixed.reduce((sum, fc) => sum + fc.cost, 0);
+      const fixedShare = Math.round(totalFixed / 30);
 
       return {
         month: day,
+        date: day,
+        isClosed: closedDates.includes(day),
+        orderCount: dayOrders.length,
         systemRevenue,
-        manualRev,
+        manualRev: dayManual,
         revenue: totalRevenue,
         variableCosts,
-        fixedCosts: dailyFixedCostShare
+        fixedCosts: fixedShare
       };
-    });
-  };
-
-  const monthlyReports = getMonthlyReports();
+    }).filter(r => r.revenue > 0); // 自動過濾：營業額為 0 的天數不列入按月財務報表
+  }, [orders, purchases, manualRevenues, fixedCosts, closedDates]);
 
   const handleHomeClick = () => {
     const params = new URLSearchParams(window.location.search);
@@ -1653,10 +2815,9 @@ export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDa
         boxShadow: 'var(--shadow-sm)'
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <button onClick={handleHomeClick} style={{ border: 'none', background: 'none', fontSize: '1.4rem', cursor: 'pointer' }}>🏡</button>
           <span style={{ fontSize: '1.4rem' }}>📊</span>
           <div>
-            <h1 style={{ fontSize: '1.1rem', fontWeight: '900', margin: 0 }}>龍城麵線 營業記帳與財務系統</h1>
+            <h1 style={{ fontSize: '1.1rem', fontWeight: '900', margin: 0 }}>{storeName || '龍城麵線'} 營業記帳與財務系統</h1>
             <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', margin: 0 }}>財務支出、營業流水與對帳管理面板</p>
           </div>
         </div>
@@ -1680,7 +2841,8 @@ export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDa
               }}
             />
           </div>
-          <button 
+          {/* LINE 密鑰設定按鈕 (暫時隱藏) */}
+          {/* <button 
             onClick={() => setShowLineSettingsModal(true)} 
             style={{
               padding: '6px 12px',
@@ -1694,90 +2856,25 @@ export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDa
             }}
           >
             💬 LINE 密鑰設定
-          </button>
+          </button> */}
           <button 
             onClick={onLogout} 
             style={{
-              padding: '6px 12px',
+              padding: '6px 14px',
               fontSize: '0.75rem',
               borderRadius: '6px',
               border: '1px solid var(--border)',
               backgroundColor: 'var(--bg-body)',
-              color: 'var(--text-main)',
+              color: 'var(--primary)',
               cursor: 'pointer',
               fontWeight: 'bold'
             }}
           >
-            🚪 登出
+            🚪 登出 / 切換系統
           </button>
         </div>
       </header>
 
-      {/* Store status lock bar */}
-      <div style={{
-        margin: '16px 24px 0 24px',
-        padding: '10px 16px',
-        borderRadius: '8px',
-        backgroundColor: isClosedToday ? 'rgba(22, 163, 74, 0.05)' : 'rgba(239, 68, 68, 0.05)',
-        border: '1px solid',
-        borderColor: isClosedToday ? 'rgba(22, 163, 74, 0.15)' : 'rgba(239, 68, 68, 0.15)',
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        fontSize: '0.8rem'
-      }}>
-        <div>
-          {isClosedToday ? (
-            <span style={{ color: '#16a34a', fontWeight: 'bold' }}>🔴 本日已對帳封存 (已在收銀機完成收店結帳)</span>
-          ) : (
-            <span style={{ color: '#ef4444', fontWeight: 'bold' }}>🟢 {selectedBookkeepingDate === getTodayLocalDate() ? '本日營業中 (請至收銀系統進行「今日收店結帳」以在此對帳)' : '歷史帳目未對帳封存 (開放歷史編輯查閱)'}</span>
-          )}
-        </div>
-        <div>
-          {isClosedToday && (
-            <button 
-              onClick={handleReopenShop}
-              style={{ padding: '2px 8px', fontSize: '0.7rem', borderRadius: '4px', border: '1px solid #ef4444', color: '#ef4444', backgroundColor: 'transparent', cursor: 'pointer', fontWeight: 'bold' }}
-            >
-              🔓 重開帳目
-            </button>
-          )}
-        </div>
-      </div>
-
-      {(!isClosedToday && selectedBookkeepingDate === getTodayLocalDate()) ? (
-        /* LOCK SCREEN FOR LEDGER */
-        <div style={{
-          flex: 1,
-          display: 'flex',
-          justifyContent: 'center',
-          alignItems: 'center',
-          padding: '40px 20px'
-        }}>
-          <div style={{
-            maxWidth: '460px',
-            width: '100%',
-            backgroundColor: 'var(--bg-card)',
-            border: '1px solid var(--border)',
-            borderRadius: '12px',
-            padding: '40px 30px',
-            textAlign: 'center',
-            boxShadow: 'var(--shadow-lg)'
-          }}>
-            <span style={{ fontSize: '3rem' }}>🔒</span>
-            <h2 style={{ fontSize: '1.2rem', fontWeight: '900', margin: '15px 0 8px 0', color: 'var(--text-main)' }}>
-              營業流水明細鎖定中
-            </h2>
-            <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', lineHeight: '1.5', marginBottom: '12px' }}>
-              為保護現場收銀財務安全，請在現場收銀系統 (POS) 點擊「今日收店結帳」並輸入關店密碼以關閉今日營業。
-            </p>
-            <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', lineHeight: '1.5', marginBottom: '0' }}>
-              收店成功後，此頁面將自動解鎖並彙整今日流水對帳單與更新月報表。
-            </p>
-          </div>
-        </div>
-      ) : (
-        /* UNLOCKED FULL FINANCIAL PAGE */
         <main style={{
           flex: 1,
           padding: '24px',
@@ -1844,19 +2941,15 @@ export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDa
             </div>
 
             <div style={{ padding: '16px', backgroundColor: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '10px', boxShadow: 'var(--shadow-sm)' }}>
-              <h5 style={{ fontSize: '0.8rem', fontWeight: 'bold', color: 'var(--text-muted)', marginBottom: '8px' }}>💰 營業損益淨利試算</h5>
+              <h5 style={{ fontSize: '0.8rem', fontWeight: 'bold', color: 'var(--text-muted)', marginBottom: '8px' }}>💰 當日營業額與毛利試算</h5>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '0.85rem' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <span>📈 當日營業額:</span>
-                  <strong style={{ marginLeft: 'auto' }}>NT$ {totalRevenue}</strong>
+                  <strong style={{ marginLeft: 'auto', color: 'var(--primary)' }}>NT$ {totalRevenue}</strong>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span>📉 進貨變動成本:</span>
-                  <strong style={{ marginLeft: 'auto', color: '#ef4444' }}>-NT$ {totalPurchasesCost}</strong>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span>🏢 當日分攤固定成本:</span>
-                  <strong style={{ marginLeft: 'auto', color: '#ef4444' }} title={`當月累計固定成本 $${totalFixedCostsForMonth} / 30天`}>-NT$ {dailyFixedCostShare}</strong>
+                  <span>🥩 餐點食材成本:</span>
+                  <strong style={{ marginLeft: 'auto', color: '#ef4444' }}>-NT$ {dailyProductCost}</strong>
                 </div>
                 <div style={{ 
                   display: 'flex', 
@@ -1864,12 +2957,15 @@ export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDa
                   borderTop: '1px dashed var(--border)', 
                   paddingTop: '6px', 
                   marginTop: '4px',
-                  color: estimatedNetProfit >= 0 ? '#16a34a' : '#dc2626'
+                  color: dailyGrossProfit >= 0 ? '#16a34a' : '#dc2626'
                 }}>
-                  <span>試算當日淨利:</span>
+                  <span>🥗 預估營業毛利:</span>
                   <strong style={{ marginLeft: 'auto', fontSize: '1rem', fontWeight: '800' }}>
-                    NT$ {estimatedNetProfit}
+                    NT$ {dailyGrossProfit} <span style={{ fontSize: '0.75rem', fontWeight: 'normal' }}>({dailyGrossMargin.toFixed(1)}%)</span>
                   </strong>
+                </div>
+                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '2px', textAlign: 'right' }}>
+                  * 進貨採購與固定成本統一於月報表中結算
                 </div>
               </div>
             </div>
@@ -1975,11 +3071,32 @@ export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDa
             {/* 1. SALES TAB */}
             {activeTab === 'sales' && (
               <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '8px' }}>
                   <h4 style={{ fontSize: '0.9rem', fontWeight: 'bold', margin: 0 }}>📝 當日已結交易流水帳明細</h4>
-                  <button onClick={handleExportCSV} style={{ padding: '6px 12px', fontSize: '0.75rem', borderRadius: '6px', border: '1px solid #16a34a', color: '#16a34a', backgroundColor: 'rgba(22,163,74,0.05)', cursor: 'pointer', fontWeight: 'bold' }}>
-                    📥 匯出當日帳目 CSV
-                  </button>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    {receiptConfig.enableDailyClosingPrint !== false && (
+                      <button
+                        type="button"
+                        onClick={handlePrintDailyClosingReport}
+                        title="列印該日之熱感應日結對帳小票"
+                        style={{
+                          padding: '6px 12px',
+                          fontSize: '0.75rem',
+                          borderRadius: '6px',
+                          border: '1px solid #3b82f6',
+                          color: '#2563eb',
+                          backgroundColor: 'rgba(59, 130, 246, 0.08)',
+                          cursor: 'pointer',
+                          fontWeight: 'bold',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '4px'
+                        }}
+                      >
+                        🖨️ 列印日結對帳小票
+                      </button>
+                    )}
+                  </div>
                 </div>
                 <div style={{ overflowX: 'auto' }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem', textAlign: 'left' }}>
@@ -2009,17 +3126,75 @@ export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDa
                             <td style={{ padding: '10px 12px' }}>{order.customerName}</td>
                             <td style={{ padding: '10px 12px', fontWeight: 'bold' }}>NT$ {order.total}</td>
                             <td style={{ padding: '10px 12px' }}>{order.paymentMethod === 'online' ? '💳 線上付' : '💵 現金付'}</td>
-                            <td style={{ padding: '10px 12px', color: 'var(--text-muted)', fontSize: '0.75rem' }}>
-                              <div>{order.items.map(item => `${item.name}x${item.quantity}`).join(', ')}</div>
-                              {order.remarks && <div style={{ color: 'var(--primary)', fontStyle: 'italic', marginTop: '2px' }}>※ {order.remarks}</div>}
-                              {order.cashier && <div style={{ color: '#16a34a', fontWeight: 'bold', marginTop: '2px' }}>👤 經手收銀: {order.cashier}</div>}
+                            <td style={{ padding: '10px 12px', fontSize: '0.75rem' }}>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                                {order.items.map((item, idx) => {
+                                  let sizeLabel = '';
+                                  const specs = Array.isArray(item.specs) ? item.specs : (typeof item.specs === 'string' ? [item.specs] : []);
+                                  
+                                  const sizeSpec = specs.find(s => {
+                                    const str = typeof s === 'object' && s ? (s.value || s.name || '') : String(s);
+                                    return str.includes('大碗') || str.includes('小碗');
+                                  });
+                                  if (sizeSpec) {
+                                    const val = typeof sizeSpec === 'object' && sizeSpec ? (sizeSpec.value || sizeSpec.name || '') : String(sizeSpec);
+                                    if (val.includes('大碗') || val.includes('大')) sizeLabel = ' (大碗)';
+                                    else if (val.includes('小碗') || val.includes('小')) sizeLabel = ' (小碗)';
+                                  } else if (item.name.includes('大碗') || item.name.includes('(大)')) {
+                                    sizeLabel = '';
+                                  }
+
+                                  const addonSpecs = specs.filter(s => {
+                                    const str = typeof s === 'object' && s ? (s.value || s.name || '') : String(s);
+                                    return str.includes('加料') || str.includes('皮蛋') || str.includes('貢丸') || str.includes('蚵仔') || str.includes('雙腸') || str.includes('豬肚') || str.includes('花枝羹') || str.includes('肉羹');
+                                  }).map(s => {
+                                    const str = typeof s === 'object' && s ? (s.value || s.name || '') : String(s);
+                                    return str.replace(/^加料:\s*/, '').trim();
+                                  });
+
+                                  const otherSpecs = specs.filter(s => {
+                                    const str = typeof s === 'object' && s ? (s.value || s.name || '') : String(s);
+                                    const isSize = str.includes('大碗') || str.includes('小碗') || str.includes('份量');
+                                    const isAddon = str.includes('加料') || str.includes('皮蛋') || str.includes('貢丸') || str.includes('蚵仔') || str.includes('雙腸') || str.includes('豬肚') || str.includes('花枝羹') || str.includes('肉羹');
+                                    return !isSize && !isAddon;
+                                  }).map(s => typeof s === 'object' && s ? (s.value || s.name || '') : String(s));
+
+                                  return (
+                                    <div key={idx} style={{ lineHeight: '1.4' }}>
+                                      <span style={{ fontWeight: 'bold', color: 'var(--text-main)' }}>
+                                        {item.name}{sizeLabel} x {item.quantity}
+                                      </span>
+                                      {addonSpecs.length > 0 && (
+                                        <div style={{ color: '#d97706', fontSize: '0.7rem', paddingLeft: '6px', fontWeight: 'bold' }}>
+                                          └ +加料: {addonSpecs.join(', ')}
+                                        </div>
+                                      )}
+                                      {otherSpecs.length > 0 && (
+                                        <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem', paddingLeft: '6px' }}>
+                                          └ 備註: {otherSpecs.join(', ')}
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                              {order.remarks && <div style={{ color: 'var(--primary)', fontStyle: 'italic', marginTop: '3px' }}>※ {order.remarks}</div>}
+                              <div style={{ color: '#16a34a', fontWeight: 'bold', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                                👤 經手收銀: {order.cashier || '店長 (Admin)'}
+                              </div>
                             </td>
-                            <td style={{ padding: '10px 12px', textAlign: 'center' }}>
+                            <td style={{ padding: '10px 12px', textAlign: 'center', display: 'flex', gap: '6px', justifyContent: 'center' }}>
+                              <button 
+                                onClick={() => handleOpenEditBookkeepingOrderModal(order)}
+                                style={{ padding: '4px 8px', fontSize: '0.7rem', border: '1px solid var(--primary)', color: 'var(--primary)', backgroundColor: 'transparent', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}
+                              >
+                                ✏️ 編輯
+                              </button>
                               <button 
                                 onClick={() => handleDeleteBookkeepingOrder(order.id, order.remarks)}
                                 style={{ padding: '4px 8px', fontSize: '0.7rem', border: '1px solid #ef4444', color: '#ef4444', backgroundColor: 'transparent', borderRadius: '4px', cursor: 'pointer' }}
                               >
-                                🗑️ 刪除紀錄
+                                🗑️ 刪除
                               </button>
                             </td>
                           </tr>
@@ -2330,14 +3505,14 @@ export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDa
                         </tr>
                       ) : (
                         fixedCosts.map(fc => {
-                          const expiryYM = fc.expiryDate.slice(0, 7);
-                          const isExpired = expiryYM < selectedYearMonth;
+                          const expiryYM = fc.expiryDate ? fc.expiryDate.slice(0, 7) : '';
+                          const isExpired = expiryYM ? expiryYM < selectedYearMonth : false;
                           return (
                             <tr key={fc.id} style={{ borderBottom: '1px solid var(--border)', opacity: isExpired ? 0.5 : 1 }}>
                               <td style={{ padding: '10px 12px', fontWeight: 'bold' }}>{fc.name}</td>
                               <td style={{ padding: '10px 12px', fontWeight: 'bold', color: '#ef4444' }}>NT$ {fc.cost}</td>
-                              <td style={{ padding: '10px 12px', color: 'var(--text-muted)' }}>NT$ {Math.round(fc.cost / 30)} / 天</td>
-                              <td style={{ padding: '10px 12px' }}>{fc.expiryDate}</td>
+                              <td style={{ padding: '10px 12px', color: 'var(--text-muted)' }}>NT$ {Math.round((Number(fc.cost) || 0) / 30)} / 天</td>
+                              <td style={{ padding: '10px 12px' }}>{fc.expiryDate || '無'}</td>
                               <td style={{ padding: '10px 12px' }}>
                                 <span style={{
                                   padding: '2px 8px',
@@ -2375,30 +3550,208 @@ export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDa
             )}
 
             {/* 4. MONTHLY FINANCIAL REPORTS */}
-            {activeTab === 'monthly' && (
-              <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '10px' }}>
-                  <h4 style={{ fontSize: '0.9rem', fontWeight: 'bold', margin: 0 }}>📅 龍城麵線 - 每日/按月彙整財務損益報表</h4>
-                  <div style={{ display: 'flex', gap: '8px' }}>
-                    <button 
-                      onClick={() => {
-                        setManualRevDate(getTodayLocalDate());
-                        setManualRevAmount('');
-                        setShowManualRevModal(true);
-                      }}
-                      style={{ padding: '6px 12px', fontSize: '0.75rem', borderRadius: '6px', border: 'none', backgroundColor: 'var(--primary)', color: 'white', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
-                    >
-                      ✍️ 登錄手動營業額
-                    </button>
-                    <button 
-                      onClick={handleExportMonthlyCSV}
-                      style={{ padding: '6px 12px', fontSize: '0.75rem', borderRadius: '6px', border: 'none', backgroundColor: '#10b981', color: 'white', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
-                    >
-                      📊 匯出總表 CSV
-                    </button>
+            {activeTab === 'monthly' && (() => {
+              const range = getReportDateRange();
+              const targetReports = monthlyReports.filter(r => r.month >= range.start && r.month <= range.end);
+              const availableMonths = Array.from(new Set(monthlyReports.map(r => r.month.slice(0, 7)))).sort((a, b) => b.localeCompare(a));
+              
+              // Weekday vs Weekend Analytics
+              let weekdayRev = 0, weekdayOrdersCount = 0, weekdayDaysCount = 0;
+              let weekendRev = 0, weekendOrdersCount = 0, weekendDaysCount = 0;
+              const dowStats = [
+                { name: '週一', rev: 0, orders: 0, days: 0 },
+                { name: '週二', rev: 0, orders: 0, days: 0 },
+                { name: '週三', rev: 0, orders: 0, days: 0 },
+                { name: '週四', rev: 0, orders: 0, days: 0 },
+                { name: '週五', rev: 0, orders: 0, days: 0 },
+                { name: '週六', rev: 0, orders: 0, days: 0 },
+                { name: '週日', rev: 0, orders: 0, days: 0 }
+              ];
+
+              targetReports.forEach(r => {
+                const dateObj = new Date(r.month + 'T00:00:00');
+                const rawDay = dateObj.getDay(); // 0 is Sunday, 1-6 is Mon-Sat
+                const dowIndex = (rawDay + 6) % 7; // Convert 0-6 to Mon=0, Sun=6
+                const rev = Number(r.revenue) || 0;
+                const ord = Number(r.orderCount) || 0;
+                const isActualOpenDay = rev > 0 || ord > 0;
+
+                if (isActualOpenDay) {
+                  dowStats[dowIndex].rev += rev;
+                  dowStats[dowIndex].orders += ord;
+                  dowStats[dowIndex].days += 1; // 僅統計實際有開門營業的天數
+
+                  if (rawDay === 0 || rawDay === 6) {
+                    weekendRev += rev;
+                    weekendOrdersCount += ord;
+                    weekendDaysCount += 1; // 僅統計實際有開門的假日本數
+                  } else {
+                    weekdayRev += rev;
+                    weekdayOrdersCount += ord;
+                    weekdayDaysCount += 1; // 僅統計實際有開門的平日天數
+                  }
+                }
+              });
+
+              const weekdayAvgDaily = weekdayDaysCount > 0 ? Math.round(weekdayRev / weekdayDaysCount) : 0;
+              const weekdayAvgTicket = weekdayOrdersCount > 0 ? Math.round(weekdayRev / weekdayOrdersCount) : 0;
+              const weekendAvgDaily = weekendDaysCount > 0 ? Math.round(weekendRev / weekendDaysCount) : 0;
+              const weekendAvgTicket = weekendOrdersCount > 0 ? Math.round(weekendRev / weekendOrdersCount) : 0;
+
+              const totalPeriodRev = weekdayRev + weekendRev;
+              const weekdayPercent = totalPeriodRev > 0 ? Math.round((weekdayRev / totalPeriodRev) * 100) : 0;
+              const weekendPercent = totalPeriodRev > 0 ? (100 - weekdayPercent) : 0;
+
+              return (
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '10px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                      <h4 style={{ fontSize: '0.9rem', fontWeight: 'bold', margin: 0 }}>📅 財務損益分析報表</h4>
+                      
+                      {/* Range Presets Selector */}
+                      <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                        {[
+                          { key: '30days', label: '⏱️ 近30天' },
+                          { key: 'thisMonth', label: '🗓️ 本月' },
+                          { key: 'lastMonth', label: '📅 上個月' },
+                          { key: '6months', label: '📊 近半年' },
+                          { key: '1year', label: '📈 近一年' },
+                          { key: 'all', label: '🌐 全部歷史' },
+                          { key: 'custom', label: '✏️ 自訂區間' }
+                        ].map(preset => (
+                          <button
+                            key={preset.key}
+                            type="button"
+                            onClick={() => setReportRangeType(preset.key)}
+                            style={{
+                              padding: '4px 8px',
+                              fontSize: '0.75rem',
+                              borderRadius: '6px',
+                              border: reportRangeType === preset.key ? '1px solid var(--primary)' : '1px solid var(--border)',
+                              backgroundColor: reportRangeType === preset.key ? 'var(--primary)' : 'var(--bg-card)',
+                              color: reportRangeType === preset.key ? 'white' : 'var(--text-main)',
+                              fontWeight: 'bold',
+                              cursor: 'pointer',
+                              transition: 'all 0.15s ease'
+                            }}
+                          >
+                            {preset.label}
+                          </button>
+                        ))}
+                      </div>
+
+                      {/* Custom Date Picker */}
+                      {reportRangeType === 'custom' && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px', backgroundColor: 'var(--bg-card)', padding: '2px 8px', borderRadius: '6px', border: '1px solid var(--primary)' }}>
+                          <input 
+                            type="date" 
+                            value={reportCustomStartDate} 
+                            onChange={(e) => setReportCustomStartDate(e.target.value)} 
+                            style={{ padding: '2px 4px', fontSize: '0.75rem', border: 'none', backgroundColor: 'transparent', color: 'var(--text-main)', fontWeight: 'bold', outline: 'none' }}
+                          />
+                          <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>~</span>
+                          <input 
+                            type="date" 
+                            value={reportCustomEndDate} 
+                            onChange={(e) => setReportCustomEndDate(e.target.value)} 
+                            style={{ padding: '2px 4px', fontSize: '0.75rem', border: 'none', backgroundColor: 'transparent', color: 'var(--text-main)', fontWeight: 'bold', outline: 'none' }}
+                          />
+                        </div>
+                      )}
+                    </div>
+                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                      <button 
+                        onClick={() => {
+                          setManualRevDate(getTodayLocalDate());
+                          setManualRevAmount('');
+                          setShowManualRevModal(true);
+                        }}
+                        style={{ padding: '6px 12px', fontSize: '0.75rem', borderRadius: '6px', border: 'none', backgroundColor: 'var(--primary)', color: 'white', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
+                      >
+                        ✍️ 登錄手動營業額
+                      </button>
+
+                      <button 
+                        onClick={handleExportMonthlyCSV}
+                        style={{ padding: '6px 12px', fontSize: '0.75rem', borderRadius: '6px', border: 'none', backgroundColor: '#10b981', color: 'white', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
+                      >
+                        📊 開啟按月財務分析報告 (新分頁展報)
+                      </button>
+                    </div>
                   </div>
-                </div>
-                <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '16px' }}>根據資料庫中訂單交易額與支出流，每月進行自動化對帳與結算淨利。您也可以手動補登非系統記錄的人工營業額。</p>
+                  {/* Weekday vs Weekend & Day-of-Week Insights */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '16px', marginBottom: '20px' }}>
+                    {/* Weekday vs Weekend Card */}
+                    <div style={{ backgroundColor: 'var(--bg-body)', border: '1px solid var(--border)', borderRadius: '10px', padding: '16px' }}>
+                      <div style={{ fontSize: '0.85rem', fontWeight: 'bold', color: 'var(--primary)', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        ⚖️ 平日 (週一至週五) vs 假日 (週六日) 營收對比
+                      </div>
+                      
+                      <div style={{ display: 'flex', gap: '12px', marginBottom: '10px' }}>
+                        <div style={{ flex: 1, backgroundColor: 'var(--bg-card)', padding: '10px', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>🏢 平日營業額 (佔 {weekdayPercent}%)</div>
+                          <div style={{ fontSize: '1.15rem', fontWeight: '900', color: 'var(--text-main)', marginTop: '4px' }}>NT$ {weekdayRev.toLocaleString()}</div>
+                          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '6px', lineHeight: '1.4' }}>
+                            <span>📅 日均 (營業 {weekdayDaysCount} 天): <strong>NT$ {weekdayAvgDaily.toLocaleString()}</strong></span><br/>
+                            <span>🏷️ 平均客單價 (每單均消): <strong>NT$ {weekdayAvgTicket}</strong></span>
+                          </div>
+                        </div>
+
+                        <div style={{ flex: 1, backgroundColor: 'var(--bg-card)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(234, 88, 12, 0.4)' }}>
+                          <div style={{ fontSize: '0.75rem', color: '#ea580c' }}>🏖️ 假日營業額 (佔 {weekendPercent}%)</div>
+                          <div style={{ fontSize: '1.15rem', fontWeight: '900', color: '#ea580c', marginTop: '4px' }}>NT$ {weekendRev.toLocaleString()}</div>
+                          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '6px', lineHeight: '1.4' }}>
+                            <span>📅 日均 (營業 {weekendDaysCount} 天): <strong>NT$ {weekendAvgDaily.toLocaleString()}</strong></span><br/>
+                            <span>🏷️ 平均客單價 (每單均消): <strong>NT$ {weekendAvgTicket}</strong></span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Progress Bar */}
+                      <div style={{ height: '8px', width: '100%', backgroundColor: 'var(--border)', borderRadius: '4px', overflow: 'hidden', display: 'flex' }}>
+                        <div style={{ width: `${weekdayPercent}%`, backgroundColor: '#38bdf8' }} title={`平日 ${weekdayPercent}%`} />
+                        <div style={{ width: `${weekendPercent}%`, backgroundColor: '#ea580c' }} title={`假日 ${weekendPercent}%`} />
+                      </div>
+                    </div>
+
+                    {/* Day of Week Mini Bar Chart */}
+                    <div style={{ backgroundColor: 'var(--bg-body)', border: '1px solid var(--border)', borderRadius: '10px', padding: '16px' }}>
+                      <div style={{ fontSize: '0.85rem', fontWeight: 'bold', color: 'var(--primary)', marginBottom: '10px' }}>
+                        📊 週一至週日平均日營業額分佈
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '6px', alignItems: 'flex-end', height: '90px' }}>
+                        {dowStats.map((dow, idx) => {
+                          const avg = dow.days > 0 ? Math.round(dow.rev / dow.days) : 0;
+                          const maxAvg = Math.max(...dowStats.map(d => d.days > 0 ? d.rev / d.days : 0), 1);
+                          const heightPct = Math.max(Math.round((avg / maxAvg) * 100), 10);
+                          const isWeekend = idx >= 5;
+
+                          return (
+                            <div key={idx} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', height: '100%', justifyContent: 'flex-end' }}>
+                              <span style={{ fontSize: '0.65rem', fontWeight: 'bold', color: isWeekend ? '#ea580c' : 'var(--text-muted)' }}>
+                                {avg > 0 ? `${Math.round(avg / 1000)}k` : '-'}
+                              </span>
+                              <div 
+                                style={{
+                                  width: '100%',
+                                  height: `${heightPct}%`,
+                                  backgroundColor: isWeekend ? '#ea580c' : '#38bdf8',
+                                  borderRadius: '4px 4px 0 0',
+                                  transition: 'height 0.3s ease'
+                                }}
+                                title={`${dow.name}: 平均日營收 NT$ ${avg.toLocaleString()} (${dow.days}天)`}
+                              />
+                              <span style={{ fontSize: '0.72rem', fontWeight: isWeekend ? '900' : 'bold', color: isWeekend ? '#ea580c' : 'var(--text-main)' }}>
+                                {dow.name}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+
+                  <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '16px' }}>根據資料庫中訂單交易額與支出流，每月進行自動化對帳與結算淨利。您也可以手動補登非系統記錄的人工營業額。</p>
                 
                 <div style={{ overflowX: 'auto' }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem', textAlign: 'left' }}>
@@ -2415,12 +3768,12 @@ export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDa
                       </tr>
                     </thead>
                     <tbody>
-                      {monthlyReports.length === 0 ? (
+                      {targetReports.length === 0 ? (
                         <tr>
-                          <td colSpan="8" style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)' }}>無歷史交易與支出數據可供彙整</td>
+                          <td colSpan="8" style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)' }}>此月份無損益對帳資料可供彙整</td>
                         </tr>
                       ) : (
-                        monthlyReports.map(report => {
+                        targetReports.map(report => {
                           const totalCost = report.fixedCosts + report.variableCosts;
                           const monthlyProfit = report.revenue - totalCost;
                           const isProfit = monthlyProfit >= 0;
@@ -2479,7 +3832,7 @@ export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDa
                   </table>
                 </div>
               </div>
-            )}
+            )})()}
 
             {/* 5. INVENTORY & WAREHOUSE SYSTEM */}
             {activeTab === 'inventory' && (
@@ -2575,11 +3928,13 @@ export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDa
                           <th style={{ padding: '10px 12px' }}>目前庫存</th>
                           <th style={{ padding: '10px 12px' }}>安全警戒線</th>
                           <th style={{ padding: '10px 12px' }}>狀態</th>
+                          <th style={{ padding: '10px 12px' }}>⭐ POS 關注提醒</th>
+                          <th style={{ padding: '10px 12px' }}>排序</th>
                           <th style={{ padding: '10px 12px', textAlign: 'center' }}>操作</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {inventory.map(item => {
+                        {inventory.map((item, idx) => {
                           const isWarning = item.qty <= item.minStock;
                           const isOut = item.qty <= 0;
                           return (
@@ -2601,6 +3956,48 @@ export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDa
                                   {isOut ? '🔴 缺貨' : (isWarning ? '🟡 偏低' : '🟢 正常')}
                                 </span>
                               </td>
+                              <td style={{ padding: '10px 12px' }}>
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleWatchInventoryItem(item.name)}
+                                  style={{
+                                    padding: '3px 8px',
+                                    fontSize: '0.75rem',
+                                    borderRadius: '12px',
+                                    border: item.isWatched !== false ? '1px solid #f59e0b' : '1px solid var(--border)',
+                                    backgroundColor: item.isWatched !== false ? 'rgba(245, 158, 11, 0.15)' : 'var(--bg-body)',
+                                    color: item.isWatched !== false ? '#d97706' : 'var(--text-muted)',
+                                    cursor: 'pointer',
+                                    fontWeight: 'bold',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '3px'
+                                  }}
+                                  title={item.isWatched !== false ? '點擊取消 POS 補貨關注提醒' : '點擊開啟 POS 補貨關注提醒'}
+                                >
+                                  {item.isWatched !== false ? '⭐ 關注中' : '⚪ 未關注'}
+                                </button>
+                              </td>
+                              <td style={{ padding: '10px 12px' }}>
+                                <div style={{ display: 'flex', gap: '4px' }}>
+                                  <button
+                                    type="button"
+                                    disabled={idx === 0}
+                                    onClick={() => handleMoveInventoryItem(idx, -1)}
+                                    style={{ padding: '2px 6px', fontSize: '0.7rem', borderRadius: '4px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-card)', color: 'var(--text-main)', cursor: idx === 0 ? 'not-allowed' : 'pointer' }}
+                                  >
+                                    ▲
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={idx === inventory.length - 1}
+                                    onClick={() => handleMoveInventoryItem(idx, 1)}
+                                    style={{ padding: '2px 6px', fontSize: '0.7rem', borderRadius: '4px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-card)', color: 'var(--text-main)', cursor: idx === inventory.length - 1 ? 'not-allowed' : 'pointer' }}
+                                  >
+                                    ▼
+                                  </button>
+                                </div>
+                              </td>
                               <td style={{ padding: '10px 12px', textAlign: 'center', display: 'flex', gap: '6px', justifyContent: 'center' }}>
                                 <button 
                                   onClick={() => {
@@ -2618,6 +4015,7 @@ export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDa
                                     setEditingInvItem(item);
                                     setEditInvUnit(item.unit || '');
                                     setEditInvMinStock(String(item.minStock || 0));
+                                    setEditInvIsWatched(item.isWatched !== false);
                                   }}
                                   style={{ padding: '2px 6px', fontSize: '0.7rem', borderRadius: '4px', border: '1px solid var(--primary)', color: 'var(--primary)', backgroundColor: 'transparent', cursor: 'pointer', fontWeight: 'bold' }}
                                 >
@@ -3063,7 +4461,6 @@ export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDa
             )}
           </div>
         </main>
-      )}
 
       {/* VENDOR MANAGEMENT MODAL (V3: multi-items support + editable vendors) */}
       {showVendorModal && (
@@ -3186,6 +4583,7 @@ export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDa
               }
               setVendors(updated);
               localStorage.setItem('restaurant_vendors_v2', JSON.stringify(updated));
+              saveVendorsToCloud(updated);
               setNewVendorName('');
               setNewVendorItems([{ name: '紅麵線', qty: '10斤', cost: '600' }]);
             }} style={{
@@ -3366,6 +4764,174 @@ export default function BookkeepingView({ onBackToDemo, onLogout, parentClosedDa
                   style={{ padding: '8px 16px', fontSize: '0.8rem', borderRadius: '6px', border: 'none', backgroundColor: 'var(--primary)', color: 'white', fontWeight: 'bold', cursor: 'pointer' }}
                 >
                   💾 儲存並同步雲端
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* EDIT BOOKKEEPING ORDER MODAL */}
+      {editingBookkeepingOrder && (
+        <div style={{
+          position: 'fixed',
+          top: 0, left: 0, right: 0, bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.6)',
+          backdropFilter: 'blur(3px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 11000,
+          padding: '20px'
+        }}>
+          <div style={{
+            backgroundColor: 'var(--bg-card)',
+            border: '1px solid var(--border)',
+            borderRadius: '12px',
+            width: '100%',
+            maxWidth: '520px',
+            maxHeight: '90vh',
+            overflowY: 'auto',
+            padding: '24px',
+            boxShadow: 'var(--shadow-lg)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '16px'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border)', paddingBottom: '12px' }}>
+              <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 'bold', color: 'var(--primary)' }}>
+                ✏️ 編輯當日流水帳單 (單號: {editingBookkeepingOrder.serialNum || editingBookkeepingOrder.id})
+              </h3>
+              <button 
+                onClick={() => setEditingBookkeepingOrder(null)}
+                style={{ border: 'none', background: 'none', fontSize: '1.2rem', cursor: 'pointer', color: 'var(--text-muted)' }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveBookkeepingOrderEdit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div style={{ display: 'flex', gap: '12px' }}>
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <label style={{ fontSize: '0.75rem', fontWeight: 'bold' }}>實收金額 (NT$)</label>
+                  <input 
+                    type="number" 
+                    required 
+                    min="0"
+                    value={editOrderTotal}
+                    onChange={(e) => setEditOrderTotal(e.target.value)}
+                    style={{ padding: '8px 10px', fontSize: '0.85rem', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-body)', color: 'var(--text-main)' }}
+                  />
+                </div>
+
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <label style={{ fontSize: '0.75rem', fontWeight: 'bold' }}>點單類型</label>
+                  <select
+                    value={editOrderType}
+                    onChange={(e) => setEditOrderType(e.target.value)}
+                    style={{ padding: '8px 10px', fontSize: '0.85rem', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-body)', color: 'var(--text-main)' }}
+                  >
+                    <option value="dine-in">🍽️ 內用</option>
+                    <option value="takeout">🛍️ 外帶</option>
+                  </select>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: '12px' }}>
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <label style={{ fontSize: '0.75rem', fontWeight: 'bold' }}>顧客 / 桌號</label>
+                  <input 
+                    type="text" 
+                    value={editOrderCust}
+                    onChange={(e) => setEditOrderCust(e.target.value)}
+                    placeholder="例: 3號桌 或 陳先生"
+                    style={{ padding: '8px 10px', fontSize: '0.85rem', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-body)', color: 'var(--text-main)' }}
+                  />
+                </div>
+
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <label style={{ fontSize: '0.75rem', fontWeight: 'bold' }}>付款方式</label>
+                  <input 
+                    type="text" 
+                    value={editOrderPayment}
+                    onChange={(e) => setEditOrderPayment(e.target.value)}
+                    placeholder="例: 現金, 信用卡, LINE Pay"
+                    style={{ padding: '8px 10px', fontSize: '0.85rem', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-body)', color: 'var(--text-main)' }}
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <label style={{ fontSize: '0.75rem', fontWeight: 'bold' }}>備註事項</label>
+                <input 
+                  type="text" 
+                  value={editOrderRemarks}
+                  onChange={(e) => setEditOrderRemarks(e.target.value)}
+                  placeholder="特別說明或補註"
+                  style={{ padding: '8px 10px', fontSize: '0.85rem', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-body)', color: 'var(--text-main)' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <label style={{ fontSize: '0.75rem', fontWeight: 'bold' }}>👤 經手收銀員</label>
+                <input 
+                  type="text" 
+                  value={editOrderCashier}
+                  onChange={(e) => setEditOrderCashier(e.target.value)}
+                  placeholder="例: 店長 (Admin) 或 收銀員-小明"
+                  style={{ padding: '8px 10px', fontSize: '0.85rem', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-body)', color: 'var(--text-main)' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '6px' }}>
+                <label style={{ fontSize: '0.8rem', fontWeight: 'bold', color: 'var(--text-main)' }}>點餐品項明細調整：</label>
+                {editOrderItems.map((item, idx) => (
+                  <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: 'var(--bg-body)', padding: '8px 10px', borderRadius: '6px', border: '1px solid var(--border)' }}>
+                    <span style={{ flex: 1, fontSize: '0.8rem', fontWeight: 'bold' }}>{item.name}</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const updated = [...editOrderItems];
+                          if (updated[idx].quantity > 1) {
+                            updated[idx].quantity -= 1;
+                            setEditOrderItems(updated);
+                          }
+                        }}
+                        style={{ width: '24px', height: '24px', borderRadius: '4px', border: '1px solid var(--border)', cursor: 'pointer', fontWeight: 'bold' }}
+                      >
+                        -
+                      </button>
+                      <span style={{ fontSize: '0.85rem', fontWeight: 'bold', width: '24px', textAlign: 'center' }}>{item.quantity}</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const updated = [...editOrderItems];
+                          updated[idx].quantity += 1;
+                          setEditOrderItems(updated);
+                        }}
+                        style={{ width: '24px', height: '24px', borderRadius: '4px', border: '1px solid var(--border)', cursor: 'pointer', fontWeight: 'bold' }}
+                      >
+                        +
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '14px', borderTop: '1px solid var(--border)', paddingTop: '14px' }}>
+                <button
+                  type="button"
+                  onClick={() => setEditingBookkeepingOrder(null)}
+                  style={{ padding: '8px 16px', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-body)', color: 'var(--text-main)', cursor: 'pointer' }}
+                >
+                  取消
+                </button>
+                <button
+                  type="submit"
+                  style={{ padding: '8px 20px', borderRadius: '6px', border: 'none', backgroundColor: 'var(--primary)', color: 'white', fontWeight: 'bold', cursor: 'pointer' }}
+                >
+                  💾 儲存修改
                 </button>
               </div>
             </form>

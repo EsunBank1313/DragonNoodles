@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { menuCategories, menuItems as defaultMenuItems } from '../data/menuData';
 import ItemModal from './ItemModal';
+
 import CartPanel from './CartPanel';
 import OrderTracker from './OrderTracker';
 import { supabase } from '../supabaseClient';
+import { getActiveStoreCode, filterItemsByStore, prefixNameForStore } from '../utils/storeContext';
 
 // Import Firebase and config settings
 import { firebaseConfig } from '../config';
@@ -59,9 +61,104 @@ if (firebaseConfig && firebaseConfig.apiKey && firebaseConfig.apiKey !== 'YOUR_F
   }
 }
 
-export default function CustomerView({ tableNumber, onBackToDemo }) {
+// Helper to pick a delicious emoji icon based on dish name
+const getItemIcon = (name = '') => {
+  if (name.includes('套餐') || name.includes('全席') || name.includes('雙響') || name.includes('組合') || name.includes('【A') || name.includes('【B') || name.includes('【C')) return '🍱';
+  if (name.includes('大腸')) return '🥢';
+  if (name.includes('肉羹') || name.includes('肉羹麵線')) return '🍲';
+  if (name.includes('綜合')) return '🍜';
+  if (name.includes('清麵線')) return '🥣';
+  if (name.includes('泡菜')) return '🥬';
+  if (name.includes('臭豆腐')) return '🥟';
+  if (name.includes('紅茶') || name.includes('冬瓜') || name.includes('飲') || name.includes('茶')) return '🧋';
+  return '🍜';
+};
+
+// Component to gracefully render menu item photo (90x90 standard thumbnail) or warm appetizing gradient card
+const MenuItemImage = ({ item }) => {
+  if (item && item.image) {
+    return (
+      <div 
+        style={{
+          width: '90px',
+          height: '90px',
+          minWidth: '90px',
+          minHeight: '90px',
+          borderRadius: 'var(--radius-sm)',
+          overflow: 'hidden',
+          flexShrink: 0,
+          position: 'relative',
+          backgroundColor: 'var(--bg-input)'
+        }}
+      >
+        <img 
+          src={item.image} 
+          alt={item.name} 
+          style={{
+            width: '100%',
+            height: '100%',
+            objectFit: 'cover',
+            display: 'block'
+          }}
+          loading="lazy"
+          onError={(e) => {
+            e.currentTarget.style.display = 'none';
+            const placeholder = e.currentTarget.parentElement.querySelector('.item-image-fallback');
+            if (placeholder) placeholder.style.display = 'flex';
+          }}
+        />
+        <div 
+          className="item-image-fallback"
+          style={{
+            display: 'none',
+            width: '100%',
+            height: '100%',
+            alignItems: 'center',
+            justifyContent: 'center',
+            background: 'linear-gradient(135deg, #fff7ed 0%, #ffedd5 100%)',
+            fontSize: '2rem'
+          }}
+        >
+          {getItemIcon(item.name)}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div 
+      style={{
+        width: '90px',
+        height: '90px',
+        minWidth: '90px',
+        minHeight: '90px',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: 'linear-gradient(135deg, #fff7ed 0%, #ffedd5 100%)',
+        borderRadius: 'var(--radius-sm)',
+        color: 'var(--primary)',
+        flexShrink: 0,
+        gap: '2px',
+        boxSizing: 'border-box'
+      }}
+    >
+      <span style={{ fontSize: '2rem' }}>{getItemIcon(item?.name)}</span>
+      <span style={{ fontSize: '0.65rem', fontWeight: 'bold', color: 'var(--text-muted)', textAlign: 'center', lineHeight: 1.1, padding: '0 2px' }}>
+        {item?.name}
+      </span>
+    </div>
+  );
+};
+export default function CustomerView({ storeCode: propStoreCode, tableNumber, onBackToDemo }) {
+  const storeCode = propStoreCode || getActiveStoreCode();
   const [viewState, setViewState] = useState('menu'); // 'menu', 'checkout', 'tracking'
-  const [activeCategory, setActiveCategory] = useState(menuCategories[0].id);
+  const [productCategories, setProductCategories] = useState([
+    { id: 'mee-sua', name: '招牌麵線', icon: '🍜' },
+    { id: 'specialties', name: '特色產品', icon: '🔥' }
+  ]);
+  const [activeCategory, setActiveCategory] = useState('mee-sua');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedItem, setSelectedItem] = useState(null);
   const [cart, setCart] = useState([]);
@@ -71,7 +168,8 @@ export default function CustomerView({ tableNumber, onBackToDemo }) {
   const [lineNotifyToken, setLineNotifyToken] = useState('');
   const [generatedLineCode, setGeneratedLineCode] = useState('');
   const [simulatedNotification, setSimulatedNotification] = useState(null);
-  const [pickupTime, setPickupTime] = useState('15');
+  const [pickupTime, setPickupTime] = useState('10-15分鐘後');
+  const [customPickupTime, setCustomPickupTime] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('counter');
 
   const [allOrders, setAllOrders] = useState([]);
@@ -100,13 +198,28 @@ export default function CustomerView({ tableNumber, onBackToDemo }) {
   const [menuItemsAvailability, setMenuItemsAvailability] = useState({});
   const [menuItems, setMenuItems] = useState([]);
   const [storeName, setStoreName] = useState('龍城麵線');
+  const [storeSlogan, setStoreSlogan] = useState('');
+  const [showHeroBanner, setShowHeroBanner] = useState(true);
+  const [heroTag, setHeroTag] = useState('');
+  const [heroTitle, setHeroTitle] = useState('');
+  const [heroDesc, setHeroDesc] = useState('');
+  useEffect(() => {
+    const savedTheme = localStorage.getItem('app_theme') || 'default';
+    document.body.className = savedTheme === 'default' ? '' : `theme-${savedTheme}`;
+  }, []);
+
   const [storeAddress, setStoreAddress] = useState('');
   const [storePhone, setStorePhone] = useState('');
   const [closedDates, setClosedDates] = useState([]);
+  const [showOrderConfirmModal, setShowOrderConfirmModal] = useState(false);
+  const [receiptConfig, setReceiptConfig] = useState({
+    enableOnlineOrdering: true
+  });
   const [paymentMethodsConfig, setPaymentMethodsConfig] = useState({
     counter: { enabled: true, name: '店內結帳 (到店付款)', desc: '取餐時於櫃檯付款，支援現金與TWQR共同支付' },
     online: { enabled: true, name: '線上刷卡', desc: '下單即完成付款' }
   });
+  const [blacklist, setBlacklist] = useState([]);
 
   const getTodayLocalDate = () => {
     try {
@@ -128,23 +241,69 @@ export default function CustomerView({ tableNumber, onBackToDemo }) {
       const { data, error } = await supabase.from('menu_items').select('*').order('id', { ascending: true });
       if (error) throw error;
       if (data && data.length > 0) {
-        const tokenItem = data.find(item => item.name === 'SYSTEM_SETTING_LINE_TOKEN');
+        const storeItems = filterItemsByStore(data, storeCode);
+
+        const profileItem = storeItems.find(item => item.name === 'SYSTEM_SETTING_STORE_PROFILE');
+        if (profileItem && profileItem.description) {
+          try {
+            const prof = JSON.parse(profileItem.description);
+            if (prof.storeName) setStoreName(prof.storeName);
+            if (prof.storeAddress) setStoreAddress(prof.storeAddress);
+            if (prof.storePhone) setStorePhone(prof.storePhone);
+            if (prof.storeSlogan) setStoreSlogan(prof.storeSlogan);
+            if (prof.heroTag) setHeroTag(prof.heroTag);
+            if (prof.heroTitle) setHeroTitle(prof.heroTitle);
+            if (prof.heroDesc) setHeroDesc(prof.heroDesc);
+            if (prof.showHeroBanner !== undefined) setShowHeroBanner(prof.showHeroBanner);
+          } catch (e) {}
+        }
+
+        const heroItem = storeItems.find(item => item.name === 'SYSTEM_SETTING_STORE_HERO');
+        if (heroItem && heroItem.description) {
+          try {
+            const h = JSON.parse(heroItem.description);
+            if (h.heroTag) setHeroTag(h.heroTag);
+            if (h.heroTitle) setHeroTitle(h.heroTitle);
+            if (h.heroDesc) setHeroDesc(h.heroDesc);
+            if (h.storeSlogan) setStoreSlogan(h.storeSlogan);
+            if (h.showHeroBanner !== undefined) setShowHeroBanner(h.showHeroBanner);
+          } catch (e) {}
+        }
+
+        const tokenItem = storeItems.find(item => item.name === 'SYSTEM_SETTING_LINE_TOKEN');
         if (tokenItem) {
           setLineNotifyToken(tokenItem.description || '');
         }
-        const storeNameItem = data.find(item => item.name === 'SYSTEM_SETTING_STORE_NAME');
+        const categoriesItem = storeItems.find(item => item.name === 'SYSTEM_SETTING_PRODUCT_CATEGORIES');
+        if (categoriesItem && categoriesItem.description) {
+          try {
+            const parsed = JSON.parse(categoriesItem.description);
+            setProductCategories(parsed);
+            if (parsed.length > 0 && !parsed.some(c => c.id === activeCategory)) {
+              setActiveCategory(parsed[0].id);
+            }
+          } catch (e) {}
+        }
+        const storeNameItem = storeItems.find(item => item.name === 'SYSTEM_SETTING_STORE_NAME');
         if (storeNameItem && storeNameItem.description) {
           setStoreName(storeNameItem.description);
         }
-        const storeAddrItem = data.find(item => item.name === 'SYSTEM_SETTING_STORE_ADDRESS');
+        const storeAddrItem = storeItems.find(item => item.name === 'SYSTEM_SETTING_STORE_ADDRESS');
         if (storeAddrItem && storeAddrItem.description) {
           setStoreAddress(storeAddrItem.description);
         }
-        const storePhoneItem = data.find(item => item.name === 'SYSTEM_SETTING_STORE_PHONE');
+        const storePhoneItem = storeItems.find(item => item.name === 'SYSTEM_SETTING_STORE_PHONE');
         if (storePhoneItem && storePhoneItem.description) {
           setStorePhone(storePhoneItem.description);
         }
-        const paymentItem = data.find(item => item.name === 'SYSTEM_SETTING_PAYMENT_METHODS');
+
+        const receiptConfigItem = storeItems.find(item => item.name === 'SYSTEM_SETTING_RECEIPT_CONFIG');
+        if (receiptConfigItem && receiptConfigItem.description) {
+          try {
+            setReceiptConfig(JSON.parse(receiptConfigItem.description));
+          } catch (e) {}
+        }
+        const paymentItem = storeItems.find(item => item.name === 'SYSTEM_SETTING_PAYMENT_METHODS');
         if (paymentItem && paymentItem.description) {
           try {
             const parsed = JSON.parse(paymentItem.description);
@@ -158,13 +317,13 @@ export default function CustomerView({ tableNumber, onBackToDemo }) {
             console.error("Failed to parse payment methods:", e);
           }
         }
-        const orderItem = data.find(item => item.name === 'SYSTEM_SETTING_MENU_ORDER');
+        const orderItem = storeItems.find(item => item.name === 'SYSTEM_SETTING_MENU_ORDER');
         let orderList = [];
         if (orderItem && orderItem.description) {
           try { orderList = JSON.parse(orderItem.description); } catch (e) {}
         }
 
-        const addonsItem = data.find(item => item.name === 'SYSTEM_SETTING_GLOBAL_ADDONS');
+        const addonsItem = storeItems.find(item => item.name === 'SYSTEM_SETTING_GLOBAL_ADDONS');
         let currentAddons = [
           { label: '大腸', priceChange: 15 },
           { label: '豬肚', priceChange: 15 },
@@ -176,7 +335,7 @@ export default function CustomerView({ tableNumber, onBackToDemo }) {
           try { currentAddons = JSON.parse(addonsItem.description); } catch (e) {}
         }
 
-        const condimentsItem = data.find(item => item.name === 'SYSTEM_SETTING_GLOBAL_CONDIMENTS');
+        const condimentsItem = storeItems.find(item => item.name === 'SYSTEM_SETTING_GLOBAL_CONDIMENTS');
         let currentCondiments = [
           { name: '香菜', choices: ['正常', '多一點', '不要香菜'], default: '正常' },
           { name: '蒜末', choices: ['正常', '多一點', '不要蒜頭'], default: '正常' },
@@ -187,7 +346,12 @@ export default function CustomerView({ tableNumber, onBackToDemo }) {
           try { currentCondiments = JSON.parse(condimentsItem.description); } catch (e) {}
         }
 
-        const visibleItems = data.filter(item => 
+        const blacklistItem = storeItems.find(item => item.name === 'SYSTEM_SETTING_BLACKLIST');
+        if (blacklistItem && blacklistItem.description) {
+          try { setBlacklist(JSON.parse(blacklistItem.description)); } catch (e) {}
+        }
+
+        const visibleItems = storeItems.filter(item => 
           !item.name.startsWith('SYSTEM_SETTING_') &&
           item.customizations?.is_published !== false
         ).map(item => {
@@ -326,47 +490,41 @@ export default function CustomerView({ tableNumber, onBackToDemo }) {
 
   const fetchClosedDates = async () => {
     try {
-      const { data, error } = await supabase
-        .from('orders')
-        .select('created_at, items');
-      if (error) throw error;
-      if (data) {
-        const cloudDates = data
-          .filter(o => {
-            const itemsData = typeof o.items === 'string' ? JSON.parse(o.items) : o.items;
-            return itemsData?.customerName === 'SYSTEM_STORE_CLOSE';
-          })
-          .map(o => {
-            return new Date(o.created_at).toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' });
-          });
-        setClosedDates(cloudDates);
-
-        // Auto Close Shop check at 10 PM on Customer view
-        const now = new Date();
-        const hours = now.getHours();
-        const todayStr = getTodayLocalDate();
-        if (hours >= 22 && !cloudDates.includes(todayStr)) {
-          supabase.from('orders').insert([{
-            order_number: 'CLOSE',
-            items: {
-              customerName: 'SYSTEM_STORE_CLOSE',
-              customerPhone: 'SYSTEM',
-              cart: []
-            },
-            total: 0,
-            type: 'dine-in',
-            table_number: 'CLOSED',
-            status: 'completed',
-            payment_status: 'paid'
-          }]).then(({ error: insertError }) => {
-            if (!insertError) fetchClosedDates();
-          });
-        }
+      const closedKey = prefixNameForStore('SYSTEM_SETTING_CLOSED_DATES', storeCode);
+      const { data: settingsData } = await supabase
+        .from('menu_items')
+        .select('description')
+        .eq('name', closedKey);
+      
+      let settingsClosed = [];
+      if (settingsData && settingsData.length > 0 && settingsData[0].description) {
+        try {
+          settingsClosed = JSON.parse(settingsData[0].description);
+        } catch (e) {}
       }
+
+      setClosedDates(settingsClosed);
+      localStorage.setItem('restaurant_closed_dates', JSON.stringify(settingsClosed));
     } catch (e) {
       console.error("Failed to load closed dates in CustomerView:", e);
     }
   };
+
+  // Initialize Recaptcha for Firebase Auth
+  useEffect(() => {
+    if (firebaseAuth && !recaptchaVerifierRef.current) {
+      try {
+        recaptchaVerifierRef.current = new RecaptchaVerifier(firebaseAuth, 'recaptcha-container', {
+          size: 'invisible',
+          callback: (response) => {
+            // Recaptcha resolved
+          }
+        });
+      } catch (err) {
+        console.error("Failed to init RecaptchaVerifier:", err);
+      }
+    }
+  }, []);
 
   // Load active order and all orders from Supabase
   useEffect(() => {
@@ -396,7 +554,7 @@ export default function CustomerView({ tableNumber, onBackToDemo }) {
     if (savedMenuItemsAvail) {
       setMenuItemsAvailability(JSON.parse(savedMenuItemsAvail));
     }
-  }, []);
+  }, [storeCode]);
 
   // Listen to Supabase Realtime changes for menu items and the active order status
   useEffect(() => {
@@ -569,10 +727,34 @@ export default function CustomerView({ tableNumber, onBackToDemo }) {
       return;
     }
 
+    if (blacklist.some(b => b.phone === custPhone)) {
+      alert("⚠️ 您的號碼已被系統列入黑名單，無法進行線上點餐。如有疑問請聯絡店家！");
+      setIsVerifying(false);
+      return;
+    }
+
     setOtpError('');
     setOtpInput('');
     setIsVerifying(true);
 
+    // 1. Try Firebase Auth Real SMS verification
+    if (firebaseAuth && recaptchaVerifierRef.current) {
+      try {
+        const formattedPhone = `+886${custPhone.substring(1)}`;
+        const confirmationResult = await signInWithPhoneNumber(firebaseAuth, formattedPhone, recaptchaVerifierRef.current);
+        confirmationResultRef.current = confirmationResult;
+        setShowOtpModal(true);
+        setResendTimer(60);
+        setIsVerifying(false);
+        setSimulatedNotification("💬 驗證簡訊已發送至您的手機，請查收！");
+        setTimeout(() => setSimulatedNotification(null), 8000);
+        return;
+      } catch (err) {
+        console.warn("Firebase Auth SMS send failed, falling back to LINE Notify / Mock:", err);
+      }
+    }
+
+    // 2. Fallback to LINE / Mock Simulation
     const code = String(Math.floor(1000 + Math.random() * 9000));
     setGeneratedLineCode(code);
     setShowOtpModal(true);
@@ -582,12 +764,10 @@ export default function CustomerView({ tableNumber, onBackToDemo }) {
 
     if (lineNotifyToken) {
       try {
-        // Try parsing JSON settings
         let settings = {};
         try {
           settings = JSON.parse(lineNotifyToken);
         } catch (e) {
-          // Fallback to plain LINE Notify token
           settings = { type: 'notify', notifyToken: lineNotifyToken };
         }
 
@@ -630,7 +810,6 @@ export default function CustomerView({ tableNumber, onBackToDemo }) {
     }
 
     if (!hasSentReal) {
-      // Fallback simulation banner
       setSimulatedNotification(`💬 LINE (${storeName}官方帳號): 您的點餐驗證碼為【${code}】。(請至後台管理設定 LINE Token 以啟用真實通知)`);
     }
 
@@ -642,19 +821,38 @@ export default function CustomerView({ tableNumber, onBackToDemo }) {
   const handleVerifyOtp = async (e) => {
     e.preventDefault();
     
-    if (otpInput.length !== 4) {
-      setOtpError('驗證碼應為 4 位數');
+    if (otpInput.length !== 4 && otpInput.length !== 6) {
+      setOtpError('驗證碼長度不正確 (應為 4 位或 6 位數)');
       return;
     }
 
     setOtpError('');
     setIsVerifying(true);
 
+    // 1. Try Firebase Auth verification if active
+    if (confirmationResultRef.current) {
+      try {
+        await confirmationResultRef.current.confirm(otpInput);
+        setPhoneVerified(true);
+        setShowOtpModal(false);
+        setOtpInput('');
+        setShowOrderConfirmModal(true);
+        setIsVerifying(false);
+        return;
+      } catch (err) {
+        setOtpError('驗證碼不正確或已逾期，請重新輸入。');
+        setIsVerifying(false);
+        return;
+      }
+    }
+
+    // 2. Fallback to Line/Mock verification
     if (otpInput === generatedLineCode) {
       setPhoneVerified(true);
       setShowOtpModal(false);
+      setOtpInput('');
       setGeneratedLineCode('');
-      submitOrder(true);
+      setShowOrderConfirmModal(true); // Open double-confirm modal instead of auto submitting
       setIsVerifying(false);
     } else {
       setOtpError('驗證碼不正確，請重新輸入。');
@@ -674,55 +872,65 @@ export default function CustomerView({ tableNumber, onBackToDemo }) {
         alert('訂購姓名只能包含中文或英文，不能有數字與特殊符號！');
         return;
       }
+      if (!isValidTaiwanMobile(custPhone)) {
+        alert('請輸入正確的台灣手機號碼格式 (例如: 0912345678)');
+        return;
+      }
+      if (blacklist.some(b => b.phone === custPhone)) {
+        alert("⚠️ 您的號碼已被系統列入黑名單，無法進行線上點餐。如有疑問請聯絡店家！");
+        return;
+      }
     }
 
-    // Dine-in doesn't need phone verification (physical seated client)
-    if (tableNumber) {
-      submitOrder(true);
-      return;
-    }
-
-    // Takeout needs phone verification
-    if (phoneVerified) {
-      submitOrder(true);
-    } else {
-      handleStartVerification();
-    }
+    // Direct to confirm modal without phone verification
+    setShowOrderConfirmModal(true);
   };
 
   const submitOrder = async (verified = false) => {
     const subtotal = cart.reduce((sum, item) => sum + item.totalPrice, 0);
     const total = subtotal;
 
-    // Generate easy-to-read daily sequential serial number (e.g., I-001 or O-001, counted separately)
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-    
-    let count = 0;
+    // Generate easy-to-read daily sequential serial number (max number + 1 logic to prevent duplicates)
     const orderType = tableNumber ? 'dine-in' : 'takeout';
+    const prefix = tableNumber ? 'I' : 'O';
+    
+    const now = new Date();
+    const taipeiDateStr = now.toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' });
+    const todayTaipeiISO = new Date(`${taipeiDateStr}T00:00:00+08:00`).toISOString();
+
+    let maxNum = 0;
     try {
-      const { count: dbCount, error } = await supabase.from('orders')
-        .select('*', { count: 'exact', head: true })
-        .gte('created_at', todayStart.toISOString())
+      const { data: todayOrders } = await supabase
+        .from('orders')
+        .select('order_number')
+        .gte('created_at', todayTaipeiISO)
         .eq('type', orderType);
-      if (!error && dbCount !== null) {
-        count = dbCount;
+
+      if (todayOrders && todayOrders.length > 0) {
+        todayOrders.forEach(o => {
+          if (o.order_number && o.order_number.startsWith(prefix + '-')) {
+            const num = parseInt(o.order_number.replace(/[^0-9]/g, ''), 10);
+            if (!isNaN(num) && num > maxNum) {
+              maxNum = num;
+            }
+          }
+        });
       }
     } catch (err) {
-      console.warn("Failed to fetch today's order count, default to 0:", err);
+      console.warn("Failed to fetch today's max order num:", err);
     }
-    
-    const prefix = tableNumber ? 'I' : 'O';
-    const serialNum = `${prefix}-${String(count + 1).padStart(3, '0')}`;
+
+    const serialNum = `${prefix}-${String(maxNum + 1).padStart(3, '0')}`;
 
     try {
-      const { data: dbOrders, error: insertError } = await supabase.from('orders').insert([{
+      const orderPayload = {
         order_number: serialNum,
         items: {
+          store_code: storeCode,
           cart: cart,
           customerName: tableNumber ? `內用 ${tableNumber} 號桌` : custName,
           customerPhone: tableNumber ? '' : custPhone,
-          pickupTime: tableNumber ? '' : pickupTime,
+          pickupTime: tableNumber ? '' : (pickupTime === 'custom' ? customPickupTime : pickupTime),
           paymentMethod,
           remarks
         },
@@ -731,9 +939,30 @@ export default function CustomerView({ tableNumber, onBackToDemo }) {
         table_number: tableNumber || null,
         status: 'received',
         payment_status: paymentMethod === 'online' ? 'paid' : 'unpaid'
-      }]).select();
+      };
 
-      if (insertError) throw insertError;
+      let dbOrders = null;
+      let lastErr = null;
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+          const { data, error: insertError } = await supabase.from('orders').insert([orderPayload]).select();
+          if (insertError) throw insertError;
+          if (data && data.length > 0) {
+            dbOrders = data;
+            break;
+          }
+        } catch (retryErr) {
+          lastErr = retryErr;
+          console.warn(`Customer order submission attempt ${attempt} failed:`, retryErr);
+          if (attempt < 3) {
+            await new Promise(res => setTimeout(res, attempt * 400));
+          }
+        }
+      }
+
+      if (!dbOrders || dbOrders.length === 0) {
+        throw (lastErr || new Error("伺服器無回應，請確認網路連線"));
+      }
 
       const createdOrder = dbOrders[0];
       const formatted = formatSupabaseOrder(createdOrder);
@@ -747,7 +976,7 @@ export default function CustomerView({ tableNumber, onBackToDemo }) {
       setViewState('tracking');
     } catch (err) {
       console.error("Failed to submit order to Supabase:", err);
-      alert("提交訂單至雲端伺服器失敗，請檢查網路連線或稍後再試！");
+      alert(`⚠️ 提交訂單失敗：${err.message || '請檢查網路連線或稍後再試'}`);
     }
   };
 
@@ -762,16 +991,69 @@ export default function CustomerView({ tableNumber, onBackToDemo }) {
   const handleHomeClick = () => {
     const params = new URLSearchParams(window.location.search);
     const table = params.get('table');
-    const demo = params.get('demo');
-    if (demo === 'true') {
-      onBackToDemo();
-    } else {
-      window.location.href = table ? `/?table=${table}` : '/';
-    }
+    const store = params.get('store');
+    const q = new URLSearchParams();
+    if (store && store !== 'dragon') q.set('store', store);
+    if (table) q.set('table', table);
+    const str = q.toString();
+    window.location.href = str ? `/?${str}` : '/';
   };
 
   const todayStr = getTodayLocalDate();
-  const isClosed = closedDates.includes(todayStr);
+  const nowTaipei = new Date();
+  const currentHour = parseInt(nowTaipei.toLocaleTimeString('en-US', { timeZone: 'Asia/Taipei', hour12: false, hour: '2-digit' }), 10);
+  const isPast10PM = currentHour >= 22 || currentHour < 6;
+  const isClosed = closedDates.includes(todayStr) || isPast10PM;
+
+  if (receiptConfig && receiptConfig.enableOnlineOrdering === false) {
+    return (
+      <div style={{
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        minHeight: '100vh',
+        backgroundColor: 'var(--bg-body)',
+        color: 'var(--text-main)',
+        padding: '24px',
+        textAlign: 'center',
+        fontFamily: 'system-ui, sans-serif'
+      }}>
+        <div style={{
+          backgroundColor: 'var(--bg-card)',
+          border: '1px solid var(--border)',
+          borderRadius: '16px',
+          padding: '32px 24px',
+          maxWidth: '400px',
+          width: '100%',
+          boxShadow: 'var(--shadow-md)',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          gap: '12px'
+        }}>
+          <span style={{ fontSize: '3.5rem' }}>📢</span>
+          <h2 style={{ fontSize: '1.3rem', fontWeight: 'bold', margin: '0', color: 'var(--text-main)' }}>
+            現場櫃檯點餐服務中
+          </h2>
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', lineHeight: '1.6', margin: 0 }}>
+            【{storeName}】目前暫未開放線上掃碼點餐。<br />
+            歡迎您直接至收銀櫃檯，由門市服務人員為您點餐與出單！
+          </p>
+          {storePhone && (
+            <div style={{ marginTop: '8px', fontSize: '0.85rem', fontWeight: 'bold', color: 'var(--primary)' }}>
+              📞 門市電話：{storePhone}
+            </div>
+          )}
+          {storeAddress && (
+            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+              📍 門市地址：{storeAddress}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   if (isClosed) {
     return (
@@ -837,11 +1119,12 @@ export default function CustomerView({ tableNumber, onBackToDemo }) {
 
       {/* Header */}
       <header className="customer-header">
+        
         <div className="brand-section">
           <button onClick={handleHomeClick} style={{ fontSize: '1.2rem' }}>🏡</button>
           <div>
             <h1 className="brand-name">🥢 {storeName}</h1>
-            <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>傳統柴魚高湯・手工紅麵線・地獄麻辣挑戰</p>
+            <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{storeSlogan || '傳統柴魚高湯・手工紅麵線・精選美味推薦'}</p>
           </div>
         </div>
         
@@ -861,21 +1144,23 @@ export default function CustomerView({ tableNumber, onBackToDemo }) {
       {viewState === 'menu' && (
         <>
           {/* Hero / Announcement Banner */}
-          <div className="hero-banner">
-            <div className="hero-tag">🔥 熱門推薦</div>
-            <h2 className="hero-title">招牌綜合麵線配特製辣泡菜</h2>
-            <p className="hero-desc">在地飄香的好味道！獨家配方柴魚高湯，搭配豐富滿載的配料與手作開胃辣泡菜，讓您一吃就愛上！</p>
-          </div>
+          {showHeroBanner !== false && (
+            <div className="hero-banner">
+              <div className="hero-tag">{heroTag || '🔥 熱門推薦'}</div>
+              <h2 className="hero-title">{heroTitle || (storeName ? `${storeName} 招牌熱門推薦` : '招牌綜合麵線配特製辣泡菜')}</h2>
+              <p className="hero-desc">{heroDesc || '在地飄香的好味道！獨家配方柴魚高湯，搭配豐富滿載的配料與手作開胃辣泡菜，讓您一吃就愛上！'}</p>
+            </div>
+          )}
 
           {/* Category tabs */}
           <div className="category-tabs">
-            {menuCategories.map(cat => (
+            {productCategories.map(cat => (
               <button 
                 key={cat.id} 
                 className={`category-tab ${activeCategory === cat.id ? 'active' : ''}`}
                 onClick={() => setActiveCategory(cat.id)}
               >
-                <span>{cat.icon}</span>
+                <span>{cat.icon || '🍜'}</span>
                 <span>{cat.name}</span>
               </button>
             ))}
@@ -898,7 +1183,7 @@ export default function CustomerView({ tableNumber, onBackToDemo }) {
           {/* Menu Items List */}
           <div className="menu-list">
             <h3 className="category-header">
-              {menuCategories.find(c => c.id === activeCategory)?.name}
+              {productCategories.find(c => c.id === activeCategory)?.name}
             </h3>
 
             {filteredItems.length === 0 ? (
@@ -915,9 +1200,7 @@ export default function CustomerView({ tableNumber, onBackToDemo }) {
                     onClick={isAvailable ? () => setSelectedItem(item) : undefined}
                     style={!isAvailable ? { opacity: 0.65, filter: 'grayscale(70%)', cursor: 'not-allowed', position: 'relative' } : {}}
                   >
-                    <img src={item.image} alt={item.name} className="item-img" onError={(e) => {
-                      e.target.style.display = 'none';
-                    }} />
+                    <MenuItemImage item={item} />
                     {!isAvailable && (
                       <div style={{
                         position: 'absolute',
@@ -1004,21 +1287,21 @@ export default function CustomerView({ tableNumber, onBackToDemo }) {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '0.85rem', marginBottom: '12px' }}>
                 <div><strong>取餐方式：</strong>{tableNumber ? `內用 (${tableNumber} 號桌)` : '外帶自取'}</div>
                 {!tableNumber && (
-                  <div><strong>預計取餐時間：</strong>{pickupTime}</div>
+                  <div><strong>預計取餐時間：</strong>{pickupTime === 'custom' ? customPickupTime : pickupTime}</div>
                 )}
               </div>
 
               {/* 商品資訊與價格明細 */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', borderBottom: '1px dashed var(--border)', paddingBottom: '12px', marginBottom: '12px' }}>
                 {cart.map((item, idx) => (
-                  <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem' }}>
-                    <div>
+                  <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', gap: '16px', fontSize: '0.85rem' }}>
+                    <div style={{ minWidth: 0 }}>
                       <strong style={{ color: 'var(--text-main)' }}>{item.name} x {item.quantity}</strong>
-                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', paddingLeft: '6px' }}>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', paddingLeft: '6px', wordBreak: 'break-all' }}>
                         {item.specs.join(', ')}
                       </div>
                     </div>
-                    <span style={{ fontWeight: 'bold' }}>NT$ {item.totalPrice}</span>
+                    <span style={{ fontWeight: 'bold', flexShrink: 0, whiteSpace: 'nowrap' }}>NT$ {item.totalPrice}</span>
                   </div>
                 ))}
               </div>
@@ -1054,7 +1337,7 @@ export default function CustomerView({ tableNumber, onBackToDemo }) {
               </div>
             ) : (
               <div className="option-group" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                <h4 className="checkout-section-title">👤 外帶聯絡資訊 (需手機簡訊驗證)</h4>
+                <h4 className="checkout-section-title">👤 外帶聯絡資訊 (需LINE驗證)</h4>
                 
                 <div className="form-group">
                   <label htmlFor="cust-name">訂購姓名 <span style={{ color: 'var(--accent)' }}>*</span></label>
@@ -1097,9 +1380,6 @@ export default function CustomerView({ tableNumber, onBackToDemo }) {
                       </span>
                     )}
                   </div>
-                  <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '2px' }}>
-                    * 為了防範惡意下單，外帶顧客下單時系統將會發送 LINE 點餐驗證碼至該手機帳戶。
-                  </p>
                 </div>
 
                 <div className="form-group">
@@ -1107,14 +1387,38 @@ export default function CustomerView({ tableNumber, onBackToDemo }) {
                   <select 
                     id="pickup-time"
                     value={pickupTime}
-                    onChange={(e) => setPickupTime(e.target.value)}
+                    onChange={(e) => {
+                      setPickupTime(e.target.value);
+                      if (e.target.value !== 'custom') {
+                        setCustomPickupTime('');
+                      }
+                    }}
                   >
                     <option value="10-15分鐘後">10-15 分鐘後 (儘速製作)</option>
                     <option value="20分鐘後">20 分鐘後</option>
                     <option value="30分鐘後">30 分鐘後</option>
-                    <option value="45分鐘後">45 分鐘後</option>
                     <option value="1小時後">1 小時後</option>
+                    <option value="custom">自訂時間</option>
                   </select>
+                  {pickupTime === 'custom' && (
+                    <div style={{ marginTop: '8px' }}>
+                      <input 
+                        type="text" 
+                        placeholder="請輸入自訂取餐時間 (如: 18:30 或 2小時後)"
+                        value={customPickupTime}
+                        onChange={(e) => setCustomPickupTime(e.target.value)}
+                        style={{
+                          width: '100%',
+                          padding: '10px',
+                          fontSize: '0.85rem',
+                          borderRadius: '8px',
+                          border: '1px solid var(--border)',
+                          backgroundColor: 'var(--bg-card)',
+                          color: 'var(--text-main)'
+                        }}
+                      />
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -1178,7 +1482,7 @@ export default function CustomerView({ tableNumber, onBackToDemo }) {
                 style={{ width: '100%' }}
                 disabled={isVerifying}
               >
-                {isVerifying ? '傳送中...' : tableNumber ? '確認送出訂單' : phoneVerified ? '確認送出訂單' : '發送簡訊驗證碼以送出'}
+                確認送出訂單
               </button>
             </div>
           </form>
@@ -1207,9 +1511,19 @@ export default function CustomerView({ tableNumber, onBackToDemo }) {
           item={selectedItem} 
           onClose={() => {
             setSelectedItem(null);
-            setEditingCartItem(null);
+            if (editingCartItem) {
+              setEditingCartItem(null);
+              setShowCart(true); // Return to cart basket on cancel
+            }
           }} 
-          onAddToCart={handleAddToCart}
+          onAddToCart={(item) => {
+            handleAddToCart(item);
+            setSelectedItem(null);
+            if (editingCartItem) {
+              setEditingCartItem(null);
+              setShowCart(true); // Return to cart basket ONLY when editing an item
+            }
+          }}
           condimentsAvailability={condimentsAvailability}
           editingCartItem={editingCartItem}
         />
@@ -1249,12 +1563,12 @@ export default function CustomerView({ tableNumber, onBackToDemo }) {
               <h3 style={{ color: '#06c755', display: 'flex', alignItems: 'center', gap: '6px', margin: 0 }}>
                 💬 LINE 官方帳號驗證
               </h3>
-              <button className="close-btn" style={{ position: 'absolute', right: '16px', top: '16px' }} onClick={() => setShowOtpModal(false)}>&times;</button>
+              <button className="close-btn" style={{ position: 'absolute', right: '16px', top: '16px' }} onClick={() => { setShowOtpModal(false); setOtpInput(''); setOtpError(''); confirmationResultRef.current = null; }}>&times;</button>
             </div>
             
             <form onSubmit={handleVerifyOtp} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
               <p style={{ fontSize: '0.9rem', color: 'var(--text-muted)', lineHeight: '1.4', margin: 0 }}>
-                我們已向您的 LINE 帳戶發送 <strong>4 位數</strong> 點餐認證碼。請在下方輸入驗證代碼：
+                我們已發送點餐驗證碼。請在下方輸入驗證代碼：
               </p>
 
               {otpError && (
@@ -1267,9 +1581,9 @@ export default function CustomerView({ tableNumber, onBackToDemo }) {
                 <input 
                   type="text" 
                   pattern="\d*" 
-                  maxLength={4} 
+                  maxLength={6} 
                   required
-                  placeholder="請輸入 4 位數驗證碼"
+                  placeholder="請輸入驗證碼"
                   value={otpInput}
                   onChange={(e) => setOtpInput(e.target.value.replace(/\D/g, ''))} // numbers only
                   style={{ 
@@ -1311,6 +1625,71 @@ export default function CustomerView({ tableNumber, onBackToDemo }) {
                 {isVerifying ? '驗證中...' : '確認驗證並送出訂單'}
               </button>
             </form>
+          </div>
+        </div>
+      )}
+      {showOrderConfirmModal && (
+        <div className="modal-backdrop" style={{ zIndex: 400 }}>
+          <div className="modal-content" style={{ maxWidth: '400px', borderRadius: '16px', padding: '24px', textAlign: 'left' }}>
+            <h3 style={{ margin: '0 0 16px 0', fontSize: '1.2rem', fontWeight: 'bold', color: 'var(--primary)' }}>🛒 請確認您的訂單資訊</h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '0.9rem', marginBottom: '20px' }}>
+              <div><strong>訂購姓名：</strong>{custName || '未填寫'}</div>
+              {!tableNumber && <div><strong>聯絡電話：</strong>{custPhone}</div>}
+              {tableNumber && <div><strong>內用桌號：</strong>{tableNumber} 號桌</div>}
+              <div><strong>取餐方式：</strong>{tableNumber ? '內用' : `外帶自取 (${pickupTime === 'custom' ? customPickupTime : pickupTime})`}</div>
+              <div style={{ borderTop: '1px solid var(--border)', paddingTop: '10px', marginTop: '8px' }}>
+                <strong>點購商品明細：</strong>
+                <div style={{ maxHeight: '180px', overflowY: 'auto', paddingLeft: '4px', marginTop: '6px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {cart.map(item => (
+                    <div key={item.cartId} style={{ borderBottom: '1px dashed var(--border)', paddingBottom: '6px', marginBottom: '2px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', color: 'var(--text-main)' }}>
+                        <span>{item.name} x{item.quantity}</span>
+                        <span>NT$ {item.totalPrice}</span>
+                      </div>
+                      {item.specs && item.specs.length > 0 && (
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', paddingLeft: '8px', marginTop: '2px', display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                          {item.specs.map((spec, sIdx) => {
+                            const parts = spec.split(/[|]/).map(p => p.trim());
+                            return parts.map((part, pIdx) => (
+                              <span key={`${sIdx}-${pIdx}`}>- {part}</span>
+                            ));
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+              {remarks && (
+                <div style={{ borderTop: '1px solid var(--border)', paddingTop: '10px', marginTop: '8px' }}>
+                  <strong>訂單備註：</strong>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '4px', whiteSpace: 'pre-wrap' }}>{remarks}</div>
+                </div>
+              )}
+              <div style={{ fontSize: '1.15rem', fontWeight: 'bold', color: 'var(--primary)', borderTop: '1px solid var(--border)', paddingTop: '10px', marginTop: '8px', display: 'flex', justifyContent: 'space-between' }}>
+                <span>實付總額:</span>
+                <span>NT$ {cart.reduce((sum, item) => sum + item.totalPrice, 0)}</span>
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button
+                onClick={() => setShowOrderConfirmModal(false)}
+                className="cart-checkout-btn"
+                style={{ flex: 1, backgroundColor: 'transparent', border: '1px solid var(--border)', color: 'var(--text-main)' }}
+              >
+                修改內容
+              </button>
+              <button
+                onClick={() => {
+                  setShowOrderConfirmModal(false);
+                  submitOrder(true);
+                }}
+                className="cart-checkout-btn"
+                style={{ flex: 1.5 }}
+              >
+                確定送出訂單
+              </button>
+            </div>
           </div>
         </div>
       )}

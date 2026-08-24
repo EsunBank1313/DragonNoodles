@@ -143,75 +143,7 @@ export default function OrderTracker({ order, onBackToMenu }) {
         </div>
       </div>
 
-      {/* Auto refresh & Edit policy reminder */}
-      <div style={{ 
-        marginTop: '16px', 
-        padding: '12px', 
-        borderRadius: '8px', 
-        backgroundColor: 'rgba(255, 107, 53, 0.05)', 
-        border: '1px solid rgba(255, 107, 53, 0.15)',
-        fontSize: '0.8rem',
-        color: 'var(--primary)',
-        textAlign: 'center',
-        fontWeight: 'bold',
-        lineHeight: '1.4'
-      }}>
-        💡 提醒您：本頁面每 8 秒自動抓取更新狀態。當店家接單後，即進入廚房製作，屆時將無法修改或取消訂單。
-      </div>
 
-      {/* Edit and Cancel Buttons (Conditional based on status) */}
-      {order.status === 'received' ? (
-        <div style={{ display: 'flex', gap: '12px', marginTop: '16px' }}>
-          <button
-            onClick={() => onEditOrder && onEditOrder(order)}
-            style={{
-              flex: 1,
-              padding: '12px',
-              borderRadius: 'var(--radius-md)',
-              border: '1px solid var(--primary)',
-              backgroundColor: 'transparent',
-              color: 'var(--primary)',
-              fontWeight: 'bold',
-              cursor: 'pointer',
-              fontSize: '0.9rem'
-            }}
-          >
-            ✏️ 修改訂單
-          </button>
-          <button
-            onClick={() => onCancelOrder && onCancelOrder(order)}
-            style={{
-              flex: 1,
-              padding: '12px',
-              borderRadius: 'var(--radius-md)',
-              border: '1px solid #ef4444',
-              backgroundColor: 'transparent',
-              color: '#ef4444',
-              fontWeight: 'bold',
-              cursor: 'pointer',
-              fontSize: '0.9rem'
-            }}
-          >
-            ❌ 取消訂單
-          </button>
-        </div>
-      ) : (
-        order.status !== 'completed' && order.status !== 'deleted' && (
-          <div style={{
-            marginTop: '16px',
-            padding: '10px 14px',
-            borderRadius: 'var(--radius-md)',
-            backgroundColor: 'rgba(239, 68, 68, 0.05)',
-            border: '1px solid rgba(239, 68, 68, 0.15)',
-            color: '#ef4444',
-            fontSize: '0.85rem',
-            fontWeight: 'bold',
-            textAlign: 'center'
-          }}>
-            🔒 店家已接單並開始製作，訂單已鎖定無法修改或取消。
-          </div>
-        )
-      )}
 
       <button 
         className="btn-secondary" 

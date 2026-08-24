@@ -13,6 +13,65 @@
   
   --text-main: #1a1c23;
   --text-muted: #64748b;
+}
+
+body.theme-orange {
+  --primary: #ff6b35;
+  --primary-hover: #e55a2b;
+  --secondary: #ff9f1c;
+  --bg-main: #f9f9fb;
+  --bg-card: #ffffff;
+  --bg-input: #f1f1f5;
+  --text-main: #1a1c23;
+  --text-muted: #64748b;
+  --border: #e2e8f0;
+}
+body.theme-green {
+  --primary: #0f9d58;
+  --primary-hover: #0b8043;
+  --secondary: #4285f4;
+  --bg-main: #f4fbf7;
+  --bg-card: #ffffff;
+  --bg-input: #e8f5e9;
+  --text-main: #1b3a24;
+  --text-muted: #556b2f;
+  --border: #c8e6c9;
+}
+body.theme-dark {
+  --primary: #bb86fc;
+  --primary-hover: #9a66da;
+  --secondary: #03dac6;
+  --bg-main: #121212;
+  --bg-card: #1e1e1e;
+  --bg-input: #2d2d2d;
+  --text-main: #e0e0e0;
+  --text-muted: #a0a0a0;
+  --border: #333333;
+}
+body.theme-pink {
+  --primary: #ff748c;
+  --primary-hover: #e05b73;
+  --secondary: #ffb8b8;
+  --bg-main: #fff5f6;
+  --bg-card: #ffffff;
+  --bg-input: #ffebee;
+  --text-main: #4a1525;
+  --text-muted: #c27c91;
+  --border: #f8bbd0;
+}
+body.theme-blue {
+  --primary: #1a73e8;
+  --primary-hover: #1557b0;
+  --secondary: #34a853;
+  --bg-main: #f1f3f4;
+  --bg-card: #ffffff;
+  --bg-input: #e8f0fe;
+  --text-main: #202124;
+  --text-muted: #5f6368;
+  --border: #dadce0;
+}
+
+:root {
   --text-light: #ffffff;
   
   --border: #e2e8f0;
@@ -699,7 +758,7 @@ input:focus, select:focus, textarea:focus {
 
 .option-choices {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   gap: 10px;
 }
 
@@ -1530,3 +1589,55 @@ input:focus, select:focus, textarea:focus {
   animation: slideDown 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
 }
 
+/* =========================================================================
+   Standardized POS Thermal Receipt Direct Body Portal Print Styles
+   ========================================================================= */
+@media screen {
+  #pos-thermal-print-portal {
+    display: none !important;
+  }
+}
+
+@media print {
+  @page {
+    margin: 0 !important;
+    size: auto !important;
+  }
+  
+  html, body {
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+
+  /* Completely detach and hide #root from the print layout tree */
+  #root, .no-print {
+    display: none !important;
+  }
+
+  /* Make ONLY the direct body portal visible, left-aligned, no cut-off margins */
+  #pos-thermal-print-portal {
+    display: block !important;
+    position: static !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    box-sizing: border-box !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    font-family: monospace, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+    line-height: 1.35 !important;
+    height: auto !important;
+    overflow: visible !important;
+    text-align: left !important;
+  }
+
+  .print-page-break {
+    page-break-after: always !important;
+    break-after: page !important;
+  }
+}

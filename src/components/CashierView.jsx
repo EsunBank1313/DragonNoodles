@@ -2,13 +2,27 @@ import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 import { formatSupabaseOrder } from './CustomerView';
 import ItemModal from './ItemModal';
+import ThermalPrintPortal from './ThermalPrintPortal';
+import { defaultStoreProfile, defaultReceiptConfig, printThermalReceipt, printDailyClosingReport } from '../utils/printHelpers';
+import { getActiveStoreCode, filterItemsByStore, filterOrdersByStore, prefixNameForStore, stripNameForStore, getStoreStorage, setStoreStorage, getStoreSessionStorage, setStoreSessionStorage, removeStoreSessionStorage } from '../utils/storeContext';
 
-export default function CashierView({ cashierName, onLogout }) {
+export default function CashierView({ storeCode: propStoreCode, cashierName, sessionId: propSessionId, onLogout }) {
+  const storeCode = propStoreCode || getActiveStoreCode();
+
+  const getTodayLocalDate = () => {
+    try {
+      return new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' });
+    } catch (e) {
+      const d = new Date();
+      const tzOffset = d.getTimezoneOffset() * 60000;
+      return new Date(d.getTime() - tzOffset).toISOString().slice(0, 10);
+    }
+  };
   const [sessionId] = useState(() => {
-    let sid = localStorage.getItem('pos_session_id');
+    let sid = propSessionId || getStoreSessionStorage('pos_session_id', storeCode);
     if (!sid) {
       sid = `${cashierName}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-      localStorage.setItem('pos_session_id', sid);
+      setStoreSessionStorage('pos_session_id', sid, storeCode);
     }
     return sid;
   });
@@ -18,34 +32,127 @@ export default function CashierView({ cashierName, onLogout }) {
   const systemStartTime = useRef(Date.now());
   const locallyPrintedOrders = useRef(new Set());
   const [menuItems, setMenuItems] = useState([]);
+  const [categories, setCategories] = useState([
+    { id: 'mee-sua', name: '招牌麵線', icon: '🍜' },
+    { id: 'specialties', name: '精選推薦', icon: '🔥' }
+  ]);
   const [activeCategory, setActiveCategory] = useState('mee-sua');
   const [cart, setCart] = useState([]);
 
+  // Inventory & Watched Items Restock Warning
+  const [inventory, setInventory] = useState([]);
+  const [showStockAlertModal, setShowStockAlertModal] = useState(false);
+
   useEffect(() => {
-    const registerSession = async () => {
+    const fetchInventory = async () => {
       try {
-        const { data: exist } = await supabase.from('menu_items').select('*').eq('name', 'SYSTEM_SETTING_ACTIVE_POS_SESSION');
-        const sessionPayload = { user: cashierName, sessionId, lastActive: Date.now() };
-        if (exist && exist.length > 0) {
-          await supabase.from('menu_items').update({ description: JSON.stringify(sessionPayload) }).eq('name', 'SYSTEM_SETTING_ACTIVE_POS_SESSION');
-        } else {
-          await supabase.from('menu_items').insert([{
-            name: 'SYSTEM_SETTING_ACTIVE_POS_SESSION',
-            price: 0,
-            category: 'settings',
-            description: JSON.stringify(sessionPayload)
-          }]);
+        const invKey = prefixNameForStore('SYSTEM_SETTING_INVENTORY', storeCode);
+        const { data } = await supabase.from('menu_items').select('*').eq('name', invKey);
+        if (data && data.length > 0) {
+          const parsed = JSON.parse(data[0].description);
+          if (Array.isArray(parsed)) {
+            setInventory(parsed);
+          }
         }
-        setIsSessionRegistered(true);
       } catch (err) {
-        console.error("Failed to register POS session:", err);
+        console.error("Failed to load inventory in CashierView:", err);
       }
     };
-    registerSession();
-  }, [sessionId, cashierName]);
+    fetchInventory();
+
+    const channel = supabase.channel('pos-inventory-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'menu_items', filter: 'name=eq.SYSTEM_SETTING_INVENTORY' }, () => {
+        fetchInventory();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  const watchedLowStockItems = inventory.filter(item => {
+    const isWatched = item.isWatched !== false;
+    return isWatched && (Number(item.qty) <= Number(item.minStock));
+  });
+
+  // Single-Device Active Session Heartbeat & In-UI Kickout Overlay
+  const [kickoutState, setKickoutState] = useState({ isKickedOut: false, user: '' });
+  const isKickedOutRef = useRef(false);
+
+  useEffect(() => {
+    if (!sessionId) return;
+    const sessionKey = prefixNameForStore('SYSTEM_SETTING_ACTIVE_POS_SESSION', storeCode);
+    isKickedOutRef.current = false;
+
+    const handleDeviceKickout = (otherUser) => {
+      if (isKickedOutRef.current) return;
+      isKickedOutRef.current = true;
+      try {
+        sessionStorage.removeItem(`${storeCode}_pos_session_id`);
+      } catch (e) {}
+      setKickoutState({ isKickedOut: true, user: otherUser || '其他人員' });
+    };
+
+    const checkAndSendHeartbeat = async () => {
+      if (isKickedOutRef.current) return;
+      try {
+        const { data } = await supabase.from('menu_items').select('description').eq('name', sessionKey);
+        if (data && data.length > 0 && data[0].description) {
+          const cloudSession = JSON.parse(data[0].description);
+          if (cloudSession && cloudSession.sessionId && cloudSession.sessionId !== sessionId && (Date.now() - Number(cloudSession.lastActive || 0) <= 25000)) {
+            handleDeviceKickout(cloudSession.user);
+            return;
+          }
+        }
+
+        if (!isKickedOutRef.current) {
+          const sessionPayload = { user: cashierName, sessionId, lastActive: Date.now() };
+          await supabase
+            .from('menu_items')
+            .update({ description: JSON.stringify(sessionPayload) })
+            .eq('name', sessionKey);
+        }
+      } catch (err) {
+        console.warn("Heartbeat error:", err);
+      }
+    };
+
+    checkAndSendHeartbeat();
+    const interval = setInterval(checkAndSendHeartbeat, 6000);
+
+    const channel = supabase.channel(`pos-active-session-${storeCode}-${Date.now()}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'menu_items', filter: `name=eq.${sessionKey}` }, (payload) => {
+        if (isKickedOutRef.current) return;
+        if (payload.new && payload.new.description) {
+          try {
+            const cloudSession = JSON.parse(payload.new.description);
+            if (cloudSession && cloudSession.sessionId && cloudSession.sessionId !== sessionId && (Date.now() - Number(cloudSession.lastActive || 0) <= 25000)) {
+              handleDeviceKickout(cloudSession.user);
+            }
+          } catch (e) {}
+        }
+      })
+      .subscribe();
+
+    return () => {
+      isKickedOutRef.current = true;
+      clearInterval(interval);
+      supabase.removeChannel(channel);
+    };
+  }, [sessionId, cashierName, storeCode]);
   
   // Checkout details
   const [orderType, setOrderType] = useState('dine-in'); // Default to counter takeout
+  const [posDefaultOrderType, setPosDefaultOrderType] = useState('dine-in');
+  const [posPaymentMethods, setPosPaymentMethods] = useState(['現金', '信用卡', 'LINE Pay']);
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState('現金');
+  
+  const isCash = selectedPaymentMethod && (
+    selectedPaymentMethod === '現金' ||
+    selectedPaymentMethod.includes('現金') ||
+    selectedPaymentMethod.toLowerCase().includes('cash')
+  );
   
   const [tableNumber, setTableNumber] = useState(null);
   const [custName, setCustName] = useState('');
@@ -58,9 +165,22 @@ export default function CashierView({ cashierName, onLogout }) {
   // Success view details
   const [viewState, setViewState] = useState('pos'); // 'pos' or 'success'
   const [latestOrder, setLatestOrder] = useState(null);
+  const [printPayload, setPrintPayload] = useState(null);
+  const [isSubmittingOrder, setIsSubmittingOrder] = useState(false);
 
-  // Modal active item
+  // Modal active item & Cart Editing
   const [activeItemForModal, setActiveItemForModal] = useState(null);
+  const [editingCartItem, setEditingCartItem] = useState(null);
+
+  // POS Order Editing States
+  const [editingPosOrder, setEditingPosOrder] = useState(null);
+  const [editOrderType, setEditOrderType] = useState('dine-in');
+  const [editOrderTable, setEditOrderTable] = useState('');
+  const [editOrderCust, setEditOrderCust] = useState('');
+  const [editOrderRemarks, setEditOrderRemarks] = useState('');
+  const [editOrderTotal, setEditOrderTotal] = useState('');
+  const [editOrderItems, setEditOrderItems] = useState([]);
+  const [editOrderPayment, setEditOrderPayment] = useState('');
 
   // Discount states
   const [discountType, setDiscountType] = useState('none'); // 'none', 'percent', 'amount'
@@ -70,22 +190,43 @@ export default function CashierView({ cashierName, onLogout }) {
   const [searchQuery, setSearchQuery] = useState('');
 
   // Closed Dates for Locking
-  const [closedDates, setClosedDates] = useState(() => {
-    return JSON.parse(localStorage.getItem('restaurant_closed_dates') || '[]');
-  });
+  const [closedDates, setClosedDates] = useState([]);
 
   // Orders state and printing integration
   const [orders, setOrders] = useState([]);
+  const [storeProfile, setStoreProfile] = useState(defaultStoreProfile);
   const [storeName, setStoreName] = useState('龍城麵線');
   const [adminPin, setAdminPin] = useState('8888');
-  const [receiptConfig, setReceiptConfig] = useState({
-    printReceivedAndChange: true,
-    printType: true,
-    printDateTime: true
-  });
+  const [receiptConfig, setReceiptConfig] = useState(defaultReceiptConfig);
   
   const [isAutoPrintEnabled, setIsAutoPrintEnabled] = useState(() => localStorage.getItem('is_auto_print_enabled') === 'true');
+  const isAutoPrintEnabledRef = useRef(isAutoPrintEnabled);
+  useEffect(() => {
+    isAutoPrintEnabledRef.current = isAutoPrintEnabled;
+  }, [isAutoPrintEnabled]);
+
+  const [printKitchenTicket, setPrintKitchenTicket] = useState(() => {
+    const saved = localStorage.getItem('pos_print_kitchen_ticket');
+    return saved !== null ? saved === 'true' : true;
+  });
+
+  const [posUiScale, setPosUiScale] = useState(() => localStorage.getItem('pos_ui_scale') || 'compact');
+  const [showPosSettingsModal, setShowPosSettingsModal] = useState(false);
   const [isPrintBlocked, setIsPrintBlocked] = useState(false);
+  
+  // Shift Handover (X-Report) States
+  const [showShiftHandoverModal, setShowShiftHandoverModal] = useState(false);
+  const [isManagingSoldOut, setIsManagingSoldOut] = useState(false);
+
+  // Offline Queue Resilience
+  const [isOnline, setIsOnline] = useState(() => (typeof navigator !== 'undefined' ? navigator.onLine : true));
+  const [offlineQueue, setOfflineQueue] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem(`${storeCode}_offline_orders_queue`) || '[]');
+    } catch {
+      return [];
+    }
+  });
 
   // Synthesize notification chime
   const triggerChime = () => {
@@ -107,105 +248,184 @@ export default function CashierView({ cashierName, onLogout }) {
     }
   };
 
-  // Receipt printing function
-  const printReceipt = (order) => {
-    const printWindow = window.open('', '_blank', 'width=350,height=500');
-    if (!printWindow) {
-      setIsPrintBlocked(true);
-      return;
-    }
-    setIsPrintBlocked(false);
-    
-    let cartItems = [];
-    if (order) {
-      if (Array.isArray(order.items)) {
-        cartItems = order.items;
-      } else if (order.items && Array.isArray(order.items.cart)) {
-        cartItems = order.items.cart;
-      } else if (Array.isArray(order.cart)) {
-        cartItems = order.cart;
+  // Voice Announcement (TTS) state
+  const [isVoiceAnnounceEnabled, setIsVoiceAnnounceEnabled] = useState(() => {
+    return localStorage.getItem('is_voice_announce_enabled') !== 'false';
+  });
+
+  // Pre-fetch Web Speech voices
+  useEffect(() => {
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      window.speechSynthesis.getVoices();
+      if (window.speechSynthesis.onvoiceschanged !== undefined) {
+        window.speechSynthesis.onvoiceschanged = () => {
+          window.speechSynthesis.getVoices();
+        };
       }
     }
+  }, []);
 
-    const orderNumStr = order.serialNum || order.orderNumber || order.order_number || '';
-    const nameStr = order.customerName || '';
-    const totalNum = order.total || 0;
-    const dateStr = order.timestamp || order.createdAt || order.created_at || new Date().toISOString();
-    const typeStr = order.type === 'dine-in' ? '內用' : '外帶';
-    
-    const html = `
-      <html>
-        <head>
-          <title>收據列印</title>
-          <style>
-            @page {
-              margin: 0;
-              size: auto;
+  // Format order into natural Chinese speech
+  const generateOrderSpeechText = (order) => {
+    if (!order) return '';
+    let parts = [];
+
+    const isTakeout = order.type === 'takeout' || order.type === '自取' || order.type === '外帶';
+    if (isTakeout) {
+      parts.push('收到新外帶訂單！');
+    } else {
+      const tableStr = order.table_number || order.tableNumber ? `${order.table_number || order.tableNumber}號桌。` : '';
+      parts.push(`收到新內用訂單！${tableStr}`);
+    }
+
+    const serialNum = order.serialNum || order.order_number || '';
+    if (serialNum) {
+      const serialSpaced = serialNum.replace(/([A-Z0-9])/g, '$1 ').trim();
+      parts.push(`單號 ${serialSpaced}。` );
+    }
+
+    if (order.items && Array.isArray(order.items)) {
+      const itemsSpeech = order.items.map(item => {
+        let itemText = `${item.name} ${item.quantity || 1}份`;
+        let specsArr = [];
+
+        if (item.specs) {
+          const rawSpecs = String(item.specs).split(/[,|\n]/).map(s => s.trim()).filter(Boolean);
+          rawSpecs.forEach(s => {
+            const cleaned = s.replace(/調料客製\s*\([^)]*\)\s*:\s*/g, '').trim();
+            if (cleaned && !cleaned.includes('免加錢')) {
+              specsArr.push(cleaned);
             }
-            @media print {
-              html, body { height: auto !important; }
-              body { margin: 0; width: 160px; }
-            }
-            body { font-family: monospace; font-size: 13px; line-height: 1.4; padding: 2px 8px 2px 2px; width: 160px; box-sizing: border-box; height: auto; }
-            .center { text-align: center; }
-            .title { font-size: 16px; font-weight: bold; margin-bottom: 4px; }
-            .divider { border-top: 1px dashed #000; margin: 4px 0; }
-            .row { display: flex; justify-content: space-between; width: 100%; box-sizing: border-box; }
-            .item { font-weight: bold; }
-          </style>
-        </head>
-        <body onload="window.print(); setTimeout(() => window.close(), 500);">
-          <div class="center title">${storeName}</div>
-          <div class="center" style="font-size: 11px; font-weight: bold;">=== 交易收據明細 ===</div>
-          <div class="divider"></div>
-          <div style="font-size: 14px; font-weight: bold; margin-bottom: 2px;">單號: ${orderNumStr}</div>
-          <div>類型: ${typeStr}</div>
-          <div style="font-size: 11px;">時間: ${new Date(dateStr).toLocaleString('zh-TW', { hour12: false })}</div>
-          <div class="divider"></div>
-          ${cartItems.map(item => {
-            const unitPrice = item.price || (item.totalPrice && item.quantity ? Math.round(item.totalPrice / item.quantity) : 0);
-            return `
-              <div class="row" style="font-size: 13px; color: #000;">
-                <span class="item">${item.name} x${item.quantity}</span>
-                <span>$${unitPrice}</span>
-              </div>
-              ${item.specs && item.specs.length > 0 ? `
-                <div style="font-size: 11px; color: #000; padding-left: 8px; font-weight: bold;">
-                  └ ${item.specs.map(s => typeof s === 'object' && s ? (s.value || `${s.name}: ${s.value}`) : String(s)).join(', ')}
-                </div>
-              ` : ''}
-            `;
-          }).join('')}
-          <div class="divider"></div>
-          <div class="row" style="font-size: 14px; font-weight: bold;">
-            <span>應收總計:</span>
-            <span>$${totalNum}</span>
-          </div>
-          ${(receiptConfig.printReceivedAndChange !== false && order.cashReceived !== undefined && order.cashReceived !== null) ? `
-            <div class="row" style="font-size: 13px; color: #000; font-weight: bold;">
-              <span>實收金額:</span>
-              <span>$${order.cashReceived}</span>
-            </div>
-            <div class="row" style="font-size: 13px; color: #000; font-weight: bold;">
-              <span>找零:</span>
-              <span>$${order.changeAmount}</span>
-            </div>
-          ` : ''}
-        </body>
-      </html>
-    `;
-    printWindow.document.write(html);
-    printWindow.document.close();
+          });
+        }
+
+        if (specsArr.length > 0) {
+          itemText += `，${specsArr.join('、')}`;
+        }
+        return itemText;
+      }).join('。');
+
+      parts.push(itemsSpeech + '。');
+    }
+
+    if (order.remarks && String(order.remarks).trim()) {
+      parts.push(`備註：${String(order.remarks).trim()}。` );
+    }
+
+    return parts.join(' ');
   };
 
-  const getTodayLocalDate = () => {
-    try {
-      return new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' });
-    } catch (e) {
-      const d = new Date();
-      const tzOffset = d.getTimezoneOffset() * 60000;
-      return new Date(d.getTime() - tzOffset).toISOString().slice(0, 10);
+  // Trigger TTS voice announcement
+  const speakOrderAnnouncement = (order) => {
+    if (!isVoiceAnnounceEnabled) return;
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
+      console.warn("Speech synthesis is not supported in this browser.");
+      return;
     }
+
+    const text = generateOrderSpeechText(order);
+    if (!text) return;
+
+    try {
+      window.speechSynthesis.cancel(); // Stop previous voice to avoid queue backup
+
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = 'zh-TW';
+      utterance.rate = 0.95; // Clear natural speed
+      utterance.pitch = 1.0;
+      utterance.volume = 1.0;
+
+      const voices = window.speechSynthesis.getVoices();
+      const twVoice = voices.find(v => v.lang === 'zh-TW' || v.lang.includes('zh-TW') || v.name.includes('Taiwan') || v.name.includes('Traditional')) ||
+                    voices.find(v => v.lang.startsWith('zh'));
+      if (twVoice) {
+        utterance.voice = twVoice;
+      }
+
+      window.speechSynthesis.speak(utterance);
+    } catch (e) {
+      console.error("Speech announcement error:", e);
+    }
+  };
+
+  // Test Voice Function for POS Cashier
+  const testVoiceAnnouncement = () => {
+    const sampleOrder = {
+      type: 'takeout',
+      serialNum: 'O-001',
+      items: [
+        { name: '招牌大腸麵線', quantity: 1, specs: '小辣, 不要香菜' },
+        { name: '綜合大碗麵線', quantity: 2, specs: '中辣' }
+      ],
+      remarks: '外帶需要辣椒醬'
+    };
+    speakOrderAnnouncement(sampleOrder);
+  };
+
+  // Native Portal Thermal Print Handler (Zero Popups, Full Continuous Paper Roll)
+  const printReceipt = (order) => {
+    if (!order) return;
+    setPrintPayload({
+      type: 'receipt',
+      order,
+      storeProfile: {
+        ...storeProfile,
+        storeName: storeName || storeProfile.storeName
+      },
+      receiptConfig: {
+        ...receiptConfig,
+        printKitchenTicket: printKitchenTicket
+      },
+      timestamp: Date.now()
+    });
+  };
+
+  // Daily Closing Report Printout Handler
+  const handlePrintDailyClosing = () => {
+    const todayStr = getTodayLocalDate();
+    const todayOrders = orders.filter(o => o.status === 'completed' || o.status === 'received');
+    const totalRev = todayOrders.reduce((sum, o) => sum + o.total, 0);
+    const onlineRev = todayOrders.filter(o => o.paymentMethod === 'online').reduce((sum, o) => sum + o.total, 0);
+    const cashRev = totalRev - onlineRev;
+    const dineInCount = todayOrders.filter(o => o.type === 'dine-in').length;
+    const takeoutCount = todayOrders.length - dineInCount;
+    const avgOrderVal = todayOrders.length > 0 ? Math.round(totalRev / todayOrders.length) : 0;
+
+    const itemCounts = {};
+    todayOrders.forEach(o => {
+      (o.items || []).forEach(item => {
+        itemCounts[item.name] = (itemCounts[item.name] || 0) + item.quantity;
+      });
+    });
+    const topItems = Object.entries(itemCounts).sort((a, b) => b[1] - a[1]);
+
+    const dailyData = {
+      date: todayStr,
+      cashier: cashierName || '店長 (Admin)',
+      totalRevenue: totalRev,
+      cashRevenue: cashRev,
+      onlineRevenue: onlineRev,
+      totalOrders: todayOrders.length,
+      dineInCount,
+      takeoutCount,
+      avgOrderValue: avgOrderVal,
+      topItems
+    };
+
+    setPrintPayload({
+      type: 'daily',
+      data: dailyData,
+      storeProfile: {
+        ...storeProfile,
+        storeName: storeName || storeProfile.storeName
+      },
+      receiptConfig,
+      timestamp: Date.now()
+    });
+    setTimeout(() => {
+      window.focus();
+      window.print();
+    }, 80);
   };
 
   useEffect(() => {
@@ -226,50 +446,193 @@ export default function CashierView({ cashierName, onLogout }) {
     return () => document.removeEventListener('visibilitychange', handleVisibility);
   }, []);
 
+  // Offline Queue Auto-Flusher
+  useEffect(() => {
+    const handleOnline = () => {
+      setIsOnline(true);
+      flushOfflineOrders();
+    };
+    const handleOffline = () => {
+      setIsOnline(false);
+    };
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, [storeCode]);
+
+  const flushOfflineOrders = async () => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(`${storeCode}_offline_orders_queue`) || '[]');
+      if (saved && saved.length > 0) {
+        for (const offlineOrder of saved) {
+          const { error } = await supabase.from('orders').insert([offlineOrder]);
+          if (!error) {
+            console.log("Uploaded offline order to Supabase:", offlineOrder.order_number);
+          }
+        }
+        localStorage.removeItem(`${storeCode}_offline_orders_queue`);
+        setOfflineQueue([]);
+        triggerChime();
+        fetchOrders();
+      }
+    } catch (e) {
+      console.warn("Failed flushing offline orders:", e);
+    }
+  };
+
+  // Quick Sold-out Toggle Handler
+  const handleToggleItemAvailability = async (item, e) => {
+    if (e) e.stopPropagation();
+    const currentStatus = item.customizations?.is_available !== false;
+    const newStatus = !currentStatus;
+
+    // Optimistic local update
+    setMenuItems(prev => prev.map(m => {
+      if (m.id === item.id) {
+        return {
+          ...m,
+          customizations: {
+            ...(m.customizations || {}),
+            is_available: newStatus
+          }
+        };
+      }
+      return m;
+    }));
+
+    try {
+      const updatedCust = {
+        ...(item.customizations || {}),
+        is_available: newStatus
+      };
+      await supabase.from('menu_items').update({ customizations: updatedCust }).eq('id', item.id);
+    } catch (err) {
+      console.error("Failed toggling item availability:", err);
+      fetchMenuItems();
+    }
+  };
+
+  // Shift Handover Data & Printout Handler (X-Report)
+  const getShiftHandoverData = () => {
+    const loginTimeStr = localStorage.getItem(`${storeCode}_pos_login_time`);
+    const loginTime = loginTimeStr ? Number(loginTimeStr) : (Date.now() - 4 * 3600 * 1000);
+    const todayOrders = orders.filter(o => o.status === 'completed' || o.status === 'received');
+    
+    // Filter orders created after login time
+    const shiftOrders = todayOrders.filter(o => {
+      const oTime = new Date(o.timestamp || o.created_at).getTime();
+      return oTime >= (loginTime - 60000); // 1 min buffer
+    });
+
+    const targetOrders = shiftOrders.length > 0 ? shiftOrders : todayOrders;
+    const totalRev = targetOrders.reduce((sum, o) => sum + (Number(o.total) || 0), 0);
+    
+    // Dynamic payment breakdown strictly matching posPaymentMethods configured in backend
+    const paymentBreakdown = {};
+    (posPaymentMethods && posPaymentMethods.length > 0 ? posPaymentMethods : ['現金', '信用卡', 'LINE Pay']).forEach(m => {
+      paymentBreakdown[m] = 0;
+    });
+
+    let onlinePaymentTotal = 0;
+
+    targetOrders.forEach(o => {
+      const orderTotal = Number(o.total) || 0;
+      const rawPay = o.paymentMethod || '現金';
+
+      if (rawPay === 'online' || rawPay === '線上付' || rawPay === '線上點餐') {
+        onlinePaymentTotal += orderTotal;
+        return;
+      }
+
+      if (paymentBreakdown[rawPay] !== undefined) {
+        paymentBreakdown[rawPay] += orderTotal;
+      } else if (rawPay === 'cash' || rawPay === '現金') {
+        if (paymentBreakdown['現金'] !== undefined) paymentBreakdown['現金'] += orderTotal;
+        else paymentBreakdown[rawPay] = (paymentBreakdown[rawPay] || 0) + orderTotal;
+      } else if (rawPay === 'card' || rawPay === '信用卡' || rawPay === '刷卡') {
+        if (paymentBreakdown['信用卡'] !== undefined) paymentBreakdown['信用卡'] += orderTotal;
+        else paymentBreakdown[rawPay] = (paymentBreakdown[rawPay] || 0) + orderTotal;
+      } else if (rawPay === 'linepay' || rawPay === 'LINE Pay') {
+        if (paymentBreakdown['LINE Pay'] !== undefined) paymentBreakdown['LINE Pay'] += orderTotal;
+        else paymentBreakdown[rawPay] = (paymentBreakdown[rawPay] || 0) + orderTotal;
+      } else {
+        paymentBreakdown[rawPay] = (paymentBreakdown[rawPay] || 0) + orderTotal;
+      }
+    });
+
+    const cashRev = paymentBreakdown['現金'] || paymentBreakdown['cash'] || 0;
+    const dineInCount = targetOrders.filter(o => o.type === 'dine-in').length;
+    const takeoutCount = targetOrders.length - dineInCount;
+    const avgOrderVal = targetOrders.length > 0 ? Math.round(totalRev / targetOrders.length) : 0;
+
+    return {
+      storeCode,
+      cashierName: cashierName || '店長 (Admin)',
+      loginTime,
+      orderCount: targetOrders.length,
+      totalRevenue: totalRev,
+      cashRevenue: cashRev,
+      paymentBreakdown,
+      onlineRevenue: onlinePaymentTotal,
+      dineInCount,
+      takeoutCount,
+      avgOrderValue: avgOrderVal
+    };
+  };
+
+  const handlePrintShiftHandover = () => {
+    const shiftData = getShiftHandoverData();
+    setPrintPayload({
+      type: 'shift',
+      data: shiftData,
+      storeProfile: {
+        ...storeProfile,
+        storeName: storeName || storeProfile.storeName
+      },
+      receiptConfig,
+      timestamp: Date.now()
+    });
+    setTimeout(() => {
+      window.focus();
+      window.print();
+    }, 80);
+  };
+
+  const handleShiftLogoutOnly = async () => {
+    try {
+      const sessionKey = prefixNameForStore('SYSTEM_SETTING_ACTIVE_POS_SESSION', storeCode);
+      await supabase.from('menu_items').update({ description: JSON.stringify({ user: '', sessionId: '', lastActive: 0 }) }).eq('name', sessionKey);
+    } catch (e) {}
+    onLogout();
+  };
+
+  const handleShiftHandoverAndLogout = async () => {
+    handlePrintShiftHandover();
+    setTimeout(async () => {
+      handleShiftLogoutOnly();
+    }, 500);
+  };
+
   const fetchClosedDatesFromCloud = async () => {
     try {
-      const { data, error } = await supabase
-        .from('orders')
-        .select('created_at, items');
-      if (error) throw error;
-      if (data) {
-        const cloudDates = data
-          .filter(o => {
-            const itemsData = typeof o.items === 'string' ? JSON.parse(o.items) : o.items;
-            return itemsData?.customerName === 'SYSTEM_STORE_CLOSE';
-          })
-          .map(o => {
-            return new Date(o.created_at).toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' });
-          });
-        const merged = cloudDates;
-        setClosedDates(merged);
-        localStorage.setItem('restaurant_closed_dates', JSON.stringify(merged));
-
-        // Auto Close Shop check at 10 PM
-        const now = new Date();
-        const hours = now.getHours();
-        const todayStr = getTodayLocalDate();
-        if (hours >= 22 && !merged.includes(todayStr)) {
-          supabase.from('orders').insert([{
-            order_number: 'CLOSE',
-            items: {
-              customerName: 'SYSTEM_STORE_CLOSE',
-              customerPhone: 'SYSTEM',
-              cart: []
-            },
-            total: 0,
-            type: 'dine-in',
-            table_number: 'CLOSED',
-            status: 'completed',
-            payment_status: 'paid'
-          }]).then(({ error: insertError }) => {
-            if (!insertError) {
-              console.log("Auto closed store at 10 PM successfully.");
-              fetchClosedDatesFromCloud();
-            }
-          });
-        }
+      const closedKey = prefixNameForStore('SYSTEM_SETTING_CLOSED_DATES', storeCode);
+      const { data: settingsData } = await supabase
+        .from('menu_items')
+        .select('description')
+        .eq('name', closedKey);
+      
+      let settingsClosed = [];
+      if (settingsData && settingsData.length > 0 && settingsData[0].description) {
+        try {
+          settingsClosed = JSON.parse(settingsData[0].description);
+        } catch (e) {}
       }
+
+      setClosedDates(settingsClosed);
+      localStorage.setItem('restaurant_closed_dates', JSON.stringify(settingsClosed));
     } catch (err) {
       console.error("Failed to fetch closed dates from cloud in CashierView:", err);
     }
@@ -284,26 +647,67 @@ export default function CashierView({ cashierName, onLogout }) {
         .order('id', { ascending: true });
       if (error) throw error;
       if (data) {
-        const storeNameItem = data.find(item => item.name === 'SYSTEM_SETTING_STORE_NAME');
+        const storeItems = filterItemsByStore(data, storeCode);
+
+        const storeProfileItem = storeItems.find(item => item.name === 'SYSTEM_SETTING_STORE_PROFILE');
+        if (storeProfileItem && storeProfileItem.description) {
+          try {
+            const parsed = JSON.parse(storeProfileItem.description);
+            setStoreProfile(parsed);
+            if (parsed.storeName) setStoreName(parsed.storeName);
+          } catch (e) {}
+        }
+
+        const storeNameItem = storeItems.find(item => item.name === 'SYSTEM_SETTING_STORE_NAME');
         if (storeNameItem && storeNameItem.description) {
           setStoreName(storeNameItem.description);
         }
-        const adminPinItem = data.find(item => item.name === 'SYSTEM_SETTING_ADMIN_PIN');
+
+        const posOrderTypeItem = storeItems.find(item => item.name === 'SYSTEM_SETTING_POS_DEFAULT_ORDER_TYPE');
+        if (posOrderTypeItem && posOrderTypeItem.description) {
+          setPosDefaultOrderType(posOrderTypeItem.description);
+          setOrderType(posOrderTypeItem.description);
+        }
+
+        const posPaymentsItem = storeItems.find(item => item.name === 'SYSTEM_SETTING_POS_PAYMENT_METHODS');
+        if (posPaymentsItem && posPaymentsItem.description) {
+          try {
+            const parsed = JSON.parse(posPaymentsItem.description);
+            setPosPaymentMethods(parsed);
+            if (parsed.length > 0) setSelectedPaymentMethod(parsed[0]);
+          } catch (e) {
+            setPosPaymentMethods(['現金', '信用卡', 'LINE Pay']);
+          }
+        }
+        const adminPinItem = storeItems.find(item => item.name === 'SYSTEM_SETTING_ADMIN_PIN');
         if (adminPinItem && adminPinItem.description) {
           setAdminPin(adminPinItem.description);
         }
-        const orderItem = data.find(item => item.name === 'SYSTEM_SETTING_MENU_ORDER');
+        const orderItem = storeItems.find(item => item.name === 'SYSTEM_SETTING_MENU_ORDER');
         let orderList = [];
         if (orderItem && orderItem.description) {
           try { orderList = JSON.parse(orderItem.description); } catch (e) {}
         }
         
-        const receiptItem = data.find(item => item.name === 'SYSTEM_SETTING_RECEIPT_CONFIG');
-        if (receiptItem && receiptItem.description) {
-          try { setReceiptConfig(JSON.parse(receiptItem.description)); } catch (e) {}
+        const categoriesItem = storeItems.find(item => item.name === 'SYSTEM_SETTING_PRODUCT_CATEGORIES');
+        if (categoriesItem && categoriesItem.description) {
+          try {
+            const parsed = JSON.parse(categoriesItem.description);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              setCategories(parsed);
+              if (!parsed.some(c => c.id === activeCategory)) {
+                setActiveCategory(parsed[0].id);
+              }
+            }
+          } catch (e) {}
         }
 
-        const addonsItem = data.find(item => item.name === 'SYSTEM_SETTING_GLOBAL_ADDONS');
+        const receiptItem = storeItems.find(item => item.name === 'SYSTEM_SETTING_RECEIPT_CONFIG');
+        if (receiptItem && receiptItem.description) {
+          try { setReceiptConfig({ ...defaultReceiptConfig, ...JSON.parse(receiptItem.description) }); } catch (e) {}
+        }
+
+        const addonsItem = storeItems.find(item => item.name === 'SYSTEM_SETTING_GLOBAL_ADDONS');
         let currentAddons = [
           { label: '大腸', priceChange: 15 },
           { label: '豬肚', priceChange: 15 },
@@ -315,7 +719,7 @@ export default function CashierView({ cashierName, onLogout }) {
           try { currentAddons = JSON.parse(addonsItem.description); } catch (e) {}
         }
 
-        const condimentsItem = data.find(item => item.name === 'SYSTEM_SETTING_GLOBAL_CONDIMENTS');
+        const condimentsItem = storeItems.find(item => item.name === 'SYSTEM_SETTING_GLOBAL_CONDIMENTS');
         let currentCondiments = [
           { name: '香菜', choices: ['正常', '多一點', '不要香菜'], default: '正常' },
           { name: '蒜末', choices: ['正常', '多一點', '不要蒜頭'], default: '正常' },
@@ -326,8 +730,9 @@ export default function CashierView({ cashierName, onLogout }) {
           try { currentCondiments = JSON.parse(condimentsItem.description); } catch (e) {}
         }
 
-        const visibleItems = data.filter(item => 
-          !item.name.startsWith('SYSTEM_SETTING_')
+        const visibleItems = storeItems.filter(item => 
+          !item.name.startsWith('SYSTEM_SETTING_') &&
+          item.customizations?.is_published !== false
         ).map(item => {
           let updatedCust = item.customizations;
           if (updatedCust) {
@@ -347,6 +752,7 @@ export default function CashierView({ cashierName, onLogout }) {
           }
           return {
             ...item,
+            name: stripNameForStore(item.name, storeCode),
             customizations: updatedCust
           };
         });
@@ -373,48 +779,48 @@ export default function CashierView({ cashierName, onLogout }) {
 
   const fetchOrders = async () => {
     try {
-      // Check active POS session
-      const { data: activeSessionData } = await supabase
-        .from('menu_items')
+      // Query latest 500 orders descending by ID so newest orders are NEVER truncated by Supabase 1000 limit!
+      const { data, error } = await supabase
+        .from('orders')
         .select('*')
-        .eq('name', 'SYSTEM_SETTING_ACTIVE_POS_SESSION');
-      if (isSessionRegistered && activeSessionData && activeSessionData.length > 0) {
-        try {
-          const activeSession = JSON.parse(activeSessionData[0].description);
-          if (activeSession && activeSession.sessionId && activeSession.sessionId !== sessionId) {
-            alert(`⚠️ 偵測到此收銀系統帳號已在其他裝置/視窗登入 (${activeSession.user})。您已被本系統自動登出！`);
-            onLogout();
-            return;
-          }
-        } catch (e) {
-          console.error("Failed to parse active POS session:", e);
-        }
-      }
+        .order('id', { ascending: false })
+        .limit(500);
 
-      const { data, error } = await supabase.from('orders').select('*').order('created_at', { ascending: true });
       if (error) throw error;
       if (data) {
         const todayStr = getTodayLocalDate();
-        const clientOrders = data.filter(o => {
+        const storeOrders = filterOrdersByStore(data, storeCode);
+        const clientOrders = storeOrders.filter(o => {
           const orderDate = new Date(o.created_at).toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' });
           const itemsData = typeof o.items === 'string' ? JSON.parse(o.items) : o.items;
           return orderDate === todayStr && itemsData?.customerName !== 'SYSTEM_STORE_CLOSE';
         });
         const mapped = clientOrders.map(formatSupabaseOrder).filter(Boolean);
         
-        // Status priorities: received/preparing (1) > completed (2) > archived (3) > others (4)
-        const getStatusPriority = (status) => {
-          if (status === 'received' || status === 'preparing') return 1;
-          if (status === 'completed') return 2;
-          if (status === 'archived') return 3;
-          return 4;
+        // Sorting priority: 1. Serial number (smallest to largest), 2. Takeout first then Dine-in
+        const getSerialNum = (order) => {
+          const s = String(order.serialNum || order.order_number || order.id || '');
+          const m = s.match(/\d+/);
+          return m ? parseInt(m[0], 10) : 999999;
+        };
+
+        const getTypePriority = (order) => {
+          const isTakeout = order.type === 'takeout' || order.type === '外帶' || order.type === '自取';
+          return isTakeout ? 1 : 2; // 1 for Takeout, 2 for Dine-in
         };
 
         const sorted = mapped.sort((a, b) => {
-          const priA = getStatusPriority(a.status);
-          const priB = getStatusPriority(b.status);
-          if (priA !== priB) return priA - priB;
-          return a.timestamp - b.timestamp; // oldest first within same status group
+          // 1. 數字小到大 (Number from smallest to largest)
+          const numA = getSerialNum(a);
+          const numB = getSerialNum(b);
+          if (numA !== numB) return numA - numB;
+
+          // 2. 先外帶再內用 (Takeout first, then Dine-in)
+          const typeA = getTypePriority(a);
+          const typeB = getTypePriority(b);
+          if (typeA !== typeB) return typeA - typeB;
+
+          return b.timestamp - a.timestamp;
         });
 
         setOrders(sorted);
@@ -428,25 +834,36 @@ export default function CashierView({ cashierName, onLogout }) {
     fetchMenuItems();
     fetchClosedDatesFromCloud();
     fetchOrders();
-  }, []);
+  }, [storeCode]);
 
-  // Listen to incoming orders and trigger automatic printing popup
+  // Listen to incoming orders (Permanent Realtime Channel with Dynamic Ref Check)
   useEffect(() => {
-    const ordersChannel = supabase.channel('pos-incoming-orders')
+    const channelId = `pos_realtime_${storeCode || 'dragon'}_${Date.now()}`;
+    const ordersChannel = supabase.channel(channelId)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, (payload) => {
         fetchOrders();
-        // If a new order is received, play chime and AUTO-PRINT immediately
+        // If a new order is received, play chime and speak announcement
         if (payload.eventType === 'INSERT') {
           const itemsData = typeof payload.new.items === 'string' ? JSON.parse(payload.new.items) : payload.new.items;
           if (itemsData?.customerName !== 'SYSTEM_STORE_CLOSE') {
             const orderNum = payload.new.order_number;
-            if (locallyPrintedOrders.current.has(orderNum)) {
+            const orderId = String(payload.new.id);
+
+            // Skip if already printed by this POS terminal
+            if (locallyPrintedOrders.current.has(orderNum) || locallyPrintedOrders.current.has(orderId)) {
               return;
             }
-            const mappedOrder = formatSupabaseOrder(payload.new);
+
             triggerChime();
+            const mappedOrder = formatSupabaseOrder(payload.new);
             if (mappedOrder) {
-              printReceipt(mappedOrder);
+              speakOrderAnnouncement(mappedOrder);
+              // Check live ref to guarantee auto-print status even after toggling without refresh
+              if (isAutoPrintEnabledRef.current) {
+                locallyPrintedOrders.current.add(orderNum);
+                locallyPrintedOrders.current.add(orderId);
+                printReceipt(mappedOrder);
+              }
             }
           }
         }
@@ -456,63 +873,67 @@ export default function CashierView({ cashierName, onLogout }) {
     return () => {
       supabase.removeChannel(ordersChannel);
     };
-  }, []);
+  }, [storeCode]);
 
-  // Background Auto-Print Polling Daemon
+  // Background Auto-Print Polling Daemon (Runs continuously & reads live isAutoPrintEnabledRef)
   useEffect(() => {
-    if (!isAutoPrintEnabled) return;
-
     const interval = setInterval(async () => {
+      if (!isAutoPrintEnabledRef.current) return;
+
       try {
-        // Poll orders that are received (new)
         const { data: newOrders, error } = await supabase
           .from('orders')
           .select('*')
           .eq('status', 'received')
-          .order('id', { ascending: true });
+          .gte('created_at', new Date(systemStartTime.current).toISOString())
+          .order('id', { ascending: false })
+          .limit(50);
 
         if (error) throw error;
         if (newOrders && newOrders.length > 0) {
-          // Find the ones that don't have is_printed: true in items JSONB and are created after startup
           const unprintedOrders = newOrders.filter(o => {
+            const orderId = String(o.id);
+            const orderNum = o.order_number;
+            if (locallyPrintedOrders.current.has(orderId) || locallyPrintedOrders.current.has(orderNum)) {
+              return false;
+            }
             const itemsData = typeof o.items === 'string' ? JSON.parse(o.items) : o.items;
-            const createdTime = new Date(o.created_at).getTime();
-            return (!itemsData || !itemsData.is_printed) && createdTime > systemStartTime.current;
+            return !itemsData || !itemsData.is_printed;
           });
 
           for (const order of unprintedOrders) {
-            // 1. Mark as printed in the DB first to avoid duplicate printing loops
+            if (!isAutoPrintEnabledRef.current) break;
+
+            const orderId = String(order.id);
+            const orderNum = order.order_number;
+            locallyPrintedOrders.current.add(orderId);
+            locallyPrintedOrders.current.add(orderNum);
+
             const itemsData = typeof order.items === 'string' ? JSON.parse(order.items) : order.items;
             const updatedItems = { ...itemsData, is_printed: true };
             
-            const { error: updateError } = await supabase
+            await supabase
               .from('orders')
               .update({ items: updatedItems })
               .eq('id', order.id);
-            
-            if (updateError) {
-              console.error("Failed to mark order as printed:", updateError);
-              continue;
-            }
 
-            // 2. Format and print
             const mappedOrder = formatSupabaseOrder(order);
             triggerChime();
-            if (mappedOrder) {
+            if (mappedOrder && isAutoPrintEnabledRef.current) {
               printReceipt(mappedOrder);
+              speakOrderAnnouncement(mappedOrder);
             }
           }
 
-          // Trigger state refresh so the cashier list updates immediately
           fetchOrders();
         }
       } catch (err) {
         console.error("Error polling for auto-print:", err);
       }
-    }, 8000); // Check every 8 seconds
+    }, 6000);
 
     return () => clearInterval(interval);
-  }, [isAutoPrintEnabled, storeName, receiptConfig]);
+  }, [storeCode]);
 
   // Calculate total price in cart
   const cartTotal = cart.reduce((sum, item) => sum + item.totalPrice, 0);
@@ -571,8 +992,77 @@ export default function CashierView({ cashierName, onLogout }) {
     }
   };
 
-  const handleAddToCartFromModal = (cartItem) => {
-    setCart([...cart, cartItem]);
+  const handleEditCartItem = (cartItem) => {
+    const matchedProduct = menuItems.find(p => p.id === cartItem.id) || {
+      id: cartItem.id,
+      name: cartItem.name,
+      price: cartItem.basePrice || cartItem.itemPrice,
+      image: cartItem.image,
+      customizations: cartItem.customizations
+    };
+    setEditingCartItem(cartItem);
+    setActiveItemForModal(matchedProduct);
+  };
+
+  const handleAddToCartFromModal = (newCartItem) => {
+    if (editingCartItem) {
+      setCart(cart.map(c => c.cartId === editingCartItem.cartId ? { ...newCartItem, cartId: editingCartItem.cartId } : c));
+      setEditingCartItem(null);
+    } else {
+      setCart([...cart, newCartItem]);
+    }
+    setActiveItemForModal(null);
+  };
+
+  // Open edit modal for submitted POS order
+  const handleOpenEditPosOrderModal = (order) => {
+    setEditingPosOrder(order);
+    setEditOrderType(order.type || 'dine-in');
+    setEditOrderTable(order.tableNumber || order.tableName || '');
+    setEditOrderCust(order.customerName || '');
+    setEditOrderRemarks(order.remarks || '');
+    setEditOrderTotal(String(order.total || 0));
+    setEditOrderPayment(order.paymentMethod || '現金');
+    setEditOrderItems(Array.isArray(order.items) ? order.items.map(i => ({ ...i })) : []);
+  };
+
+  const handleSavePosOrderEdit = async (e) => {
+    e.preventDefault();
+    if (!editingPosOrder) return;
+
+    try {
+      const numericId = Number(editingPosOrder.id);
+      const newTotal = Number(editOrderTotal) || 0;
+
+      const updatedItemsPayload = {
+        cart: editOrderItems,
+        cashier: editingPosOrder.cashier,
+        remarks: editOrderRemarks.trim(),
+        pickupTime: editingPosOrder.pickupTime,
+        customerName: editOrderCust.trim() || (editOrderType === 'dine-in' && editOrderTable ? `內用 ${editOrderTable} 號桌` : '現場外帶'),
+        customerPhone: editingPosOrder.customerPhone,
+        paymentMethod: editOrderPayment.trim()
+      };
+
+      const { error } = await supabase
+        .from('orders')
+        .update({
+          total: newTotal,
+          type: editOrderType,
+          table_number: editOrderType === 'dine-in' ? (editOrderTable || null) : null,
+          items: updatedItemsPayload
+        })
+        .eq('id', isNaN(numericId) ? editingPosOrder.id : numericId);
+
+      if (error) throw error;
+
+      alert("🎉 訂單內容修改成功！");
+      setEditingPosOrder(null);
+      fetchOrders();
+    } catch (err) {
+      console.error("Failed to save POS order edit:", err);
+      alert("修改失敗：" + (err.message || "請檢查網路連線"));
+    }
   };
 
   // Modify item quantity in POS cart
@@ -605,44 +1095,60 @@ export default function CashierView({ cashierName, onLogout }) {
     setCashReceived('');
   };
 
-  // Submit POS Order to Supabase
+  // Submit POS Order to Supabase with auto-retry and print isolation
   const handleCheckoutSubmit = async (e) => {
     e.preventDefault();
+    if (isSubmittingOrder) return;
+
     if (cart.length === 0) {
       alert("收銀購物車內尚無餐點項目！");
       return;
     }
 
-    const received = parseFloat(cashReceived) || 0;
-    if (received < finalTotal) {
+    const received = isCash ? (parseFloat(cashReceived) || 0) : finalTotal;
+    if (isCash && received < finalTotal) {
       alert(`實收現金金額不足！還缺 NT$ ${finalTotal - received}`);
       return;
     }
 
-    // Generate serial number (I-001 or O-001 daily format, counted separately)
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-    
-    let count = 0;
-    try {
-      const { count: dbCount, error } = await supabase.from('orders')
-        .select('*', { count: 'exact', head: true })
-        .gte('created_at', todayStart.toISOString())
-        .eq('type', orderType);
-      if (!error && dbCount !== null) {
-        count = dbCount;
-      }
-    } catch (err) {
-      console.warn("Failed to get today count, using fallback:", err);
-    }
-    const prefix = orderType === 'dine-in' ? 'I' : 'O';
-    const serialNum = `${prefix}-${String(count + 1).padStart(3, '0')}`;
-    locallyPrintedOrders.current.add(serialNum);
+    setIsSubmittingOrder(true);
 
     try {
-      const { data: dbOrders, error: insertError } = await supabase.from('orders').insert([{
+      // 1. Generate serial number (I-001 or O-001 daily format, max number + 1 logic)
+      const prefix = orderType === 'dine-in' ? 'I' : 'O';
+      const now = new Date();
+      const taipeiDateStr = now.toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' });
+      const todayTaipeiISO = new Date(`${taipeiDateStr}T00:00:00+08:00`).toISOString();
+
+      let maxNum = 0;
+      try {
+        const { data: todayOrders } = await supabase
+          .from('orders')
+          .select('order_number')
+          .gte('created_at', todayTaipeiISO)
+          .eq('type', orderType);
+
+        if (todayOrders && todayOrders.length > 0) {
+          todayOrders.forEach(o => {
+            if (o.order_number && o.order_number.startsWith(prefix + '-')) {
+              const num = parseInt(o.order_number.replace(/[^0-9]/g, ''), 10);
+              if (!isNaN(num) && num > maxNum) {
+                maxNum = num;
+              }
+            }
+          });
+        }
+      } catch (err) {
+        console.warn("Failed to get today max order num:", err);
+      }
+
+      const serialNum = `${prefix}-${String(maxNum + 1).padStart(3, '0')}`;
+      locallyPrintedOrders.current.add(serialNum);
+
+      const orderPayload = {
         order_number: serialNum,
         items: {
+          store_code: storeCode,
           cart: cart.map(c => ({
             id: c.id,
             name: c.name,
@@ -654,18 +1160,40 @@ export default function CashierView({ cashierName, onLogout }) {
           customerName: orderType === 'dine-in' ? '內用點餐 (POS)' : (custName.trim() || '現場外帶'),
           customerPhone: '',
           pickupTime: '',
-          paymentMethod: 'cash',
+          paymentMethod: isCash ? 'cash' : selectedPaymentMethod,
           remarks: "",
-          cashier: cashierName
+          cashier: cashierName || localStorage.getItem('cashier_name') || '店長 (Admin)'
         },
         total: finalTotal,
         type: orderType,
         table_number: orderType === 'dine-in' ? tableNumber : null,
         status: 'received',
         payment_status: 'paid'
-      }]).select();
+      };
 
-      if (insertError) throw insertError;
+      // 2. Insert with automatic 3-attempt retry loop
+      let dbOrders = null;
+      let lastErr = null;
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+          const { data, error: insertError } = await supabase.from('orders').insert([orderPayload]).select();
+          if (insertError) throw insertError;
+          if (data && data.length > 0) {
+            dbOrders = data;
+            break;
+          }
+        } catch (retryErr) {
+          lastErr = retryErr;
+          console.warn(`POS order submission attempt ${attempt} failed:`, retryErr);
+          if (attempt < 3) {
+            await new Promise(res => setTimeout(res, attempt * 400));
+          }
+        }
+      }
+
+      if (!dbOrders || dbOrders.length === 0) {
+        throw (lastErr || new Error("伺服器無回應，請確認網路連線"));
+      }
 
       const createdOrder = dbOrders[0];
       const orderToPrint = {
@@ -673,17 +1201,78 @@ export default function CashierView({ cashierName, onLogout }) {
         cashReceived: received,
         changeAmount: received - finalTotal
       };
-      printReceipt(orderToPrint);
+
+      // 3. Print receipt automatically ONLY if isAutoPrintEnabled is true
+      // 3. Print receipt automatically ONLY if isAutoPrintEnabled is true
+      if (isAutoPrintEnabledRef.current) {
+        try {
+          printReceipt(orderToPrint);
+        } catch (printErr) {
+          console.warn("Print receipt warning:", printErr);
+        }
+      }
 
       setLatestOrder({
         ...createdOrder,
+        ...formatSupabaseOrder(createdOrder),
         cashReceived: received,
         changeAmount: received - finalTotal
       });
       setViewState('success');
+
+      // 4. Immediately refresh cloud orders list in POS so new order shows right away!
+      try {
+        await fetchOrders();
+      } catch (fErr) {
+        console.warn("Immediate fetchOrders warning:", fErr);
+      }
     } catch (err) {
-      console.error("Failed to submit POS order to Supabase:", err);
-      alert("提交收銀訂單失敗，請確認資料庫連線！");
+      console.warn("Supabase order submit failed, falling back to local offline queue:", err);
+      
+      const fallbackSerial = `${orderType === 'dine-in' ? 'I' : 'O'}-${Date.now().toString().slice(-4)}`;
+      const offlineOrder = {
+        order_number: fallbackSerial,
+        items: {
+          store_code: storeCode,
+          cart: cart,
+          customerName: orderType === 'dine-in' ? '內用點餐 (POS)' : (custName.trim() || '現場外帶'),
+          paymentMethod: isCash ? 'cash' : selectedPaymentMethod,
+          cashier: cashierName || '店長 (Admin)'
+        },
+        total: finalTotal,
+        type: orderType,
+        table_number: orderType === 'dine-in' ? tableNumber : null,
+        status: 'completed',
+        payment_status: 'paid',
+        created_at: new Date().toISOString()
+      };
+
+      try {
+        const savedQueue = JSON.parse(localStorage.getItem(`${storeCode}_offline_orders_queue`) || '[]');
+        savedQueue.push(offlineOrder);
+        localStorage.setItem(`${storeCode}_offline_orders_queue`, JSON.stringify(savedQueue));
+        setOfflineQueue(savedQueue);
+      } catch (storageErr) {
+        console.warn("Storage error for offline queue:", storageErr);
+      }
+
+      const fallbackPrintOrder = {
+        ...offlineOrder,
+        serialNum: fallbackSerial,
+        cashReceived: received,
+        changeAmount: received - finalTotal
+      };
+
+      if (isAutoPrintEnabledRef.current) {
+        try {
+          printReceipt(fallbackPrintOrder);
+        } catch (e) {}
+      }
+
+      setLatestOrder(fallbackPrintOrder);
+      setViewState('success');
+    } finally {
+      setIsSubmittingOrder(false);
     }
   };
 
@@ -691,6 +1280,8 @@ export default function CashierView({ cashierName, onLogout }) {
   const handleResetPos = () => {
     setCart([]);
     setCashReceived('');
+    setOrderType(posDefaultOrderType);
+    if (posPaymentMethods.length > 0) setSelectedPaymentMethod(posPaymentMethods[0]);
     setRemarks('');
     setCustName('');
     setViewState('pos');
@@ -698,7 +1289,6 @@ export default function CashierView({ cashierName, onLogout }) {
     setDiscountType('none');
     setDiscountValue(0);
     setSearchQuery('');
-    setOrderType('dine-in');
   };
 
   // Filter items by category and search query
@@ -739,17 +1329,25 @@ export default function CashierView({ cashierName, onLogout }) {
           </p>
           <div style={{ display: 'flex', gap: '10px' }}>
             <button 
-              onClick={() => {
-                if (window.confirm("警告：重開帳目後收銀功能將恢復，今日對帳資訊將會重新變動。確定重開嗎？")) {
-                  const pwd = window.prompt("請輸入管理員對帳密碼以重開：");
-                  if (pwd === adminPin) {
-                    const updated = closedDates.filter(d => d !== getTodayLocalDate());
-                    setClosedDates(updated);
-                    localStorage.setItem('restaurant_closed_dates', JSON.stringify(updated));
-                    window.dispatchEvent(new Event('storage'));
-                  } else if (pwd !== null) {
-                    alert("密碼錯誤！");
+              onClick={async () => {
+                if (window.confirm("解鎖帳目後今日收銀功能將恢復營運。確定重新開店嗎？")) {
+                  const todayStr = getTodayLocalDate();
+                  const updated = closedDates.filter(d => d !== todayStr);
+                  setClosedDates(updated);
+                  localStorage.setItem('restaurant_closed_dates', JSON.stringify(updated));
+                  window.dispatchEvent(new Event('storage'));
+
+                  try {
+                    const closedKey = prefixNameForStore('SYSTEM_SETTING_CLOSED_DATES', storeCode);
+                    const { data: exist } = await supabase.from('menu_items').select('*').eq('name', closedKey);
+                    if (exist && exist.length > 0) {
+                      await supabase.from('menu_items').update({ description: JSON.stringify(updated) }).eq('name', closedKey);
+                    }
+                  } catch (e) {
+                    console.warn("Failed to update closed dates on unlock:", e);
                   }
+
+                  alert("🔓 已成功解鎖，今日 POS 收銀系統已恢復營運。");
                 }
               }}
               style={{
@@ -801,6 +1399,155 @@ export default function CashierView({ cashierName, onLogout }) {
       fontFamily: 'system-ui, -apple-system, sans-serif',
       position: 'relative'
     }}>
+      {/* 🔄 Shift Handover Modal (X-Report) */}
+      {showShiftHandoverModal && (() => {
+        const shiftData = getShiftHandoverData();
+        return (
+          <div style={{
+            position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.75)', backdropFilter: 'blur(5px)',
+            display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 9999, padding: '20px'
+          }}>
+            <div style={{
+              maxWidth: '440px', width: '100%', backgroundColor: 'var(--bg-card)',
+              border: '2px solid #3b82f6', borderRadius: '16px', padding: '28px 24px',
+              textAlign: 'left', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)'
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border)', paddingBottom: '10px', marginBottom: '16px' }}>
+                <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 'bold', color: '#2563eb', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  🔄 員工換班結算 (X-Report)
+                </h3>
+                <button
+                  onClick={() => setShowShiftHandoverModal(false)}
+                  style={{ border: 'none', background: 'none', fontSize: '1.2rem', cursor: 'pointer', color: 'var(--text-muted)' }}
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '0.88rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: 'var(--text-muted)' }}>交班人員:</span>
+                  <strong>{shiftData.cashierName}</strong>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: 'var(--text-muted)' }}>開班時間:</span>
+                  <span>{new Date(shiftData.loginTime).toLocaleTimeString('zh-TW', { hour12: false })}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: 'var(--text-muted)' }}>當前時間:</span>
+                  <span>{new Date().toLocaleTimeString('zh-TW', { hour12: false })}</span>
+                </div>
+                <div style={{ height: '1px', backgroundColor: 'var(--border)', margin: '4px 0' }} />
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '1.05rem', fontWeight: 'bold', color: '#16a34a' }}>
+                  <span>💰 當班營業總額:</span>
+                  <span>NT$ {shiftData.totalRevenue.toLocaleString()}</span>
+                </div>
+                {shiftData.paymentBreakdown && Object.entries(shiftData.paymentBreakdown).map(([methodName, amount]) => {
+                  const isCash = methodName === '現金' || methodName === 'cash';
+                  return (
+                    <div key={methodName} style={{ display: 'flex', justifyContent: 'space-between', paddingLeft: '10px', color: isCash ? '#16a34a' : 'var(--text-main)', fontWeight: isCash ? 'bold' : 'normal' }}>
+                      <span>└ {methodName}:</span>
+                      <span>NT$ {amount.toLocaleString()}</span>
+                    </div>
+                  );
+                })}
+                {shiftData.onlineRevenue > 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', paddingLeft: '10px', color: 'var(--text-muted)' }}>
+                    <span>└ 線上點餐付款:</span>
+                    <span>NT$ {shiftData.onlineRevenue.toLocaleString()}</span>
+                  </div>
+                )}
+                <div style={{ height: '1px', backgroundColor: 'var(--border)', margin: '4px 0' }} />
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold' }}>
+                  <span>🧾 成交訂單筆數:</span>
+                  <span>{shiftData.orderCount} 筆 (內用 {shiftData.dineInCount} / 外帶 {shiftData.takeoutCount})</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: 'var(--text-muted)' }}>平均客單價:</span>
+                  <span>NT$ {shiftData.avgOrderValue}</span>
+                </div>
+              </div>
+
+              <div style={{ marginTop: '20px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                <button
+                  type="button"
+                  onClick={handlePrintShiftHandover}
+                  style={{
+                    height: '52px', fontSize: '1rem', fontWeight: 'bold',
+                    backgroundColor: '#3b82f6', color: 'white', border: 'none',
+                    borderRadius: '8px', cursor: 'pointer', display: 'flex',
+                    alignItems: 'center', justifyContent: 'center', gap: '6px',
+                    boxShadow: '0 4px 10px rgba(59, 130, 246, 0.3)'
+                  }}
+                >
+                  🖨️ 列印交班小票
+                </button>
+                <button
+                  type="button"
+                  onClick={handleShiftLogoutOnly}
+                  style={{
+                    height: '52px', fontSize: '1rem', fontWeight: 'bold',
+                    backgroundColor: '#2563eb', color: 'white', border: 'none',
+                    borderRadius: '8px', cursor: 'pointer', display: 'flex',
+                    alignItems: 'center', justifyContent: 'center', gap: '6px',
+                    boxShadow: '0 4px 10px rgba(37, 99, 235, 0.3)'
+                  }}
+                >
+                  🚪 換班登出
+                </button>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowShiftHandoverModal(false)}
+                style={{
+                  width: '100%', marginTop: '10px', padding: '10px', fontSize: '0.85rem', fontWeight: 'bold',
+                  backgroundColor: 'transparent', color: 'var(--text-muted)',
+                  border: '1px solid var(--border)', borderRadius: '8px', cursor: 'pointer'
+                }}
+              >
+                ✕ 關閉返回
+              </button>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* In-UI Kickout Full-Screen Overlay */}
+      {kickoutState.isKickedOut && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.88)', backdropFilter: 'blur(8px)',
+          display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 99999, padding: '20px'
+        }}>
+          <div style={{
+            maxWidth: '400px', width: '100%', backgroundColor: 'var(--bg-card)',
+            border: '2px solid #ef4444', borderRadius: '16px', padding: '36px 28px',
+            textAlign: 'center', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.7)'
+          }}>
+            <div style={{ fontSize: '3.5rem', marginBottom: '12px' }}>🔒</div>
+            <h3 style={{ margin: '0 0 8px 0', fontSize: '1.3rem', fontWeight: '900', color: '#ef4444' }}>
+              本機已被自動登出
+            </h3>
+            <p style={{ fontSize: '0.9rem', color: 'var(--text-muted)', lineHeight: '1.6', margin: '0 0 24px 0' }}>
+              偵測到收銀系統已於其他裝置登入使用 (<strong style={{ color: 'var(--text-main)' }}>{kickoutState.user}</strong>)。<br />
+              為確保收銀單號與帳目一致，本機已安全登出。
+            </p>
+            <button
+              onClick={onLogout}
+              style={{
+                width: '100%', padding: '14px', fontSize: '0.95rem', fontWeight: 'bold',
+                backgroundColor: '#ef4444', color: 'white', border: 'none',
+                borderRadius: '8px', cursor: 'pointer', boxShadow: '0 4px 12px rgba(239, 68, 68, 0.4)'
+              }}
+            >
+              🚪 返回登入畫面
+            </button>
+          </div>
+        </div>
+      )}
       {isPrintBlocked && (
         <div style={{
           backgroundColor: '#fee2e2',
@@ -847,71 +1594,132 @@ export default function CashierView({ cashierName, onLogout }) {
           <span style={{ fontSize: '1.5rem' }}>💵</span>
           <h1 style={{ fontSize: '1.1rem', fontWeight: 'bold', margin: 0 }}>{storeName} 現場收銀系統 (POS)</h1>
         </div>
-        <div style={{ display: 'flex', gap: '10px' }}>
-          <button 
-            onClick={() => {
-              if (window.confirm("⚠️ 警告：收店結帳後今日的收銀系統將會關閉鎖定，直到明日才會自動重開。確定進行今日收店結帳嗎？")) {
-                const pwd = window.prompt("請輸入關店密碼以確認收店：");
-                if (pwd === adminPin) {
-                  const todayStr = getTodayLocalDate();
-                  const updated = [...closedDates, todayStr];
-                  setClosedDates(updated);
-                  localStorage.setItem('restaurant_closed_dates', JSON.stringify(updated));
-                  window.dispatchEvent(new Event('storage'));
-                  
-                  // Also upload to Supabase orders to sync other devices (RLS-friendly)
-                  supabase.from('orders').insert([{
-                    order_number: 'CLOSE',
-                    items: {
-                      customerName: 'SYSTEM_STORE_CLOSE',
-                      customerPhone: 'SYSTEM',
-                      cart: []
-                    },
-                    total: 0,
-                    type: 'dine-in',
-                    table_number: 'CLOSED',
-                    status: 'completed',
-                    payment_status: 'paid'
-                  }]).then(({ error }) => {
-                    if (error) console.error("Failed to sync store close to Supabase orders:", error);
-                  });
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+          {/* Offline Mode Indicator Badge */}
+          {!isOnline && (
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '5px 12px',
+              borderRadius: '20px',
+              backgroundColor: '#fee2e2',
+              border: '2px solid #ef4444',
+              color: '#b91c1c',
+              fontSize: '0.8rem',
+              fontWeight: '900',
+              animation: 'pulse 1.5s infinite'
+            }}>
+              📶 離線模式 {offlineQueue.length > 0 ? `(待同步 ${offlineQueue.length} 筆)` : ''}
+            </div>
+          )}
 
-                  alert("收店結帳成功！今日收銀系統已安全鎖定。");
-                } else if (pwd !== null) {
-                  alert("密碼錯誤，收店失敗！");
-                }
-              }
-            }}
+          {/* Quick Sold-out Mode Toggle Button */}
+          <button
+            type="button"
+            onClick={() => setIsManagingSoldOut(!isManagingSoldOut)}
             style={{
               padding: '6px 12px',
               fontSize: '0.8rem',
               borderRadius: 'var(--radius-sm)',
-              border: '1px solid #ef4444',
-              backgroundColor: 'rgba(239, 68, 68, 0.05)',
-              color: '#ef4444',
+              border: isManagingSoldOut ? '2px solid #ea580c' : '1px solid #ea580c',
+              backgroundColor: isManagingSoldOut ? '#ea580c' : 'rgba(234, 88, 12, 0.08)',
+              color: isManagingSoldOut ? 'white' : '#ea580c',
               cursor: 'pointer',
-              fontWeight: 'bold'
+              fontWeight: 'bold',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+              boxShadow: isManagingSoldOut ? '0 0 10px rgba(234, 88, 12, 0.5)' : 'none'
             }}
           >
-            🏁 今日收店結帳
+            ⚡ {isManagingSoldOut ? '✓ 結束沽清設定' : '沽清/售完管理'}
           </button>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', borderRight: '1px solid var(--border)', paddingRight: '12px', marginRight: '4px' }}>
-            <label style={{ fontSize: '0.8rem', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', userSelect: 'none', color: isAutoPrintEnabled ? '#16a34a' : 'var(--text-muted)' }}>
-              <input 
-                type="checkbox" 
-                checked={isAutoPrintEnabled} 
-                onChange={(e) => {
-                  const val = e.target.checked;
-                  setIsAutoPrintEnabled(val);
-                  localStorage.setItem('is_auto_print_enabled', String(val));
+
+          {/* Unified POS Settings & Print Controls */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <button
+              type="button"
+              onClick={() => setShowPosSettingsModal(true)}
+              style={{
+                padding: '6px 14px',
+                fontSize: '0.85rem',
+                borderRadius: '8px',
+                border: '1px solid var(--primary)',
+                backgroundColor: 'rgba(255, 107, 53, 0.08)',
+                color: 'var(--primary)',
+                cursor: 'pointer',
+                fontWeight: '900',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.05)'
+              }}
+            >
+              ⚙️ POS 功能與列印設定
+              <span style={{ fontSize: '0.7rem', padding: '2px 6px', borderRadius: '4px', backgroundColor: isAutoPrintEnabled ? '#16a34a' : '#64748b', color: 'white' }}>
+                {isAutoPrintEnabled ? '🖨️自動出單:開' : '🖨️自動出單:關'}
+              </span>
+              <span style={{ fontSize: '0.7rem', padding: '2px 6px', borderRadius: '4px', backgroundColor: printKitchenTicket ? '#0284c7' : '#64748b', color: 'white' }}>
+                {printKitchenTicket ? '🍳廚房單:開' : '🍳廚房單:關'}
+              </span>
+              <span style={{ fontSize: '0.7rem', padding: '2px 6px', borderRadius: '4px', backgroundColor: isVoiceAnnounceEnabled ? '#10b981' : '#64748b', color: 'white' }}>
+                {isVoiceAnnounceEnabled ? '🗣️語音:開' : '🗣️語音:關'}
+              </span>
+            </button>
+
+            {/* Shift Handover (X-Report) Button */}
+            <button
+              type="button"
+              onClick={() => setShowShiftHandoverModal(true)}
+              style={{
+                padding: '6px 12px',
+                fontSize: '0.8rem',
+                borderRadius: 'var(--radius-sm)',
+                border: '1px solid #2563eb',
+                backgroundColor: 'rgba(37, 99, 235, 0.08)',
+                color: '#2563eb',
+                cursor: 'pointer',
+                fontWeight: 'bold',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px'
+              }}
+            >
+              🔄 換班交接
+            </button>
+
+            {watchedLowStockItems.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setShowStockAlertModal(true)}
+                style={{
+                  padding: '4px 10px',
+                  fontSize: '0.75rem',
+                  borderRadius: '6px',
+                  border: '1px solid #ef4444',
+                  backgroundColor: '#fee2e2',
+                  color: '#b91c1c',
+                  fontWeight: 'bold',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px'
                 }}
-                style={{ cursor: 'pointer' }}
-              />
-              🖨️ 自動出單
-            </label>
+                title="點擊查看缺貨與偏低之關注項目"
+              >
+                ⚠️ 補貨提醒 ({watchedLowStockItems.length})
+              </button>
+            )}
           </div>
           <button 
-            onClick={onLogout}
+            onClick={async () => {
+              try {
+                const sessionKey = prefixNameForStore('SYSTEM_SETTING_ACTIVE_POS_SESSION', storeCode);
+                await supabase.from('menu_items').update({ description: JSON.stringify({ user: '', sessionId: '', lastActive: 0 }) }).eq('name', sessionKey);
+              } catch (e) {}
+              onLogout();
+            }}
             style={{
               padding: '6px 12px',
               fontSize: '0.8rem',
@@ -927,6 +1735,49 @@ export default function CashierView({ cashierName, onLogout }) {
           </button>
         </div>
       </header>
+
+      {/* POS Watched Low Stock Alert Banner */}
+      {watchedLowStockItems.length > 0 && (
+        <div style={{
+          backgroundColor: '#fef2f2',
+          borderBottom: '2px solid #ef4444',
+          color: '#991b1b',
+          padding: '8px 16px',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          fontSize: '0.82rem',
+          fontWeight: 'bold',
+          zIndex: 90
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden' }}>
+            <span style={{ fontSize: '1.1rem' }}>⚠️</span>
+            <span style={{ color: '#b91c1c', whiteSpace: 'nowrap' }}>【關注品項補貨提醒】</span>
+            <span style={{ fontWeight: 'normal', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+              {watchedLowStockItems.map(i => `${i.name} (剩 ${i.qty}${i.unit} / 警戒 ${i.minStock}${i.unit})`).join('、')}
+              &nbsp;庫存偏低或缺貨，請及時叫貨補庫存！
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowStockAlertModal(true)}
+            style={{
+              padding: '3px 8px',
+              fontSize: '0.75rem',
+              backgroundColor: '#ef4444',
+              color: 'white',
+              border: 'none',
+              borderRadius: '4px',
+              cursor: 'pointer',
+              fontWeight: 'bold',
+              whiteSpace: 'nowrap',
+              marginLeft: '12px'
+            }}
+          >
+            📋 查看明細 ({watchedLowStockItems.length})
+          </button>
+        </div>
+      )}
 
       {viewState === 'pos' ? (
         /* POS Main Workspace */
@@ -950,63 +1801,52 @@ export default function CashierView({ cashierName, onLogout }) {
             {/* Giant Category switcher tabs */}
             <div style={{
               display: 'flex',
-              gap: '16px'
+              gap: '12px',
+              overflowX: 'auto',
+              paddingBottom: '4px'
             }}>
-              <button
-                type="button"
-                onClick={() => setActiveCategory('mee-sua')}
-                style={{
-                  flex: 1,
-                  height: '55px',
-                  fontSize: '1.1rem',
-                  fontWeight: '900',
-                  borderRadius: '10px',
-                  border: '2px solid',
-                  borderColor: activeCategory === 'mee-sua' ? 'var(--primary)' : 'var(--border)',
-                  backgroundColor: activeCategory === 'mee-sua' ? 'var(--primary)' : 'var(--bg-card)',
-                  color: activeCategory === 'mee-sua' ? 'white' : 'var(--text-main)',
-                  cursor: 'pointer',
-                  boxShadow: activeCategory === 'mee-sua' ? 'var(--shadow-md)' : 'none',
-                  transition: 'all 0.15s ease',
-                  display: 'flex',
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                  gap: '8px'
-                }}
-              >
-                🍜 招牌麵線 / 主食 ({menuItems.filter(i => i.category === 'mee-sua').length})
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveCategory('specialties')}
-                style={{
-                  flex: 1,
-                  height: '55px',
-                  fontSize: '1.1rem',
-                  fontWeight: '900',
-                  borderRadius: '10px',
-                  border: '2px solid',
-                  borderColor: activeCategory === 'specialties' ? '#dc2626' : 'var(--border)',
-                  backgroundColor: activeCategory === 'specialties' ? '#dc2626' : 'var(--bg-card)',
-                  color: activeCategory === 'specialties' ? 'white' : 'var(--text-main)',
-                  cursor: 'pointer',
-                  boxShadow: activeCategory === 'specialties' ? 'var(--shadow-md)' : 'none',
-                  transition: 'all 0.15s ease',
-                  display: 'flex',
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                  gap: '8px'
-                }}
-              >
-                🔥 特色小吃 / 辣系列 ({menuItems.filter(i => i.category === 'specialties').length})
-              </button>
+              {categories.map((cat) => {
+                const isCatActive = activeCategory === cat.id;
+                const catItemCount = menuItems.filter(i => (i.category === cat.id) || (cat.id === 'combos' && (i.category === 'combos' || i.customizations?.is_combo))).length;
+                return (
+                  <button
+                    key={cat.id}
+                    type="button"
+                    onClick={() => setActiveCategory(cat.id)}
+                    style={{
+                      flex: '1 1 auto',
+                      minWidth: '150px',
+                      height: '52px',
+                      fontSize: '1.05rem',
+                      fontWeight: '900',
+                      borderRadius: '10px',
+                      border: '2px solid',
+                      borderColor: isCatActive ? 'var(--primary)' : 'var(--border)',
+                      backgroundColor: isCatActive ? 'var(--primary)' : 'var(--bg-card)',
+                      color: isCatActive ? 'white' : 'var(--text-main)',
+                      cursor: 'pointer',
+                      boxShadow: isCatActive ? 'var(--shadow-md)' : 'none',
+                      transition: 'all 0.15s ease',
+                      display: 'flex',
+                      justifyContent: 'center',
+                      alignItems: 'center',
+                      gap: '6px',
+                      whiteSpace: 'nowrap'
+                    }}
+                  >
+                    <span>{cat.icon || '🍜'}</span>
+                    <span>{cat.name} ({catItemCount})</span>
+                  </button>
+                );
+              })}
               <button
                 type="button"
                 onClick={() => setActiveCategory('orders')}
                 style={{
-                  flex: 1,
-                  height: '55px',
-                  fontSize: '1.1rem',
+                  flex: '1 1 auto',
+                  minWidth: '180px',
+                  height: '52px',
+                  fontSize: '1.05rem',
                   fontWeight: '900',
                   borderRadius: '10px',
                   border: '2px solid',
@@ -1019,7 +1859,8 @@ export default function CashierView({ cashierName, onLogout }) {
                   display: 'flex',
                   justifyContent: 'center',
                   alignItems: 'center',
-                  gap: '8px'
+                  gap: '8px',
+                  whiteSpace: 'nowrap'
                 }}
               >
                 📋 雲端接單與紀錄 ({orders.filter(o => o.status === 'received').length})
@@ -1038,7 +1879,7 @@ export default function CashierView({ cashierName, onLogout }) {
                   {orders.length === 0 ? (
                     <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>暫無訂單</div>
                   ) : (
-                    orders.slice(0, 20).map(order => {
+                    orders.map(order => {
                       const isPending = order.status === 'received';
                       return (
                         <div key={order.id} style={{ padding: '12px', border: '1px solid var(--border)', borderRadius: '8px', backgroundColor: 'var(--bg-card)' }}>
@@ -1048,84 +1889,41 @@ export default function CashierView({ cashierName, onLogout }) {
                               <span style={{
                                 marginLeft: '8px',
                                 padding: '2px 6px',
-                                borderRadius: '10px',
-                                fontSize: '0.65rem',
-                                fontWeight: 'bold',
-                                backgroundColor: 
-                                  order.status === 'received' ? 'rgba(245,158,11,0.1)' :
-                                  order.status === 'preparing' ? 'rgba(59,130,246,0.1)' :
-                                  order.status === 'ready' ? 'rgba(16,185,129,0.1)' :
-                                  order.status === 'completed' ? 'rgba(34,197,94,0.1)' : 'rgba(100,116,139,0.1)',
-                                color:
-                                  order.status === 'received' ? '#f59e0b' :
-                                  order.status === 'preparing' ? '#3b82f6' :
-                                  order.status === 'ready' ? '#10b981' :
-                                  order.status === 'completed' ? '#22c55e' : '#64748b'
+                                borderRadius: '4px',
+                                backgroundColor: isPending ? 'rgba(234, 88, 12, 0.1)' : 'rgba(22, 163, 74, 0.1)',
+                                color: isPending ? 'var(--primary)' : '#16a34a'
                               }}>
-                                {
-                                  order.status === 'received' ? '待接單' :
-                                  order.status === 'preparing' ? '製作中' :
-                                  order.status === 'ready' ? '已出餐' :
-                                  order.status === 'completed' ? '已結案' :
-                                  order.status === 'deleted' ? '已取消' : order.status
-                                }
+                                {isPending ? '處理中' : '已完成'}
                               </span>
                             </span>
-                            {(order.status === 'declined' || order.status === 'refunded') && (
-                              <span style={{ color: '#ef4444' }}>🪙 已退貨</span>
-                            )}
+                            <span>NT$ {order.total}</span>
                           </div>
-                          <div style={{ fontSize: '0.8rem', fontWeight: 'bold' }}>客戶: {order.customerName} {order.pickupTime ? `(取餐: ${order.pickupTime})` : ''}</div>
-                          <div style={{ fontSize: '0.75rem', margin: '4px 0', borderTop: '1px dashed var(--border)', borderBottom: '1px dashed var(--border)', padding: '4px 0' }}>
-                            {(order.items || []).map((item, idx) => (
-                              <div key={idx}>• {item.name} x {item.quantity} {item.specs && item.specs.length > 0 ? `(${item.specs.map(s => typeof s === 'object' && s ? (s.value || `${s.name}: ${s.value}`) : String(s)).join(', ')})` : ''}</div>
+                          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                            {(order.items || []).map((it, idx) => (
+                              <div key={idx}>
+                                • {it.name} x{it.quantity} {it.specs && it.specs.length > 0 ? `(${it.specs.join(', ')})` : ''}
+                              </div>
                             ))}
                           </div>
-                          {order.remarks && (
-                            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '6px' }}>備註: {order.remarks}</div>
-                          )}
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '6px' }}>
-                            <span style={{ fontSize: '0.8rem', fontWeight: 'bold', color: 'var(--primary)' }}>總額: ${order.total}</span>
-                            <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                              {order.status === 'received' && (
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '8px', paddingTop: '6px', borderTop: '1px dashed var(--border)' }}>
+                            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                              {order.customerName ? `顧客: ${order.customerName}` : ''} {order.tableName ? `(${order.tableName}桌)` : ''}
+                            </div>
+                            <div style={{ display: 'flex', gap: '6px' }}>
+                              {isPending ? (
                                 <button
-                                  onClick={async () => {
-                                    await supabase.from('orders').update({ status: 'preparing' }).eq('id', order.id);
-                                    fetchOrders();
-                                  }}
-                                  style={{ padding: '4px 8px', fontSize: '0.7rem', backgroundColor: '#10b981', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}
-                                >
-                                  👨‍🍳 接單製作
-                                </button>
-                              )}
-                              {order.status === 'preparing' && (
-                                <button
-                                  onClick={async () => {
-                                    await supabase.from('orders').update({ status: 'ready' }).eq('id', order.id);
-                                    fetchOrders();
-                                  }}
-                                  style={{ padding: '4px 8px', fontSize: '0.7rem', backgroundColor: '#3b82f6', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}
-                                >
-                                  🔔 呼叫出餐
-                                </button>
-                              )}
-                              {order.status === 'ready' && (
-                                <button
-                                  onClick={async () => {
-                                    await supabase.from('orders').update({ status: 'completed', payment_status: 'paid' }).eq('id', order.id);
-                                    fetchOrders();
-                                  }}
+                                  type="button"
+                                  onClick={() => handleUpdateOrderStatus(order.id, 'completed')}
                                   style={{ padding: '4px 8px', fontSize: '0.7rem', backgroundColor: '#16a34a', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}
                                 >
-                                  ✅ 結案完成
+                                  ✔ 完成
                                 </button>
-                              )}
-                              {order.status !== 'declined' && order.status !== 'refunded' && order.status !== 'archived' && order.status !== 'completed' && (
+                              ) : (
                                 <button
-                                  onClick={async () => {
-                                    if (confirm("確定退貨此訂單嗎？")) {
-                                      await supabase.from('orders').update({ status: 'refunded', payment_status: 'refunded' }).eq('id', order.id);
-                                      fetchOrders();
+                                  type="button"
+                                  onClick={() => {
+                                    if (confirm("確定要將此訂單標記為退貨嗎？")) {
+                                      handleUpdateOrderStatus(order.id, 'deleted');
                                     }
                                   }}
                                   style={{ padding: '4px 8px', fontSize: '0.7rem', backgroundColor: 'transparent', color: '#ef4444', border: '1px solid #ef4444', borderRadius: '4px', cursor: 'pointer' }}
@@ -1133,6 +1931,14 @@ export default function CashierView({ cashierName, onLogout }) {
                                   退貨
                                 </button>
                               )}
+                              <button
+                                type="button"
+                                onClick={() => handleOpenEditPosOrderModal(order)}
+                                style={{ padding: '4px 8px', fontSize: '0.7rem', backgroundColor: 'rgba(234, 88, 12, 0.08)', color: 'var(--primary)', border: '1px solid var(--primary)', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}
+                                title="編輯已送出訂單內容"
+                              >
+                                ✏️ 編輯
+                              </button>
                               <button
                                 onClick={() => printReceipt(order)}
                                 style={{ padding: '4px 8px', fontSize: '0.7rem', backgroundColor: 'transparent', color: 'var(--text-main)', border: '1px solid var(--border)', borderRadius: '4px', cursor: 'pointer' }}
@@ -1146,123 +1952,36 @@ export default function CashierView({ cashierName, onLogout }) {
                     })
                   )}
                 </div>
-              ) : activeCategory === 'mee-sua' ? (
-                /* Mee-sua: 8 items, 3 columns x 3 rows */
-                <div style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(3, 1fr)',
-                  gap: '12px'
-                }}>
-                  {menuItems.filter(item => item.category === 'mee-sua').map(item => {
-                    const isAvailable = item.customizations?.is_available !== false;
-                    return (
-                      <div
-                        key={item.id}
-                        onClick={() => handleProductClick(item)}
-                        style={{
-                          backgroundColor: isAvailable ? 'rgba(255, 107, 53, 0.05)' : 'var(--bg-body)',
-                          border: isAvailable ? '2px solid rgba(255, 107, 53, 0.3)' : '2px solid var(--border)',
-                          borderRadius: '12px',
-                          padding: '10px 6px',
-                          height: '80px',
-                          display: 'flex',
-                          flexDirection: 'column',
-                          justifyContent: 'space-between',
-                          alignItems: 'center',
-                          cursor: isAvailable ? 'pointer' : 'not-allowed',
-                          userSelect: 'none',
-                          boxShadow: 'var(--shadow-sm)',
-                          transition: 'all 0.1s ease',
-                          textAlign: 'center',
-                          position: 'relative',
-                          opacity: isAvailable ? 1 : 0.55
-                        }}
-                        onPointerDown={(e) => {
-                          if (!isAvailable) return;
-                          e.currentTarget.style.transform = 'scale(0.96)';
-                          e.currentTarget.style.backgroundColor = 'var(--primary)';
-                          e.currentTarget.style.color = '#ffffff';
-                          e.currentTarget.style.borderColor = 'var(--primary)';
-                          const priceSpan = e.currentTarget.querySelector('.price-tag');
-                          if (priceSpan) priceSpan.style.color = '#ffffff';
-                        }}
-                        onPointerUp={(e) => {
-                          if (!isAvailable) return;
-                          e.currentTarget.style.transform = 'scale(1)';
-                          e.currentTarget.style.backgroundColor = 'rgba(255, 107, 53, 0.05)';
-                          e.currentTarget.style.color = 'var(--text-main)';
-                          e.currentTarget.style.borderColor = 'rgba(255, 107, 53, 0.3)';
-                          const priceSpan = e.currentTarget.querySelector('.price-tag');
-                          if (priceSpan) priceSpan.style.color = 'var(--primary)';
-                        }}
-                        onPointerLeave={(e) => {
-                          if (!isAvailable) return;
-                          e.currentTarget.style.transform = 'scale(1)';
-                          e.currentTarget.style.backgroundColor = 'rgba(255, 107, 53, 0.05)';
-                          e.currentTarget.style.color = 'var(--text-main)';
-                          e.currentTarget.style.borderColor = 'rgba(255, 107, 53, 0.3)';
-                          const priceSpan = e.currentTarget.querySelector('.price-tag');
-                          if (priceSpan) priceSpan.style.color = 'var(--primary)';
-                        }}
-                      >
-                        <div style={{ fontSize: '1.05rem', fontWeight: '800', lineHeight: '1.2' }}>
-                          {item.name}
-                        </div>
-                        <span className="price-tag" style={{ fontSize: '1.05rem', fontWeight: '900', color: isAvailable ? 'var(--primary)' : 'var(--text-muted)', transition: 'color 0.1s ease' }}>
-                          NT$ {item.price}
-                        </span>
-                        {!isAvailable ? (
-                          <span style={{
-                            position: 'absolute',
-                            top: '6px',
-                            right: '6px',
-                            fontSize: '0.55rem',
-                            fontWeight: 'bold',
-                            backgroundColor: '#ef4444',
-                            color: 'white',
-                            padding: '1px 5px',
-                            borderRadius: '4px'
-                          }}>
-                            🔴 售完
-                          </span>
-                        ) : item.customizations && (
-                          <span style={{
-                            position: 'absolute',
-                            top: '6px',
-                            right: '6px',
-                            fontSize: '0.55rem',
-                            fontWeight: 'bold',
-                            backgroundColor: 'rgba(255, 107, 53, 0.12)',
-                            color: 'var(--primary)',
-                            padding: '1px 5px',
-                            borderRadius: '4px'
-                          }}>
-                            ⚙️客製
-                          </span>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
               ) : (
-                /* Specialties: 4 items, 3 columns x 2 rows */
+                /* Products grid for the active category (Supports combos, mee-sua, specialties, and any category!) */
                 <div style={{
                   display: 'grid',
-                  gridTemplateColumns: 'repeat(3, 1fr)',
+                  gridTemplateColumns: activeCategory === 'combos' ? 'repeat(auto-fit, minmax(210px, 1fr))' : 'repeat(3, 1fr)',
                   gap: '12px'
                 }}>
-                  {menuItems.filter(item => item.category === 'specialties').map(item => {
+                  {menuItems.filter(item => (item.category === activeCategory) || (activeCategory === 'combos' && (item.category === 'combos' || item.customizations?.is_combo))).map(item => {
                     const isAvailable = item.customizations?.is_available !== false;
+                    const isCombo = item.customizations?.is_combo || item.category === 'combos';
                     return (
                       <div
                         key={item.id}
-                        onClick={() => handleProductClick(item)}
+                        onClick={() => {
+                          if (isManagingSoldOut) {
+                            handleToggleItemAvailability(item);
+                          } else {
+                            handleProductClick(item);
+                          }
+                        }}
                         style={{
-                          backgroundColor: isAvailable ? 'rgba(220, 38, 38, 0.05)' : 'var(--bg-body)',
-                          border: isAvailable ? '2px solid rgba(220, 38, 38, 0.3)' : '2px solid var(--border)',
+                          backgroundColor: isAvailable 
+                            ? (isCombo ? 'rgba(255, 107, 53, 0.08)' : (item.category === 'specialties' ? 'rgba(220, 38, 38, 0.05)' : 'rgba(255, 107, 53, 0.05)'))
+                            : 'var(--bg-body)',
+                          border: isAvailable 
+                            ? (isCombo ? '2px solid var(--primary)' : (item.category === 'specialties' ? '2px solid rgba(220, 38, 38, 0.3)' : '2px solid rgba(255, 107, 53, 0.3)'))
+                            : '2px solid var(--border)',
                           borderRadius: '12px',
-                          padding: '10px 6px',
-                          height: '80px',
+                          padding: '12px 10px',
+                          minHeight: '105px',
                           display: 'flex',
                           flexDirection: 'column',
                           justifyContent: 'space-between',
@@ -1275,68 +1994,82 @@ export default function CashierView({ cashierName, onLogout }) {
                           position: 'relative',
                           opacity: isAvailable ? 1 : 0.55
                         }}
-                        onPointerDown={(e) => {
-                          if (!isAvailable) return;
-                          e.currentTarget.style.transform = 'scale(0.96)';
-                          e.currentTarget.style.backgroundColor = '#dc2626';
-                          e.currentTarget.style.color = '#ffffff';
-                          e.currentTarget.style.borderColor = '#dc2626';
-                          const priceSpan = e.currentTarget.querySelector('.price-tag');
-                          if (priceSpan) priceSpan.style.color = '#ffffff';
-                        }}
-                        onPointerUp={(e) => {
-                          if (!isAvailable) return;
-                          e.currentTarget.style.transform = 'scale(1)';
-                          e.currentTarget.style.backgroundColor = 'rgba(220, 38, 38, 0.05)';
-                          e.currentTarget.style.color = 'var(--text-main)';
-                          e.currentTarget.style.borderColor = 'rgba(220, 38, 38, 0.3)';
-                          const priceSpan = e.currentTarget.querySelector('.price-tag');
-                          if (priceSpan) priceSpan.style.color = '#dc2626';
-                        }}
-                        onPointerLeave={(e) => {
-                          if (!isAvailable) return;
-                          e.currentTarget.style.transform = 'scale(1)';
-                          e.currentTarget.style.backgroundColor = 'rgba(220, 38, 38, 0.05)';
-                          e.currentTarget.style.color = 'var(--text-main)';
-                          e.currentTarget.style.borderColor = 'rgba(220, 38, 38, 0.3)';
-                          const priceSpan = e.currentTarget.querySelector('.price-tag');
-                          if (priceSpan) priceSpan.style.color = '#dc2626';
-                        }}
                       >
-                        <div style={{ fontSize: '1.05rem', fontWeight: '800', lineHeight: '1.2' }}>
+                        {isCombo && <span style={{ fontSize: '1.4rem' }}>🍱</span>}
+                        <div style={{ fontSize: isCombo ? '1.1rem' : '1.3rem', fontWeight: '900', lineHeight: '1.2' }}>
                           {item.name}
                         </div>
-                        <span className="price-tag" style={{ fontSize: '1.05rem', fontWeight: '900', color: isAvailable ? '#dc2626' : 'var(--text-muted)', transition: 'color 0.1s ease' }}>
-                          NT$ {item.price}
+                        <span className="price-tag" style={{ fontSize: '1.05rem', fontWeight: '900', color: isAvailable ? 'var(--primary)' : 'var(--text-muted)' }}>
+                          NT$ {item.price} {isCombo ? '起' : ''}
                         </span>
-                        {!isAvailable ? (
-                          <span style={{
-                            position: 'absolute',
-                            top: '6px',
-                            right: '6px',
-                            fontSize: '0.55rem',
-                            fontWeight: 'bold',
-                            backgroundColor: '#ef4444',
-                            color: 'white',
-                            padding: '1px 5px',
-                            borderRadius: '4px'
-                          }}>
-                            🔴 售完
-                          </span>
-                        ) : item.customizations && (
-                          <span style={{
-                            position: 'absolute',
-                            top: '6px',
-                            right: '6px',
-                            fontSize: '0.55rem',
-                            fontWeight: 'bold',
-                            backgroundColor: 'rgba(220, 38, 38, 0.12)',
-                            color: '#dc2626',
-                            padding: '1px 5px',
-                            borderRadius: '4px'
-                          }}>
-                            ⚙️客製
-                          </span>
+                        {isManagingSoldOut ? (
+                          <button
+                            type="button"
+                            onClick={(e) => handleToggleItemAvailability(item, e)}
+                            style={{
+                              position: 'absolute',
+                              top: '6px',
+                              right: '6px',
+                              fontSize: '0.65rem',
+                              fontWeight: 'bold',
+                              backgroundColor: isAvailable ? '#10b981' : '#ef4444',
+                              color: 'white',
+                              border: 'none',
+                              padding: '3px 8px',
+                              borderRadius: '6px',
+                              cursor: 'pointer',
+                              zIndex: 10,
+                              boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
+                            }}
+                          >
+                            {isAvailable ? '🟢 供應中' : '🔴 已售完'}
+                          </button>
+                        ) : (
+                          <>
+                            {!isAvailable ? (
+                              <span style={{
+                                position: 'absolute',
+                                top: '6px',
+                                right: '6px',
+                                fontSize: '0.65rem',
+                                fontWeight: 'bold',
+                                backgroundColor: '#ef4444',
+                                color: 'white',
+                                padding: '2px 6px',
+                                borderRadius: '4px'
+                              }}>
+                                🔴 售完
+                              </span>
+                            ) : isCombo ? (
+                              <span style={{
+                                position: 'absolute',
+                                top: '6px',
+                                right: '6px',
+                                fontSize: '0.6rem',
+                                fontWeight: 'bold',
+                                backgroundColor: 'var(--primary)',
+                                color: 'white',
+                                padding: '2px 6px',
+                                borderRadius: '4px'
+                              }}>
+                                🍱 套餐組合
+                              </span>
+                            ) : item.customizations && (
+                              <span style={{
+                                position: 'absolute',
+                                top: '6px',
+                                right: '6px',
+                                fontSize: '0.55rem',
+                                fontWeight: 'bold',
+                                backgroundColor: 'rgba(255, 107, 53, 0.12)',
+                                color: 'var(--primary)',
+                                padding: '1px 5px',
+                                borderRadius: '4px'
+                              }}>
+                                ⚙️客製
+                              </span>
+                            )}
+                          </>
                         )}
                       </div>
                     );
@@ -1344,7 +2077,7 @@ export default function CashierView({ cashierName, onLogout }) {
                 </div>
               )}
             </div>
-                      {/* Cart Items List */}
+            {/* Cart Items List */}
             <div style={{
               flex: 1,
               display: 'flex',
@@ -1409,13 +2142,39 @@ export default function CashierView({ cashierName, onLogout }) {
                         {/* Name and specs (Left) */}
                         <div style={{ flex: 1, display: 'flex', alignItems: 'baseline', gap: '8px', flexWrap: 'wrap' }}>
                           <span style={{ fontSize: '0.85rem', fontWeight: 'bold', color: 'var(--text-main)', minWidth: '120px' }}>{cartItem.name}</span>
-                          <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-                            {cartItem.specs && cartItem.specs.map(spec => `• ${spec}`).join(' ')}
+                          <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                            {cartItem.specs && cartItem.specs
+                              .map(s => typeof s === 'object' && s ? (s.value || `${s.name ? s.name + ': ' : ''}${s.value}`) : String(s))
+                              .filter(Boolean)
+                              .map(s => s.replace(/^undefined:\s*/i, ''))
+                              .map(s => `• ${s}`)
+                              .join(' ')}
                           </span>
                         </div>
 
                         {/* Controls & Price (Right) */}
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                          {/* Edit Item Customizations */}
+                          <button
+                            type="button"
+                            onClick={() => handleEditCartItem(cartItem)}
+                            style={{
+                              padding: '3px 7px',
+                              fontSize: '0.75rem',
+                              borderRadius: '4px',
+                              border: '1px solid var(--primary)',
+                              backgroundColor: 'rgba(234, 88, 12, 0.08)',
+                              color: 'var(--primary)',
+                              cursor: 'pointer',
+                              fontWeight: 'bold',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '2px'
+                            }}
+                            title="修改餐點加料與調料客製"
+                          >
+                            ✏️ 修改
+                          </button>
                           <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>單價: NT$ {cartItem.itemPrice}</span>
                           
                           {/* Qty edit */}
@@ -1481,29 +2240,56 @@ export default function CashierView({ cashierName, onLogout }) {
               justifyContent: 'space-between',
               overflowY: 'auto'
             }}>
-              {/* Order Type Checkbox (Default is Dine-in, check for Takeout) */}
-              <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                padding: '6px 10px',
-                borderRadius: '6px',
-                backgroundColor: orderType === 'takeout' ? 'rgba(220, 38, 38, 0.06)' : 'rgba(255, 107, 53, 0.06)',
-                border: orderType === 'takeout' ? '1px solid #dc2626' : '1px solid var(--primary)',
-                marginBottom: '2px',
-                cursor: 'pointer'
-              }} onClick={() => setOrderType(prev => prev === 'takeout' ? 'dine-in' : 'takeout')}>
-                <input
-                  type="checkbox"
-                  id="takeout-checkbox"
-                  checked={orderType === 'takeout'}
-                  onChange={(e) => setOrderType(e.target.checked ? 'takeout' : 'dine-in')}
-                  onClick={(e) => e.stopPropagation()}
-                  style={{ width: '16px', height: '16px', cursor: 'pointer' }}
-                />
-                <label htmlFor="takeout-checkbox" style={{ fontSize: '0.8rem', fontWeight: 'bold', color: orderType === 'takeout' ? '#dc2626' : 'var(--primary)', cursor: 'pointer', margin: 0 }}>
-                  {orderType === 'takeout' ? '🛍️ 這筆訂單為【外帶】' : '🍜 這筆訂單為【內用】'}
-                </label>
+              {/* Order Type Toggle buttons side-by-side (Scaled) */}
+              <div style={{ display: 'flex', gap: '6px', marginBottom: '2px', width: '100%' }}>
+                <button
+                  type="button"
+                  onClick={() => setOrderType('dine-in')}
+                  style={{
+                    flex: 1,
+                    height: posUiScale === 'large' ? '50px' : posUiScale === 'medium' ? '42px' : '36px',
+                    padding: '4px 8px',
+                    borderRadius: '8px',
+                    border: orderType === 'dine-in' ? '2px solid var(--primary)' : '1px solid var(--border)',
+                    backgroundColor: orderType === 'dine-in' ? 'var(--primary)' : 'var(--bg-card)',
+                    color: orderType === 'dine-in' ? 'white' : 'var(--text-main)',
+                    fontWeight: '900',
+                    cursor: 'pointer',
+                    fontSize: posUiScale === 'large' ? '1.15rem' : posUiScale === 'medium' ? '1.05rem' : '0.95rem',
+                    transition: 'all 0.15s',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '6px',
+                    boxShadow: orderType === 'dine-in' ? '0 2px 8px rgba(255, 107, 53, 0.25)' : 'none'
+                  }}
+                >
+                  🏠 內用
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setOrderType('takeout')}
+                  style={{
+                    flex: 1,
+                    height: posUiScale === 'large' ? '50px' : posUiScale === 'medium' ? '42px' : '36px',
+                    padding: '4px 8px',
+                    borderRadius: '8px',
+                    border: orderType === 'takeout' ? '2px solid #dc2626' : '1px solid var(--border)',
+                    backgroundColor: orderType === 'takeout' ? '#dc2626' : 'var(--bg-card)',
+                    color: orderType === 'takeout' ? 'white' : 'var(--text-main)',
+                    fontWeight: '900',
+                    cursor: 'pointer',
+                    fontSize: posUiScale === 'large' ? '1.15rem' : posUiScale === 'medium' ? '1.05rem' : '0.95rem',
+                    transition: 'all 0.15s',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '6px',
+                    boxShadow: orderType === 'takeout' ? '0 2px 8px rgba(220, 38, 38, 0.25)' : 'none'
+                  }}
+                >
+                  🥡 外帶
+                </button>
               </div>
 
 
@@ -1544,136 +2330,264 @@ export default function CashierView({ cashierName, onLogout }) {
                     <span>- NT$ {discountAmount}</span>
                   </div>
                 )}
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '1.05rem', fontWeight: '800', borderTop: '1px dashed var(--border)', paddingTop: '6px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '1.3rem', fontWeight: '900', borderTop: '1px dashed var(--border)', paddingTop: '6px' }}>
                   <span>應收金額:</span>
                   <span style={{ color: 'var(--primary)' }}>NT$ {finalTotal}</span>
                 </div>
               </div>
 
-              {/* Cash input and Change calculations */}
-              <div style={{ display: 'flex', gap: '12px' }}>
-                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                  <label style={{ fontSize: '0.75rem', fontWeight: 'bold', color: 'var(--text-muted)' }}>實收現金 (NT$) *</label>
-                  <input 
-                    type="text" 
-                    placeholder="點選下方鍵盤輸入"
-                    value={cashReceived ? `NT$ ${cashReceived}` : ''}
-                    readOnly
-                    style={{ padding: '8px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', fontSize: '0.9rem', fontWeight: 'bold', backgroundColor: 'var(--bg-input)', color: 'var(--text-main)', textAlign: 'right' }}
-                    required
-                  />
-                </div>
-                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                  <label style={{ fontSize: '0.75rem', fontWeight: 'bold', color: 'var(--text-muted)' }}>找零金額</label>
-                  <div style={{
-                    padding: '8px 10px',
-                    borderRadius: 'var(--radius-sm)',
-                    border: '1px solid var(--border)',
-                    fontSize: '0.9rem',
-                    fontWeight: '800',
-                    color: changeAmount > 0 ? '#16a34a' : 'var(--text-main)',
-                    backgroundColor: 'var(--bg-input)',
-                    textAlign: 'right'
-                  }}>
-                    NT$ {changeAmount}
-                  </div>
-                </div>
-              </div>
-
-              {/* POS Built-in Cash Preset Buttons */}
+              {/* POS Payment Methods Selection */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                <label style={{ fontSize: '0.75rem', fontWeight: 'bold', color: 'var(--text-muted)' }}>快速選定鈔票金額</label>
-                <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
-                  <button type="button" onClick={() => setCashReceived(String(finalTotal))} style={{ flex: 2, padding: '6px 0', fontSize: '0.75rem', borderRadius: '4px', border: '1px solid #16a34a', color: '#16a34a', backgroundColor: 'rgba(22,163,74,0.05)', cursor: 'pointer', fontWeight: 'bold' }}>剛好收 NT$ {finalTotal}</button>
-                  <button type="button" onClick={() => setCashReceived('50')} style={{ flex: 1, padding: '6px 0', fontSize: '0.75rem', borderRadius: '4px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-card)', cursor: 'pointer', fontWeight: 'bold' }}>$50</button>
-                  <button type="button" onClick={() => setCashReceived('100')} style={{ flex: 1, padding: '6px 0', fontSize: '0.75rem', borderRadius: '4px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-card)', cursor: 'pointer', fontWeight: 'bold' }}>$100</button>
-                  <button type="button" onClick={() => setCashReceived('200')} style={{ flex: 1, padding: '6px 0', fontSize: '0.75rem', borderRadius: '4px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-card)', cursor: 'pointer', fontWeight: 'bold' }}>$200</button>
-                  <button type="button" onClick={() => setCashReceived('500')} style={{ flex: 1, padding: '6px 0', fontSize: '0.75rem', borderRadius: '4px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-card)', cursor: 'pointer', fontWeight: 'bold' }}>$500</button>
-                  <button type="button" onClick={() => setCashReceived('1000')} style={{ flex: 1, padding: '6px 0', fontSize: '0.75rem', borderRadius: '4px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-card)', cursor: 'pointer', fontWeight: 'bold' }}>$1000</button>
+                <label style={{ fontSize: '0.75rem', fontWeight: 'bold', color: 'var(--text-muted)' }}>選擇支付方式</label>
+                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                  {posPaymentMethods.map((method) => (
+                    <button
+                      key={method}
+                      type="button"
+                      onClick={() => {
+                        setSelectedPaymentMethod(method);
+                        if (method !== '現金') {
+                          setCashReceived(String(finalTotal));
+                        } else {
+                          setCashReceived('');
+                        }
+                      }}
+                      style={{
+                        padding: '6px 12px',
+                        fontSize: '0.75rem',
+                        borderRadius: '6px',
+                        border: selectedPaymentMethod === method ? '2px solid var(--primary)' : '1px solid var(--border)',
+                        backgroundColor: selectedPaymentMethod === method ? 'var(--primary)' : 'var(--bg-card)',
+                        color: selectedPaymentMethod === method ? 'white' : 'var(--text-main)',
+                        fontWeight: 'bold',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s'
+                      }}
+                    >
+                      {method}
+                    </button>
+                  ))}
                 </div>
               </div>
 
-              {/* Built-in Visual Keypad (No system keyboard popup) */}
-              <div style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(3, 1fr)',
-                gap: '6px',
-                border: '1px solid var(--border)',
-                borderRadius: '8px',
-                padding: '8px',
-                backgroundColor: 'var(--bg-card)'
-              }}>
-                {[7, 8, 9, 4, 5, 6, 1, 2, 3].map(num => (
-                  <button
-                    key={num}
-                    type="button"
-                    onClick={() => {
-                      setCashReceived(prev => {
-                        if (prev === '0') return String(num);
-                        return prev + String(num);
-                      });
-                    }}
-                    style={{ height: '36px', fontSize: '1.05rem', fontWeight: 'bold', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-body)', cursor: 'pointer' }}
-                  >
-                    {num}
-                  </button>
-                ))}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setCashReceived(prev => {
-                      if (!prev || prev === '0') return '0';
-                      return prev + '0';
-                    });
-                  }}
-                  style={{ height: '36px', fontSize: '1.05rem', fontWeight: 'bold', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-body)', cursor: 'pointer' }}
-                >
-                  0
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setCashReceived(prev => {
-                      if (!prev || prev === '0') return '0';
-                      return prev + '00';
-                    });
-                  }}
-                  style={{ height: '36px', fontSize: '1.05rem', fontWeight: 'bold', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-body)', cursor: 'pointer' }}
-                >
-                  00
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setCashReceived(prev => {
-                      if (prev.length <= 1) return '';
-                      return prev.slice(0, -1);
-                    });
-                  }}
-                  style={{ height: '36px', fontSize: '1.05rem', fontWeight: 'bold', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-body)', cursor: 'pointer', color: '#ef4444' }}
-                >
-                  ⌫
-                </button>
-              </div>
+              {isCash ? (
+                <>
+                  {/* Cash input and Change calculations */}
+                  <div style={{ display: 'flex', gap: '12px' }}>
+                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      <label style={{ fontSize: '0.75rem', fontWeight: 'bold', color: 'var(--text-muted)' }}>實收現金 (NT$) *</label>
+                      <input 
+                        type="text" 
+                        placeholder="點選下方鍵盤輸入"
+                        value={cashReceived ? `NT$ ${cashReceived}` : ''}
+                        readOnly
+                        style={{ padding: '8px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', fontSize: '0.9rem', fontWeight: 'bold', backgroundColor: 'var(--bg-input)', color: 'var(--text-main)', textAlign: 'right' }}
+                        required
+                      />
+                    </div>
+                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      <label style={{ fontSize: '0.75rem', fontWeight: 'bold', color: 'var(--text-muted)' }}>找零金額</label>
+                      <div style={{
+                        padding: '8px 10px',
+                        borderRadius: 'var(--radius-sm)',
+                        border: '1px solid var(--border)',
+                        fontSize: '0.9rem',
+                        fontWeight: '800',
+                        color: changeAmount > 0 ? '#16a34a' : 'var(--text-main)',
+                        backgroundColor: 'var(--bg-input)',
+                        textAlign: 'right'
+                      }}>
+                        NT$ {changeAmount}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* POS Built-in Cash Preset Buttons (Prominent Exact Cash + Quick Bill Selector) */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                    {/* Top High-Visibility Exact Cash Button */}
+                    <button
+                      type="button"
+                      onClick={() => setCashReceived(String(finalTotal))}
+                      style={{
+                        width: '100%',
+                        height: posUiScale === 'large' ? '44px' : posUiScale === 'medium' ? '36px' : '32px',
+                        fontSize: posUiScale === 'large' ? '1.15rem' : posUiScale === 'medium' ? '1.05rem' : '0.95rem',
+                        borderRadius: '8px',
+                        border: cashReceived === String(finalTotal) ? '2px solid #047857' : 'none',
+                        background: 'linear-gradient(135deg, #16a34a 0%, #15803d 100%)',
+                        color: '#ffffff',
+                        cursor: 'pointer',
+                        fontWeight: '900',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '6px',
+                        boxShadow: '0 3px 8px rgba(22, 163, 74, 0.35)',
+                        letterSpacing: '0.5px',
+                        transition: 'all 0.15s ease'
+                      }}
+                    >
+                      <span>💰 剛好收</span>
+                      <span style={{ backgroundColor: 'rgba(255, 255, 255, 0.25)', padding: '2px 8px', borderRadius: '4px', textDecoration: 'underline' }}>
+                        NT$ {finalTotal}
+                      </span>
+                      {cashReceived === String(finalTotal) && <span>✓</span>}
+                    </button>
+
+                    {/* Quick Bill Preset Buttons */}
+                    <div style={{ display: 'flex', gap: '4px' }}>
+                      {['50', '100', '200', '500', '1000'].map(amt => (
+                        <button
+                          key={amt}
+                          type="button"
+                          onClick={() => setCashReceived(amt)}
+                          style={{
+                            flex: 1,
+                            height: posUiScale === 'large' ? '36px' : posUiScale === 'medium' ? '30px' : '26px',
+                            fontSize: posUiScale === 'large' ? '0.95rem' : '0.85rem',
+                            borderRadius: '6px',
+                            border: cashReceived === amt ? '2px solid var(--primary)' : '1px solid var(--border)',
+                            backgroundColor: cashReceived === amt ? 'rgba(255, 107, 53, 0.1)' : 'var(--bg-card)',
+                            color: cashReceived === amt ? 'var(--primary)' : 'var(--text-main)',
+                            cursor: 'pointer',
+                            fontWeight: '900'
+                          }}
+                        >
+                          ${amt}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Built-in Visual Keypad (Scaled: Compact fits 100% without scroll) */}
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(3, 1fr)',
+                    gap: posUiScale === 'large' ? '5px' : '3px',
+                    border: '1px solid var(--border)',
+                    borderRadius: '8px',
+                    padding: posUiScale === 'large' ? '6px' : '4px',
+                    backgroundColor: 'var(--bg-card)'
+                  }}>
+                    {[7, 8, 9, 4, 5, 6, 1, 2, 3].map(num => (
+                      <button
+                        key={num}
+                        type="button"
+                        onClick={() => {
+                          setCashReceived(prev => {
+                            const next = prev + String(num);
+                            return next.length > 8 ? prev : next;
+                          });
+                        }}
+                        style={{
+                          height: posUiScale === 'large' ? '52px' : posUiScale === 'medium' ? '42px' : '35px',
+                          fontSize: posUiScale === 'large' ? '1.4rem' : posUiScale === 'medium' ? '1.25rem' : '1.1rem',
+                          fontWeight: '900',
+                          border: '1px solid var(--border)',
+                          backgroundColor: 'var(--bg-body)',
+                          borderRadius: '4px',
+                          cursor: 'pointer',
+                          color: 'var(--text-main)'
+                        }}
+                      >
+                        {num}
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCashReceived(prev => {
+                          const next = prev + '00';
+                          return next.length > 8 ? prev : next;
+                        });
+                      }}
+                      style={{
+                        height: posUiScale === 'large' ? '52px' : posUiScale === 'medium' ? '42px' : '35px',
+                        fontSize: posUiScale === 'large' ? '1.25rem' : posUiScale === 'medium' ? '1.1rem' : '1rem',
+                        fontWeight: '900',
+                        border: '1px solid var(--border)',
+                        backgroundColor: 'var(--bg-body)',
+                        borderRadius: '4px',
+                        cursor: 'pointer',
+                        color: 'var(--text-main)'
+                      }}
+                    >
+                      00
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCashReceived(prev => {
+                          const next = prev + '0';
+                          return next.length > 8 ? prev : next;
+                        });
+                      }}
+                      style={{
+                        height: posUiScale === 'large' ? '52px' : posUiScale === 'medium' ? '42px' : '35px',
+                        fontSize: posUiScale === 'large' ? '1.4rem' : posUiScale === 'medium' ? '1.25rem' : '1.1rem',
+                        fontWeight: '900',
+                        border: '1px solid var(--border)',
+                        backgroundColor: 'var(--bg-body)',
+                        borderRadius: '4px',
+                        cursor: 'pointer',
+                        color: 'var(--text-main)'
+                      }}
+                    >
+                      0
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCashReceived(prev => prev.slice(0, -1));
+                      }}
+                      style={{
+                        height: posUiScale === 'large' ? '52px' : posUiScale === 'medium' ? '42px' : '35px',
+                        fontSize: posUiScale === 'large' ? '1.25rem' : posUiScale === 'medium' ? '1.1rem' : '1rem',
+                        fontWeight: '900',
+                        border: '1px solid #ef4444',
+                        color: '#ef4444',
+                        backgroundColor: 'rgba(239,68,68,0.05)',
+                        borderRadius: '4px',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      ⌫
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <div style={{
+                  padding: '16px',
+                  borderRadius: '8px',
+                  border: '1px dashed var(--border)',
+                  backgroundColor: 'rgba(234, 88, 12, 0.03)',
+                  color: 'var(--text-muted)',
+                  fontSize: '0.8rem',
+                  fontWeight: 'bold',
+                  textAlign: 'center'
+                }}>
+                  💳 預計以【{selectedPaymentMethod}】結帳，無須找零。
+                </div>
+              )}
 
               {/* Submit transaction */}
               <button
                 type="submit"
-                disabled={cart.length === 0}
+                disabled={cart.length === 0 || isSubmittingOrder}
                 style={{
                   padding: '12px',
                   borderRadius: 'var(--radius-sm)',
-                  backgroundColor: cart.length === 0 ? 'var(--border)' : '#16a34a',
+                  backgroundColor: (cart.length === 0 || isSubmittingOrder) ? 'var(--border)' : '#16a34a',
                   color: 'white',
                   fontWeight: 'bold',
                   fontSize: '0.95rem',
                   border: 'none',
-                  cursor: cart.length === 0 ? 'not-allowed' : 'pointer',
+                  cursor: (cart.length === 0 || isSubmittingOrder) ? 'not-allowed' : 'pointer',
                   marginTop: '4px',
                   boxShadow: 'var(--shadow-sm)'
                 }}
               >
-                💸 確認收銀結帳送單
+                {isSubmittingOrder ? '⏳ 正在送單出單中...' : '💸 確認收銀結帳送單'}
               </button>
             </form>
             
@@ -1743,105 +2657,30 @@ export default function CashierView({ cashierName, onLogout }) {
               </div>
             </div>
 
-            {/* Printable Receipt (Visible only during printing) */}
-            <div id="printable-receipt" style={{ display: 'none' }}>
-              <style>{`
-                @media print {
-                  body * {
-                    visibility: hidden;
-                  }
-                  #printable-receipt, #printable-receipt * {
-                    visibility: visible;
-                  }
-                  #printable-receipt {
-                    display: block !important;
-                    position: absolute;
-                    left: 0;
-                    top: 0;
-                    width: 100%;
-                    max-width: 80mm;
-                    margin: 0;
-                    padding: 10px;
-                    background: white;
-                    color: black;
-                    font-family: monospace;
-                    font-size: 12px;
-                    line-height: 1.4;
-                  }
-                }
-              `}</style>
-              <div style={{ textAlign: 'center', marginBottom: '10px' }}>
-                <h3 style={{ margin: '0 0 5px 0', fontSize: '16px', color: 'black' }}>{storeName}</h3>
-                <p style={{ margin: 0, fontSize: '11px', color: 'black' }}>收執聯收據 (客戶存根)</p>
-              </div>
-              <div style={{ borderBottom: '1px dashed black', paddingBottom: '5px', marginBottom: '5px', color: 'black' }}>
-                <div>時間: {latestOrder?.created_at ? new Date(latestOrder.created_at).toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' }) : new Date().toLocaleString()}</div>
-                <div>單號: {latestOrder?.order_number}</div>
-                <div>類型: {latestOrder?.type === 'dine-in' ? '內用' : '現場外帶'}</div>
-              </div>
-              
-              <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '5px', color: 'black' }}>
-                <thead>
-                  <tr style={{ borderBottom: '1px solid black' }}>
-                    <th style={{ textAlign: 'left' }}>品項</th>
-                    <th style={{ textAlign: 'center', width: '40px' }}>數量</th>
-                    <th style={{ textAlign: 'right', width: '60px' }}>金額</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {latestOrder?.items?.cart?.map((item, idx) => (
-                    <tr key={idx} style={{ verticalAlign: 'top' }}>
-                      <td style={{ textAlign: 'left', padding: '3px 0' }}>
-                        <div>{item.name}</div>
-                        {item.specs?.map((spec, sIdx) => {
-                          const specText = typeof spec === 'object' && spec ? (spec.value || `${spec.name}: ${spec.value}`) : String(spec);
-                          return (
-                            <div key={sIdx} style={{ fontSize: '11px', color: 'black', paddingLeft: '5px' }}>- {specText}</div>
-                          );
-                        })}
-                      </td>
-                      <td style={{ textAlign: 'center', padding: '3px 0' }}>{item.quantity}</td>
-                      <td style={{ textAlign: 'right', padding: '3px 0' }}>NT$ {item.totalPrice}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-
-              <div style={{ borderTop: '1px dashed black', paddingTop: '5px', marginTop: '5px', color: 'black' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span>應收總額:</span>
-                  <strong>NT$ {latestOrder?.total}</strong>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span>實收現金:</span>
-                  <span>NT$ {latestOrder?.cashReceived}</span>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold' }}>
-                  <span>找零金額:</span>
-                  <span>NT$ {latestOrder?.changeAmount}</span>
-                </div>
-              </div>
-              
-              <div style={{ textAlign: 'center', marginTop: '15px', borderTop: '1px dashed black', paddingTop: '10px', fontSize: '11px', color: 'black' }}>
-                謝謝惠顧，歡迎再度光臨！
-              </div>
-            </div>
-
             {/* Print trigger */}
             <button
-              onClick={() => window.print()}
+              type="button"
+              onClick={() => {
+                if (latestOrder) {
+                  printReceipt(latestOrder);
+                }
+              }}
               style={{
-                padding: '10px',
+                padding: '12px',
                 borderRadius: 'var(--radius-sm)',
-                border: '1px solid var(--border)',
-                backgroundColor: 'var(--bg-card)',
-                color: 'var(--text-main)',
-                fontSize: '0.8rem',
+                border: '1px solid var(--primary)',
+                backgroundColor: 'rgba(255, 107, 53, 0.1)',
+                color: 'var(--primary)',
+                fontSize: '0.9rem',
                 fontWeight: 'bold',
-                cursor: 'pointer'
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '6px'
               }}
             >
-              🖨️ 列印實體收執聯收據
+              🖨️ 列印實體收據 (標準熱感應格式)
             </button>
 
             {/* Continue to next order */}
@@ -1869,12 +2708,475 @@ export default function CashierView({ cashierName, onLogout }) {
       {activeItemForModal && (
         <ItemModal 
           item={activeItemForModal}
-          onClose={() => setActiveItemForModal(null)}
+          onClose={() => {
+            setActiveItemForModal(null);
+            setEditingCartItem(null);
+          }}
           onAddToCart={handleAddToCartFromModal}
           condimentsAvailability={null} // POS cashier has full options
           isPos={true}
+          editingCartItem={editingCartItem}
         />
       )}
+
+      {/* POS EDIT SUBMITTED ORDER MODAL */}
+      {editingPosOrder && (
+        <div style={{
+          position: 'fixed',
+          top: 0, left: 0, right: 0, bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.65)',
+          backdropFilter: 'blur(3px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 11000,
+          padding: '20px'
+        }}>
+          <div style={{
+            backgroundColor: 'var(--bg-card)',
+            border: '1px solid var(--border)',
+            borderRadius: '12px',
+            width: '100%',
+            maxWidth: '540px',
+            maxHeight: '90vh',
+            overflowY: 'auto',
+            padding: '24px',
+            boxShadow: 'var(--shadow-lg)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '16px'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border)', paddingBottom: '12px' }}>
+              <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 'bold', color: 'var(--primary)' }}>
+                ✏️ 編輯已送出訂單 (單號: {editingPosOrder.serialNum || editingPosOrder.order_number || editingPosOrder.id})
+              </h3>
+              <button 
+                onClick={() => setEditingPosOrder(null)}
+                style={{ border: 'none', background: 'none', fontSize: '1.2rem', cursor: 'pointer', color: 'var(--text-muted)' }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleSavePosOrderEdit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div style={{ display: 'flex', gap: '12px' }}>
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <label style={{ fontSize: '0.75rem', fontWeight: 'bold' }}>點單類型</label>
+                  <select
+                    value={editOrderType}
+                    onChange={(e) => setEditOrderType(e.target.value)}
+                    style={{ padding: '8px 10px', fontSize: '0.85rem', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-body)', color: 'var(--text-main)' }}
+                  >
+                    <option value="dine-in">🍽️ 內用</option>
+                    <option value="takeout">🛍️ 外帶</option>
+                  </select>
+                </div>
+
+                {editOrderType === 'dine-in' ? (
+                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <label style={{ fontSize: '0.75rem', fontWeight: 'bold' }}>內用桌號</label>
+                    <input 
+                      type="text" 
+                      value={editOrderTable}
+                      onChange={(e) => setEditOrderTable(e.target.value)}
+                      placeholder="例: 1, 2, 3"
+                      style={{ padding: '8px 10px', fontSize: '0.85rem', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-body)', color: 'var(--text-main)' }}
+                    />
+                  </div>
+                ) : (
+                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <label style={{ fontSize: '0.75rem', fontWeight: 'bold' }}>顧客備註名稱</label>
+                    <input 
+                      type="text" 
+                      value={editOrderCust}
+                      onChange={(e) => setEditOrderCust(e.target.value)}
+                      placeholder="例: 現場外帶 或 陳小姐"
+                      style={{ padding: '8px 10px', fontSize: '0.85rem', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-body)', color: 'var(--text-main)' }}
+                    />
+                  </div>
+                )}
+              </div>
+
+              <div style={{ display: 'flex', gap: '12px' }}>
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <label style={{ fontSize: '0.75rem', fontWeight: 'bold' }}>應收/實收總金額 (NT$)</label>
+                  <input 
+                    type="number" 
+                    required 
+                    min="0"
+                    value={editOrderTotal}
+                    onChange={(e) => setEditOrderTotal(e.target.value)}
+                    style={{ padding: '8px 10px', fontSize: '0.85rem', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-body)', color: 'var(--text-main)' }}
+                  />
+                </div>
+
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <label style={{ fontSize: '0.75rem', fontWeight: 'bold' }}>付款方式</label>
+                  <input 
+                    type="text" 
+                    value={editOrderPayment}
+                    onChange={(e) => setEditOrderPayment(e.target.value)}
+                    placeholder="例: 現金, 信用卡, LINE Pay"
+                    style={{ padding: '8px 10px', fontSize: '0.85rem', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-body)', color: 'var(--text-main)' }}
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <label style={{ fontSize: '0.75rem', fontWeight: 'bold' }}>備註事項</label>
+                <input 
+                  type="text" 
+                  value={editOrderRemarks}
+                  onChange={(e) => setEditOrderRemarks(e.target.value)}
+                  placeholder="特別說明或顧客備註"
+                  style={{ padding: '8px 10px', fontSize: '0.85rem', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-body)', color: 'var(--text-main)' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '6px' }}>
+                <label style={{ fontSize: '0.8rem', fontWeight: 'bold', color: 'var(--text-main)' }}>訂單品項數量調整：</label>
+                {editOrderItems.map((item, idx) => (
+                  <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: 'var(--bg-body)', padding: '8px 10px', borderRadius: '6px', border: '1px solid var(--border)' }}>
+                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+                      <span style={{ fontSize: '0.8rem', fontWeight: 'bold' }}>{item.name}</span>
+                      {item.specs && (
+                        <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                          {Array.isArray(item.specs) 
+                            ? item.specs.map(s => typeof s === 'object' && s ? (s.value || `${s.name}: ${s.value}`) : String(s)).join(', ')
+                            : String(item.specs)}
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const updated = [...editOrderItems];
+                          if (updated[idx].quantity > 1) {
+                            updated[idx].quantity -= 1;
+                            setEditOrderItems(updated);
+                          }
+                        }}
+                        style={{ width: '24px', height: '24px', borderRadius: '4px', border: '1px solid var(--border)', cursor: 'pointer', fontWeight: 'bold' }}
+                      >
+                        -
+                      </button>
+                      <span style={{ fontSize: '0.85rem', fontWeight: 'bold', width: '24px', textAlign: 'center' }}>{item.quantity}</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const updated = [...editOrderItems];
+                          updated[idx].quantity += 1;
+                          setEditOrderItems(updated);
+                        }}
+                        style={{ width: '24px', height: '24px', borderRadius: '4px', border: '1px solid var(--border)', cursor: 'pointer', fontWeight: 'bold' }}
+                      >
+                        +
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const updated = editOrderItems.filter((_, i) => i !== idx);
+                          setEditOrderItems(updated);
+                        }}
+                        style={{ marginLeft: '6px', border: 'none', background: 'none', color: '#ef4444', cursor: 'pointer', fontSize: '0.9rem' }}
+                        title="移除此項"
+                      >
+                        🗑️
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '14px', borderTop: '1px solid var(--border)', paddingTop: '14px' }}>
+                <button
+                  type="button"
+                  onClick={() => setEditingPosOrder(null)}
+                  style={{ padding: '8px 16px', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-body)', color: 'var(--text-main)', cursor: 'pointer' }}
+                >
+                  取消
+                </button>
+                <button
+                  type="submit"
+                  style={{ padding: '8px 20px', borderRadius: '6px', border: 'none', backgroundColor: 'var(--primary)', color: 'white', fontWeight: 'bold', cursor: 'pointer' }}
+                >
+                  💾 儲存修改
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* WATCHED STOCK ALERT MODAL */}
+      {showStockAlertModal && (
+        <div className="modal-backdrop" style={{ zIndex: 1200 }}>
+          <div className="modal-content" style={{ maxWidth: '480px', padding: '24px', borderRadius: '16px', boxSizing: 'border-box', textAlign: 'left' }}>
+            <div className="modal-header" style={{ padding: 0, borderBottom: 'none', marginBottom: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h3 style={{ fontSize: '1.1rem', fontWeight: 'bold', margin: 0, color: '#b91c1c', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                ⚠️ 關注物料庫存偏低與補貨提醒
+              </h3>
+              <button className="close-btn" style={{ background: 'none', border: 'none', fontSize: '1.5rem', cursor: 'pointer', color: 'var(--text-muted)' }} onClick={() => setShowStockAlertModal(false)}>&times;</button>
+            </div>
+
+            <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: 0, marginBottom: '14px' }}>
+              以下是已被設為「關注項目」且目前庫存低於安全警戒線或缺貨的物料，請儘速安排進貨：
+            </p>
+
+            <div style={{ maxHeight: '320px', overflowY: 'auto', border: '1px solid var(--border)', borderRadius: '8px' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+                <thead>
+                  <tr style={{ backgroundColor: 'var(--bg-body)', borderBottom: '1px solid var(--border)', textAlign: 'left' }}>
+                    <th style={{ padding: '8px 12px' }}>物料名稱</th>
+                    <th style={{ padding: '8px 12px' }}>目前庫存</th>
+                    <th style={{ padding: '8px 12px' }}>警戒值</th>
+                    <th style={{ padding: '8px 12px' }}>狀態</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {watchedLowStockItems.map(item => {
+                    const isOut = Number(item.qty) <= 0;
+                    return (
+                      <tr key={item.name} style={{ borderBottom: '1px solid var(--border)' }}>
+                        <td style={{ padding: '8px 12px', fontWeight: 'bold' }}>{item.name}</td>
+                        <td style={{ padding: '8px 12px', fontWeight: 'bold', color: isOut ? '#ef4444' : '#f59e0b' }}>
+                          {item.qty} {item.unit}
+                        </td>
+                        <td style={{ padding: '8px 12px', color: 'var(--text-muted)' }}>{item.minStock} {item.unit}</td>
+                        <td style={{ padding: '8px 12px' }}>
+                          <span style={{
+                            padding: '2px 6px',
+                            borderRadius: '10px',
+                            fontSize: '0.7rem',
+                            fontWeight: 'bold',
+                            backgroundColor: isOut ? 'rgba(239,68,68,0.15)' : 'rgba(245,158,11,0.15)',
+                            color: isOut ? '#ef4444' : '#f59e0b'
+                          }}>
+                            {isOut ? '🔴 缺貨' : '🟡 偏低'}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '16px' }}>
+              <button
+                type="button"
+                onClick={() => setShowStockAlertModal(false)}
+                style={{ padding: '8px 18px', fontSize: '0.85rem', borderRadius: '6px', border: 'none', backgroundColor: 'var(--primary)', color: 'white', fontWeight: 'bold', cursor: 'pointer' }}
+              >
+                我知道了 (關閉)
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+
+      {/* =========================================================================
+          UNIFIED POS SETTINGS MODAL (Auto-print, Kitchen ticket, Voice, Scale, Reports)
+          ========================================================================= */}
+      {showPosSettingsModal && (
+        <div className="modal-backdrop" style={{ zIndex: 1100 }} onClick={() => setShowPosSettingsModal(false)}>
+          <div className="modal-content" style={{ maxWidth: '440px', padding: '24px', borderRadius: '16px', boxSizing: 'border-box', textAlign: 'left' }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header" style={{ padding: 0, borderBottom: 'none', marginBottom: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h3 style={{ fontSize: '1.15rem', fontWeight: 'bold', margin: 0, color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                ⚙️ POS 功能與列印設定
+              </h3>
+              <button className="close-btn" style={{ background: 'none', border: 'none', fontSize: '1.5rem', cursor: 'pointer', color: 'var(--text-muted)' }} onClick={() => setShowPosSettingsModal(false)}>&times;</button>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              {/* Section 1: Thermal Printing Options */}
+              <div style={{ padding: '12px', borderRadius: '8px', backgroundColor: 'var(--bg-body)', border: '1px solid var(--border)' }}>
+                <div style={{ fontSize: '0.85rem', fontWeight: 'bold', color: 'var(--text-main)', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  🖨️ 熱感應出單機設定
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  <label style={{ fontSize: '0.85rem', fontWeight: 'bold', display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', color: isAutoPrintEnabled ? '#16a34a' : 'var(--text-main)' }}>
+                    <span>🖨️ 新單自動出單</span>
+                    <input 
+                      type="checkbox" 
+                      checked={isAutoPrintEnabled} 
+                      onChange={(e) => {
+                        const val = e.target.checked;
+                        setIsAutoPrintEnabled(val);
+                        isAutoPrintEnabledRef.current = val;
+                        localStorage.setItem('is_auto_print_enabled', String(val));
+                      }}
+                      style={{ transform: 'scale(1.2)', cursor: 'pointer' }}
+                    />
+                  </label>
+
+                  <label style={{ fontSize: '0.85rem', fontWeight: 'bold', display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', color: printKitchenTicket ? '#0284c7' : 'var(--text-main)' }}>
+                    <span>🍳 同時列印廚房備餐切單 (雙聯)</span>
+                    <input 
+                      type="checkbox" 
+                      checked={printKitchenTicket} 
+                      onChange={(e) => {
+                        const val = e.target.checked;
+                        setPrintKitchenTicket(val);
+                        localStorage.setItem('pos_print_kitchen_ticket', String(val));
+                      }}
+                      style={{ transform: 'scale(1.2)', cursor: 'pointer' }}
+                    />
+                  </label>
+
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', borderTop: '1px dashed var(--border)', paddingTop: '6px' }}>
+                    💡 提示：開啟「同時列印廚房單」時，出單機會自動切刀分成【收據】與【廚房備餐單】兩聯。
+                  </div>
+                </div>
+              </div>
+
+              {/* Section 2: Voice Announcement */}
+              <div style={{ padding: '12px', borderRadius: '8px', backgroundColor: 'var(--bg-body)', border: '1px solid var(--border)' }}>
+                <div style={{ fontSize: '0.85rem', fontWeight: 'bold', color: 'var(--text-main)', marginBottom: '8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span>🗣️ 新單語音播報</span>
+                  <button
+                    type="button"
+                    onClick={testVoiceAnnouncement}
+                    style={{ padding: '3px 8px', fontSize: '0.75rem', borderRadius: '4px', border: '1px solid #10b981', backgroundColor: 'rgba(16, 185, 129, 0.1)', color: '#10b981', cursor: 'pointer', fontWeight: 'bold' }}
+                  >
+                    🔊 測試聲音
+                  </button>
+                </div>
+                <label style={{ fontSize: '0.85rem', fontWeight: 'bold', display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', color: isVoiceAnnounceEnabled ? '#10b981' : 'var(--text-main)' }}>
+                  <span>開啟語音報單提醒</span>
+                  <input 
+                    type="checkbox" 
+                    checked={isVoiceAnnounceEnabled} 
+                    onChange={(e) => {
+                      const val = e.target.checked;
+                      setIsVoiceAnnounceEnabled(val);
+                      localStorage.setItem('is_voice_announce_enabled', String(val));
+                    }}
+                    style={{ transform: 'scale(1.2)', cursor: 'pointer' }}
+                  />
+                </label>
+              </div>
+
+              {/* Section 3: UI Scale Control */}
+              <div style={{ padding: '12px', borderRadius: '8px', backgroundColor: 'var(--bg-body)', border: '1px solid var(--border)' }}>
+                <div style={{ fontSize: '0.85rem', fontWeight: 'bold', color: 'var(--text-main)', marginBottom: '8px' }}>
+                  🔍 介面與按鍵文字大小
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px' }}>
+                  {[
+                    { id: 'compact', label: '標準 (預設)', desc: '右側免滾動' },
+                    { id: 'medium', label: '適中 (110%)', desc: '適度放大' },
+                    { id: 'large', label: '大字 (120%)', desc: '大觸控螢幕' }
+                  ].map(scale => (
+                    <button
+                      key={scale.id}
+                      type="button"
+                      onClick={() => {
+                        setPosUiScale(scale.id);
+                        localStorage.setItem('pos_ui_scale', scale.id);
+                      }}
+                      style={{
+                        padding: '8px 4px',
+                        borderRadius: '6px',
+                        border: posUiScale === scale.id ? '2px solid var(--primary)' : '1px solid var(--border)',
+                        backgroundColor: posUiScale === scale.id ? 'var(--primary)' : 'var(--bg-card)',
+                        color: posUiScale === scale.id ? 'white' : 'var(--text-main)',
+                        fontWeight: 'bold',
+                        cursor: 'pointer',
+                        textAlign: 'center',
+                        fontSize: '0.8rem'
+                      }}
+                    >
+                      <div>{scale.label}</div>
+                      <div style={{ fontSize: '0.65rem', opacity: 0.85 }}>{scale.desc}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Section 4: Daily Closing & Shift Reports */}
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowPosSettingsModal(false);
+                    if (window.confirm("確定要列印換班交接小票 (X-Report) 嗎？")) {
+                      handlePrintShiftHandover();
+                    }
+                  }}
+                  style={{
+                    flex: 1,
+                    padding: '10px',
+                    borderRadius: '8px',
+                    border: '1px solid var(--border)',
+                    backgroundColor: 'var(--bg-card)',
+                    color: 'var(--text-main)',
+                    fontSize: '0.85rem',
+                    fontWeight: 'bold',
+                    cursor: 'pointer'
+                  }}
+                >
+                  📋 換班對帳小票
+                </button>
+
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setShowPosSettingsModal(false);
+                    if (window.confirm("確定要執行今日收店結帳嗎？結帳後今日收銀系統將安全結案鎖定。")) {
+                      handlePrintDailyClosing();
+                      const todayStr = getTodayLocalDate();
+                      const updated = [...closedDates, todayStr];
+                      setClosedDates(updated);
+                      localStorage.setItem('restaurant_closed_dates', JSON.stringify(updated));
+                      window.dispatchEvent(new Event('storage'));
+
+                      try {
+                        const closedKey = prefixNameForStore('SYSTEM_SETTING_CLOSED_DATES', storeCode);
+                        const { data: exist } = await supabase.from('menu_items').select('*').eq('name', closedKey);
+                        if (exist && exist.length > 0) {
+                          await supabase.from('menu_items').update({
+                            description: JSON.stringify(updated)
+                          }).eq('name', closedKey);
+                        } else {
+                          await supabase.from('menu_items').insert([{
+                            name: closedKey,
+                            price: 0,
+                            category: 'settings',
+                            description: JSON.stringify(updated)
+                          }]);
+                        }
+                      } catch (e) {
+                        console.warn("Failed to sync closed dates to menu_items:", e);
+                      }
+
+                      alert("🎉 收店結帳成功！今日營業已完成結算並安全鎖定。");
+                    }
+                  }}
+                  style={{
+                    flex: 1,
+                    padding: '10px',
+                    borderRadius: '8px',
+                    border: '1px solid #ef4444',
+                    backgroundColor: 'rgba(239, 68, 68, 0.08)',
+                    color: '#ef4444',
+                    fontSize: '0.85rem',
+                    fontWeight: 'bold',
+                    cursor: 'pointer'
+                  }}
+                >
+                  🏁 印日結單並收店
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Native Body Thermal Print Portal */}
+      <ThermalPrintPortal printPayload={printPayload} onClose={() => setPrintPayload(null)} />
     </div>
   );
 }

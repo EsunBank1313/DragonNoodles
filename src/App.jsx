@@ -5,39 +5,98 @@ import BookkeepingView from './components/BookkeepingView';
 import ManagementView from './components/ManagementView';
 import UnifiedLoginScreen from './components/UnifiedLoginScreen';
 import { supabase } from './supabaseClient';
+import { getActiveStoreCode, setActiveStoreCode, filterItemsByStore, getStoreSessionStorage, setStoreSessionStorage, isStaffTokenValid } from './utils/storeContext';
+
+const getInitialRoleAndParams = () => {
+  if (typeof window === 'undefined') {
+    return { role: 'customer', table: null, store: 'dragon', isStaffValid: true };
+  }
+  const hostname = window.location.hostname;
+  const params = new URLSearchParams(window.location.search);
+  const rawStore = params.get('store');
+  const store = getActiveStoreCode();
+  const table = params.get('table');
+
+  const isStaffRoute = (
+    hostname.startsWith('pos.') || hostname.startsWith('admin.') || hostname.startsWith('bookkeeping.') ||
+    params.get('login') === 'true' || params.get('portal') === 'true' || params.get('demo') === 'true' ||
+    params.get('admin') === 'true' || params.get('management') === 'true' ||
+    params.get('pos') === 'true' || params.get('bookkeeping') === 'true'
+  );
+
+  // If user requests an internal staff portal, strictly verify the secret token!
+  if (isStaffRoute) {
+    if (!isStaffTokenValid(rawStore)) {
+      return { role: 'dead_404', table: null, store, isStaffValid: false };
+    }
+  }
+
+  if (hostname.startsWith('pos.')) return { role: 'pos', table: null, store, isStaffValid: true };
+  if (hostname.startsWith('admin.')) return { role: 'management', table: null, store, isStaffValid: true };
+  if (hostname.startsWith('bookkeeping.')) return { role: 'bookkeeping', table: null, store, isStaffValid: true };
+
+  if (params.get('login') === 'true' || params.get('portal') === 'true' || params.get('demo') === 'true') {
+    return { role: 'login', table: null, store, isStaffValid: true };
+  }
+  if (params.get('admin') === 'true' || params.get('management') === 'true') {
+    return { role: 'management', table: null, store, isStaffValid: true };
+  }
+  if (params.get('pos') === 'true') {
+    return { role: 'pos', table: null, store, isStaffValid: true };
+  }
+  if (params.get('bookkeeping') === 'true') {
+    return { role: 'bookkeeping', table: null, store, isStaffValid: true };
+  }
+  if (table) {
+    return { role: 'customer', table, store, isStaffValid: true };
+  }
+  return { role: 'customer', table: null, store, isStaffValid: true };
+};
 
 function App() {
-  const [role, setRole] = useState(null); // 'customer', 'pos', 'bookkeeping', 'management', or null (demo selection)
-  const [tableNumber, setTableNumber] = useState(null);
+  const initial = getInitialRoleAndParams();
+  const [role, setRole] = useState(initial.role);
+  const [tableNumber, setTableNumber] = useState(initial.table);
+  const [storeCode, setStoreCode] = useState(() => initial.store || getActiveStoreCode());
   const [storeName, setStoreName] = useState('龍城麵線');
   const [adminPin, setAdminPin] = useState('8888');
   
+  // 6 hours in milliseconds
+  const SIX_HOURS_MS = 6 * 60 * 60 * 1000;
+
+  const checkSessionValid = (authKey, timeKey) => {
+    const scopedAuth = `${storeCode}_${authKey}`;
+    const scopedTime = `${storeCode}_${timeKey}`;
+    const isAuth = localStorage.getItem(scopedAuth) === 'true' || sessionStorage.getItem(scopedAuth) === 'true';
+    if (!isAuth) return false;
+    const loginTime = Number(localStorage.getItem(scopedTime) || sessionStorage.getItem(scopedTime) || 0);
+    if (!loginTime || (Date.now() - loginTime > SIX_HOURS_MS)) {
+      localStorage.removeItem(scopedAuth);
+      sessionStorage.removeItem(scopedAuth);
+      localStorage.removeItem(scopedTime);
+      sessionStorage.removeItem(scopedTime);
+      return false;
+    }
+    return true;
+  };
+
   // Authentication states
-  const [isCashierAuth, setIsCashierAuth] = useState(() => {
-    return localStorage.getItem('is_cashier_authenticated') === 'true' ||
-           sessionStorage.getItem('is_cashier_authenticated') === 'true';
-  });
-  const [isBookkeepingAuth, setIsBookkeepingAuth] = useState(() => {
-    return localStorage.getItem('is_bookkeeping_authenticated') === 'true' ||
-           sessionStorage.getItem('is_bookkeeping_authenticated') === 'true';
-  });
-  const [isManagementAuth, setIsManagementAuth] = useState(() => {
-    return localStorage.getItem('is_management_authenticated') === 'true' ||
-           sessionStorage.getItem('is_management_authenticated') === 'true';
-  });
+  const [isCashierAuth, setIsCashierAuth] = useState(() => checkSessionValid('is_cashier_authenticated', 'pos_login_time'));
+  const [isBookkeepingAuth, setIsBookkeepingAuth] = useState(() => checkSessionValid('is_bookkeeping_authenticated', 'bookkeeping_login_time'));
+  const [isManagementAuth, setIsManagementAuth] = useState(() => checkSessionValid('is_management_authenticated', 'management_login_time'));
   const [cashierName, setCashierName] = useState(() => {
     return localStorage.getItem('cashier_name') || sessionStorage.getItem('cashier_name') || '';
+  });
+  const [posSessionId, setPosSessionId] = useState(() => {
+    return (typeof window !== 'undefined') ? (sessionStorage.getItem(`${getActiveStoreCode()}_pos_session_id`) || '') : '';
   });
 
   // Cache buster to clear stale local storage states across client devices
   useEffect(() => {
-    const CURRENT_VERSION = "2.2.0";
+    const CURRENT_VERSION = "2.5.0";
     const localVersion = localStorage.getItem('app_version');
     if (localVersion !== CURRENT_VERSION) {
-      localStorage.removeItem('restaurant_closed_dates');
-      localStorage.removeItem('restaurant_orders');
-      localStorage.removeItem('restaurant_purchases');
-      localStorage.removeItem('restaurant_fixed_costs');
+      localStorage.clear();
       localStorage.setItem('app_version', CURRENT_VERSION);
       
       // Unregister service workers if any
@@ -52,26 +111,42 @@ function App() {
     }
   }, []);
 
-  // Check hostname and URL parameters for immediate routing
-  useEffect(() => {
-    const hostname = window.location.hostname;
+  // Immediate URL routing and popstate listener (handles browser back/forward seamlessly!)
+  const updateRouteFromUrl = () => {
     const params = new URLSearchParams(window.location.search);
+    const hostname = window.location.hostname;
+    const rawStore = params.get('store');
+    const resolvedStore = getActiveStoreCode();
+    setStoreCode(resolvedStore);
+    setActiveStoreCode(resolvedStore);
+
     const tableParam = params.get('table');
     const adminParam = params.get('admin');
     const posParam = params.get('pos');
     const bookkeepingParam = params.get('bookkeeping');
     const demoParam = params.get('demo');
 
-    // 1. Subdomain-based routing (pos.* -> POS, admin.* -> Management, bookkeeping.* -> Bookkeeping)
+    const isStaffRoute = (
+      hostname.startsWith('pos.') || hostname.startsWith('admin.') || hostname.startsWith('bookkeeping.') ||
+      params.get('login') === 'true' || params.get('portal') === 'true' || demoParam === 'true' ||
+      adminParam === 'true' || params.get('management') === 'true' ||
+      posParam === 'true' || bookkeepingParam === 'true'
+    );
+
+    if (isStaffRoute && !isStaffTokenValid(rawStore)) {
+      setRole('dead_404');
+      return;
+    }
+
     if (hostname.startsWith('pos.')) {
       setRole('pos');
     } else if (hostname.startsWith('admin.')) {
       setRole('management');
     } else if (hostname.startsWith('bookkeeping.')) {
       setRole('bookkeeping');
-    }
-    // 2. URL parameter routing
-    else if (adminParam === 'true' || params.get('management') === 'true') {
+    } else if (params.get('login') === 'true' || params.get('portal') === 'true' || demoParam === 'true') {
+      setRole('login');
+    } else if (adminParam === 'true' || params.get('management') === 'true') {
       setRole('management');
     } else if (posParam === 'true') {
       setRole('pos');
@@ -80,119 +155,196 @@ function App() {
     } else if (tableParam) {
       setTableNumber(tableParam);
       setRole('customer');
-    } else if (demoParam === 'true') {
-      setRole(null);
     } else {
-      // Default to customer view for other hostnames
       setRole('customer');
       setTableNumber(null);
     }
+  };
+
+  useEffect(() => {
+    updateRouteFromUrl();
+    window.addEventListener('popstate', updateRouteFromUrl);
+    return () => window.removeEventListener('popstate', updateRouteFromUrl);
   }, []);
+
+  // Build URL while safely preserving current secret store parameter
+  const buildUrlWithStore = (extraParams = {}) => {
+    const currentParams = new URLSearchParams(window.location.search);
+    const rawStore = currentParams.get('store');
+    const params = new URLSearchParams();
+    if (rawStore) {
+      params.set('store', rawStore);
+    }
+    Object.entries(extraParams).forEach(([k, v]) => {
+      if (v !== undefined && v !== null && v !== false) {
+        params.set(k, String(v));
+      }
+    });
+    const queryString = params.toString();
+    return queryString ? `${window.location.pathname}?${queryString}` : window.location.pathname;
+  };
 
   const handleSelectCustomer = (tableNum = null) => {
     setTableNumber(tableNum);
     setRole('customer');
-    const newUrl = tableNum 
-      ? `${window.location.pathname}?table=${tableNum}` 
-      : window.location.pathname;
-    window.history.pushState({}, '', newUrl);
+    window.history.pushState({}, '', buildUrlWithStore({ table: tableNum }));
   };
 
   const handleSelectKitchen = () => {
     setRole('management');
-    window.history.pushState({}, '', `${window.location.pathname}?management=true`);
+    window.history.pushState({}, '', buildUrlWithStore({ admin: 'true' }));
   };
 
   const handleSelectPos = () => {
     setRole('pos');
-    window.history.pushState({}, '', `${window.location.pathname}?pos=true`);
+    window.history.pushState({}, '', buildUrlWithStore({ pos: 'true' }));
   };
 
   const handleSelectBookkeeping = () => {
     setRole('bookkeeping');
-    window.history.pushState({}, '', `${window.location.pathname}?bookkeeping=true`);
+    window.history.pushState({}, '', buildUrlWithStore({ bookkeeping: 'true' }));
   };
 
   const handleSelectManagement = () => {
     setRole('management');
-    window.history.pushState({}, '', `${window.location.pathname}?management=true`);
+    window.history.pushState({}, '', buildUrlWithStore({ admin: 'true' }));
   };
 
   useEffect(() => {
     supabase.from('menu_items')
       .select('*')
-      .eq('name', 'SYSTEM_SETTING_STORE_NAME')
-      .single()
       .then(({ data }) => {
-        if (data && data.description) {
-          setStoreName(data.description);
+        if (data && data.length > 0) {
+          const storeItems = filterItemsByStore(data, storeCode);
+          const nameItem = storeItems.find(i => i.name === 'SYSTEM_SETTING_STORE_NAME');
+          if (nameItem && nameItem.description) {
+            setStoreName(nameItem.description);
+          }
+          const pinItem = storeItems.find(i => i.name === 'SYSTEM_SETTING_ADMIN_PIN');
+          if (pinItem && pinItem.description) {
+            setAdminPin(pinItem.description);
+          }
         }
       });
-    supabase.from('menu_items')
-      .select('*')
-      .eq('name', 'SYSTEM_SETTING_ADMIN_PIN')
-      .single()
-      .then(({ data }) => {
-        if (data && data.description) {
-          setAdminPin(data.description);
-        }
-      });
-  }, [role]);
+  }, [role, storeCode]);
 
   const handleBackToDemo = () => {
     setRole(null);
     setTableNumber(null);
-    window.history.pushState({}, '', window.location.pathname);
+    window.history.pushState({}, '', buildUrlWithStore({ login: 'true' }));
   };
 
-  const handleCashierAuthSuccess = (employeeName) => {
+  const handleCashierAuthSuccess = (payload) => {
+    const now = Date.now();
+    const employeeName = typeof payload === 'object' && payload ? payload.staffName : String(payload || '');
+    const sid = typeof payload === 'object' && payload ? payload.sessionId : '';
+    
     setIsCashierAuth(true);
     setCashierName(employeeName);
-    localStorage.setItem('is_cashier_authenticated', 'true');
-    localStorage.setItem('cashier_name', employeeName);
+    if (sid) {
+      setPosSessionId(sid);
+      setStoreSessionStorage('pos_session_id', sid, storeCode);
+    }
+    localStorage.setItem(`${storeCode}_is_cashier_authenticated`, 'true');
+    localStorage.setItem(`${storeCode}_cashier_name`, employeeName);
+    localStorage.setItem(`${storeCode}_pos_login_time`, String(now));
   };
 
   const handleCashierLogout = () => {
     setIsCashierAuth(false);
     setCashierName('');
-    localStorage.removeItem('is_cashier_authenticated');
-    sessionStorage.removeItem('is_cashier_authenticated');
-    localStorage.removeItem('cashier_name');
-    sessionStorage.removeItem('cashier_name');
-    localStorage.removeItem('pos_session_id');
+    localStorage.removeItem(`${storeCode}_is_cashier_authenticated`);
+    sessionStorage.removeItem(`${storeCode}_is_cashier_authenticated`);
+    localStorage.removeItem(`${storeCode}_cashier_name`);
+    sessionStorage.removeItem(`${storeCode}_cashier_name`);
+    localStorage.removeItem(`${storeCode}_pos_session_id`);
+    localStorage.removeItem(`${storeCode}_pos_login_time`);
+    setRole('login');
+    window.history.pushState({}, '', buildUrlWithStore({ login: 'true' }));
   };
 
   const handleBookkeepingAuthSuccess = (remember) => {
+    const now = Date.now();
     setIsBookkeepingAuth(true);
     if (remember) {
-      localStorage.setItem('is_bookkeeping_authenticated', 'true');
+      localStorage.setItem(`${storeCode}_is_bookkeeping_authenticated`, 'true');
+      localStorage.setItem(`${storeCode}_bookkeeping_login_time`, String(now));
     } else {
-      sessionStorage.setItem('is_bookkeeping_authenticated', 'true');
+      sessionStorage.setItem(`${storeCode}_is_bookkeeping_authenticated`, 'true');
+      sessionStorage.setItem(`${storeCode}_bookkeeping_login_time`, String(now));
     }
   };
 
   const handleBookkeepingLogout = () => {
     setIsBookkeepingAuth(false);
-    localStorage.removeItem('is_bookkeeping_authenticated');
-    sessionStorage.removeItem('is_bookkeeping_authenticated');
+    localStorage.removeItem(`${storeCode}_is_bookkeeping_authenticated`);
+    sessionStorage.removeItem(`${storeCode}_is_bookkeeping_authenticated`);
+    localStorage.removeItem(`${storeCode}_bookkeeping_login_time`);
+    sessionStorage.removeItem(`${storeCode}_bookkeeping_login_time`);
+    setRole('login');
+    window.history.pushState({}, '', buildUrlWithStore({ login: 'true' }));
   };
 
   const handleManagementAuthSuccess = (remember) => {
+    const now = Date.now();
     setIsManagementAuth(true);
     if (remember) {
-      localStorage.setItem('is_management_authenticated', 'true');
+      localStorage.setItem(`${storeCode}_is_management_authenticated`, 'true');
+      localStorage.setItem(`${storeCode}_management_login_time`, String(now));
     } else {
-      sessionStorage.setItem('is_management_authenticated', 'true');
+      sessionStorage.setItem(`${storeCode}_is_management_authenticated`, 'true');
+      sessionStorage.setItem(`${storeCode}_management_login_time`, String(now));
     }
   };
 
   const handleManagementLogout = () => {
     setIsManagementAuth(false);
-    localStorage.removeItem('is_management_authenticated');
-    sessionStorage.removeItem('is_management_authenticated');
+    localStorage.removeItem(`${storeCode}_is_management_authenticated`);
+    sessionStorage.removeItem(`${storeCode}_is_management_authenticated`);
+    localStorage.removeItem(`${storeCode}_management_login_time`);
+    sessionStorage.removeItem(`${storeCode}_management_login_time`);
+    setRole('login');
+    window.history.pushState({}, '', buildUrlWithStore({ login: 'true' }));
   };
 
+  // Periodic 6-hour session expiration monitoring
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const SIX_HOURS = 6 * 60 * 60 * 1000;
+      const now = Date.now();
+
+      if (isCashierAuth) {
+        const loginTime = Number(localStorage.getItem(`${storeCode}_pos_login_time`) || 0);
+        if (loginTime && (now - loginTime > SIX_HOURS)) {
+          handleCashierLogout();
+          alert("⏱️ 登入已滿 6 小時，系統已自動登出 POS 收銀系統，請重新登入。");
+        }
+      }
+
+      if (isBookkeepingAuth) {
+        const loginTime = Number(localStorage.getItem(`${storeCode}_bookkeeping_login_time`) || sessionStorage.getItem(`${storeCode}_bookkeeping_login_time`) || 0);
+        if (loginTime && (now - loginTime > SIX_HOURS)) {
+          handleBookkeepingLogout();
+          alert("⏱️ 登入已滿 6 小時，系統已自動登出記帳系統，請重新登入。");
+        }
+      }
+
+      if (isManagementAuth) {
+        const loginTime = Number(localStorage.getItem(`${storeCode}_management_login_time`) || sessionStorage.getItem(`${storeCode}_management_login_time`) || 0);
+        if (loginTime && (now - loginTime > SIX_HOURS)) {
+          handleManagementLogout();
+          alert("⏱️ 登入已滿 6 小時，系統已自動登出後台管理系統，請重新登入。");
+        }
+      }
+    }, 15000);
+
+    return () => clearInterval(interval);
+  }, [isCashierAuth, isBookkeepingAuth, isManagementAuth, storeCode]);
+
   const handleUnifiedLoginSuccess = (targetRole, payload) => {
+    setRole(targetRole);
+    const param = targetRole === 'management' ? 'admin' : (targetRole === 'bookkeeping' ? 'bookkeeping' : 'pos');
+    window.history.pushState({}, '', buildUrlWithStore({ [param]: 'true' }));
     if (targetRole === 'pos') {
       handleCashierAuthSuccess(payload);
     } else if (targetRole === 'bookkeeping') {
@@ -202,171 +354,137 @@ function App() {
     }
   };
 
-  // Render view based on active role
+
+
+  // 🚫 Completely Dead / 404 Blank Page for unauthorized internal staff attempts
+  if (role === 'dead_404') {
+    return (
+      <div style={{
+        minHeight: '100vh',
+        backgroundColor: '#ffffff',
+        color: '#222222',
+        padding: '60px 24px',
+        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'
+      }}>
+        <div style={{ maxWidth: '600px', margin: '0 auto', textAlign: 'left' }}>
+          <h1 style={{ fontSize: '2rem', fontWeight: 'bold', margin: '0 0 12px 0', color: '#111827' }}>404 Not Found</h1>
+          <p style={{ fontSize: '1rem', color: '#6b7280', margin: '0 0 24px 0', lineHeight: '1.5' }}>
+            The requested URL was not found on this server. Please check the URL for errors or contact the system administrator.
+          </p>
+          <hr style={{ border: 'none', borderTop: '1px solid #e5e7eb', margin: '24px 0' }} />
+          <div style={{ fontSize: '0.8rem', color: '#9ca3af' }}>
+            server / v59.1
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // 1. Customer Online Ordering View (for QR codes or main customer site)
   if (role === 'customer') {
     return (
       <CustomerView 
+        storeCode={storeCode}
         tableNumber={tableNumber} 
-        onBackToDemo={handleBackToDemo} 
       />
     );
   }
 
-  // Combined login screen check
-  if (role === 'pos' && !isCashierAuth) {
-    return (
-      <UnifiedLoginScreen 
-        initialRole="pos"
-        onChangeRole={setRole}
-        adminPin={adminPin}
-        onSuccess={handleUnifiedLoginSuccess}
-        onBackToDemo={handleBackToDemo}
-      />
-    );
-  }
-  if (role === 'bookkeeping' && !isBookkeepingAuth) {
-    return (
-      <UnifiedLoginScreen 
-        initialRole="bookkeeping"
-        onChangeRole={setRole}
-        adminPin={adminPin}
-        onSuccess={handleUnifiedLoginSuccess}
-        onBackToDemo={handleBackToDemo}
-      />
-    );
-  }
-  if (role === 'management' && !isManagementAuth) {
-    return (
-      <UnifiedLoginScreen 
-        initialRole="management"
-        onChangeRole={setRole}
-        adminPin={adminPin}
-        onSuccess={handleUnifiedLoginSuccess}
-        onBackToDemo={handleBackToDemo}
-      />
-    );
-  }
-
-  // Authenticated Views
+  // 2. POS Cashier View
   if (role === 'pos') {
+    if (!isCashierAuth) {
+      return (
+        <UnifiedLoginScreen 
+          storeCode={storeCode}
+          onSwitchStore={(newCode) => {
+            setStoreCode(newCode);
+            setActiveStoreCode(newCode);
+          }}
+          initialRole="pos"
+          onChangeRole={setRole}
+          adminPin={adminPin}
+          onSuccess={handleUnifiedLoginSuccess}
+        />
+      );
+    }
     return (
       <CashierView 
+        key={posSessionId || 'cashier-active'}
+        storeCode={storeCode}
         cashierName={cashierName}
+        sessionId={posSessionId}
         onLogout={handleCashierLogout}
-        onBackToDemo={handleBackToDemo}
       />
     );
   }
 
+  // 3. Bookkeeping View
   if (role === 'bookkeeping') {
+    if (!isBookkeepingAuth) {
+      return (
+        <UnifiedLoginScreen 
+          storeCode={storeCode}
+          onSwitchStore={(newCode) => {
+            setStoreCode(newCode);
+            setActiveStoreCode(newCode);
+          }}
+          initialRole="bookkeeping"
+          onChangeRole={setRole}
+          adminPin={adminPin}
+          onSuccess={handleUnifiedLoginSuccess}
+        />
+      );
+    }
     return (
       <BookkeepingView 
-        onBackToDemo={handleBackToDemo} 
+        storeCode={storeCode}
         onLogout={handleBookkeepingLogout}
       />
     );
   }
 
+  // 4. Management Admin View
   if (role === 'management') {
+    if (!isManagementAuth) {
+      return (
+        <UnifiedLoginScreen 
+          storeCode={storeCode}
+          onSwitchStore={(newCode) => {
+            setStoreCode(newCode);
+            setActiveStoreCode(newCode);
+          }}
+          initialRole="management"
+          onChangeRole={setRole}
+          adminPin={adminPin}
+          onSuccess={handleUnifiedLoginSuccess}
+        />
+      );
+    }
     return (
       <ManagementView 
-        onBackToDemo={handleBackToDemo}
+        storeCode={storeCode}
+        onSwitchStore={(newCode) => {
+          setStoreCode(newCode);
+          setActiveStoreCode(newCode);
+        }}
         onLogout={handleManagementLogout}
       />
     );
   }
 
+  // 5. Default Staff Unified Login Portal (for ?login=true or any unauthenticated staff entry)
   return (
-    <div className="demo-shell" style={{ paddingBottom: '50px' }}>
-      <span className="demo-logo">🥢</span>
-      <h1 className="demo-title">{storeName} 餐廳點餐與接單系統</h1>
-      <p className="demo-subtitle">
-        專為麵線店打造的點餐與櫃檯收銀系統。支援內用掃碼、預約外帶自取與現場實體 POS，跨視窗即時接單同步。
-      </p>
-
-      <div className="demo-card-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px' }}>
-        {/* Dine-in customer mock */}
-        <div className="demo-card" onClick={() => handleSelectCustomer('5')}>
-          <span className="demo-card-icon">📱</span>
-          <h2 className="demo-card-title">模擬內用點餐</h2>
-          <p className="demo-card-desc">
-            模擬顧客掃描「5號桌」QR Code。系統會自動鎖定為內用並帶入桌號，下單後免排隊。
-          </p>
-          <button className="demo-btn">以 5 號桌進入</button>
-        </div>
-
-        {/* Takeout customer mock */}
-        <div className="demo-card" onClick={() => handleSelectCustomer(null)}>
-          <span className="demo-card-icon">🛍️</span>
-          <h2 className="demo-card-title">模擬外帶點餐</h2>
-          <p className="demo-card-desc">
-            模擬線上點餐。顧客可輸入姓名、手機與選擇取餐時間，到店後快速結帳取餐。
-          </p>
-          <button className="demo-btn">以 外帶模式進入</button>
-        </div>
-
-        {/* Cashier POS view */}
-        <div className="demo-card" onClick={handleSelectPos}>
-          <span className="demo-card-icon">💵</span>
-          <h2 className="demo-card-title">現場收銀系統 (POS)</h2>
-          <p className="demo-card-desc">
-            櫃檯實體收銀結帳系統。支援選取品項、加料客製、現金找零與自動送單至廚房。
-            <br />
-            <span style={{ fontSize: '0.7rem', color: 'var(--primary)', fontWeight: 'bold' }}>(預設 PIN 碼：6666)</span>
-          </p>
-          <button className="demo-btn" style={{ backgroundColor: '#16a34a' }}>進入收銀系統</button>
-        </div>
-
-        {/* Bookkeeping view */}
-        <div className="demo-card" onClick={handleSelectBookkeeping}>
-          <span className="demo-card-icon">📊</span>
-          <h2 className="demo-card-title">營業記帳與報表</h2>
-          <p className="demo-card-desc">
-            獨立財務對帳系統。登錄固定與進貨變動成本、調取流水明細、匯出月報表與每日收店。
-            <br />
-            <span style={{ fontSize: '0.7rem', color: 'var(--primary)', fontWeight: 'bold' }}>(預設 PIN 碼：8888)</span>
-          </p>
-          <button className="demo-btn" style={{ backgroundColor: '#8b5cf6' }}>進入記帳系統</button>
-        </div>
-
-        {/* Management view */}
-        <div className="demo-card" onClick={handleSelectManagement}>
-          <span className="demo-card-icon">🛠️</span>
-          <h2 className="demo-card-title">後台管理系統</h2>
-          <p className="demo-card-desc">
-            產品與員工班表管理。可變更商品名稱、價格、圖片，並管理收銀員名單與登入密碼 ("點名")。
-            <br />
-            <span style={{ fontSize: '0.7rem', color: 'var(--primary)', fontWeight: 'bold' }}>(預設 PIN 碼：8888)</span>
-          </p>
-          <button className="demo-btn" style={{ backgroundColor: '#0284c7' }}>進入管理系統</button>
-        </div>
-      </div>
-
-      <div 
-        style={{ 
-          marginTop: '40px', 
-          padding: '16px', 
-          backgroundColor: 'rgba(255, 107, 53, 0.05)', 
-          borderRadius: 'var(--radius-md)',
-          maxWidth: '650px',
-          fontSize: '0.85rem',
-          color: 'var(--text-muted)',
-          lineHeight: '1.6',
-          border: '1px dashed var(--primary)',
-          textAlign: 'left',
-          marginLeft: 'auto',
-          marginRight: 'auto'
-        }}
-      >
-        <strong style={{ color: 'var(--primary)' }}>💡 龍城麵線系統測試教學：</strong>
-        <ol style={{ paddingLeft: '20px', marginTop: '6px' }}>
-          <li>在新分頁開啟 <strong>「現場收銀系統 (POS)」</strong> (PIN `6666`) 進行收銀結帳，切換 📋 選單可即時接單與「自動列印收據」。</li>
-          <li>在新分頁開啟 <strong>「模擬點餐」</strong> 進行顧客下單，下單的瞬間 POS 系統會自動發出提示音並開起列印收據。</li>
-          <li>點選 <strong>「後台管理系統」</strong> (PIN `8888`) 可直接修改產品詳情（價格、圖片）與管理收銀人員。</li>
-          <li>點選 <strong>「進入營業記帳與報表」</strong> (PIN `8888`) 可進行收店對帳。</li>
-        </ol>
-      </div>
-    </div>
+    <UnifiedLoginScreen 
+      storeCode={storeCode}
+      onSwitchStore={(newCode) => {
+        setStoreCode(newCode);
+        setActiveStoreCode(newCode);
+      }}
+      initialRole="pos"
+      onChangeRole={setRole}
+      adminPin={adminPin}
+      onSuccess={handleUnifiedLoginSuccess}
+    />
   );
 }
 
