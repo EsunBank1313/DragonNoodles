@@ -1038,6 +1038,55 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
     setActiveItemForModal(null);
   };
 
+  // 🏁 Handle Daily Closing (今日打烊收店 / Z-Report)
+  const handleDailyClosingAndLock = async () => {
+    if (!window.confirm("⚠️ 確定要執行【今日打烊收店】嗎？\n系統將自動列印本日日結單 (Z-Report)，關閉顧客線上點餐，並鎖定今日收銀帳目。")) {
+      return;
+    }
+
+    try {
+      handlePrintDailyClosing();
+      const todayStr = getTodayLocalDate();
+
+      // 1. Mark store closed in storeOpenStatus
+      const openStatusKey = prefixNameForStore('SYSTEM_SETTING_STORE_OPEN_STATUS', storeCode);
+      const newStatus = {
+        is_open: false,
+        open_date: todayStr,
+        closed_at: new Date().toISOString(),
+        closed_by: cashierName || '櫃檯人員'
+      };
+      setStoreOpenStatus(newStatus);
+      try {
+        const { data: existOpen } = await supabase.from('menu_items').select('*').eq('name', openStatusKey);
+        if (existOpen && existOpen.length > 0) {
+          await supabase.from('menu_items').update({ description: JSON.stringify(newStatus) }).eq('name', openStatusKey);
+        } else {
+          await supabase.from('menu_items').insert([{ name: openStatusKey, price: 0, category: 'settings', description: JSON.stringify(newStatus) }]);
+        }
+      } catch (e) {}
+
+      // 2. Add today to closedDates and sync
+      const updated = Array.from(new Set([...closedDates, todayStr]));
+      setClosedDates(updated);
+      localStorage.setItem('restaurant_closed_dates', JSON.stringify(updated));
+      window.dispatchEvent(new Event('storage'));
+
+      const closedKey = prefixNameForStore('SYSTEM_SETTING_CLOSED_DATES', storeCode);
+      const { data: exist } = await supabase.from('menu_items').select('*').eq('name', closedKey);
+      if (exist && exist.length > 0) {
+        await supabase.from('menu_items').update({ description: JSON.stringify(updated) }).eq('name', closedKey);
+      } else {
+        await supabase.from('menu_items').insert([{ name: closedKey, price: 0, category: 'settings', description: JSON.stringify(updated) }]);
+      }
+
+      alert("🎉 打烊收店結算完成！本日線上點餐已關閉，POS 帳目已安全結案。");
+    } catch (err) {
+      console.error("Failed executing daily closing:", err);
+      alert("收店過程中發生錯誤，請檢查網路連線。");
+    }
+  };
+
   // 🛎️ POS Store Opening / Closing Toggle (開店 / 打烊)
   const handleToggleStoreOpen = async () => {
     const todayStr = getTodayLocalDate();
@@ -1099,6 +1148,24 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
       } catch (err) {
         console.error("Failed to update store open status:", err);
       }
+    }
+  };
+
+  // Update Order Status (received -> ready -> completed / deleted)
+  const handleUpdateOrderStatus = async (orderId, newStatus) => {
+    try {
+      setOrders(prev => prev.map(o => (String(o.id) === String(orderId)) ? { ...o, status: newStatus } : o));
+
+      const { error } = await supabase
+        .from('orders')
+        .update({ status: newStatus })
+        .eq('id', orderId);
+
+      if (error) throw error;
+      fetchOrders();
+    } catch (err) {
+      console.error("Failed to update order status:", err);
+      alert("更新訂單狀態失敗，請確認網路連線。");
     }
   };
 
@@ -1965,48 +2032,208 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                 /* Orders list */
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', textAlign: 'left' }}>
                   {orders.length === 0 ? (
-                    <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>暫無訂單</div>
+                    <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem', padding: '20px', textAlign: 'center' }}>暫無訂單記錄</div>
                   ) : (
                     orders.map(order => {
                       const isPending = order.status === 'received';
+                      const isReady = order.status === 'ready';
+                      const isCompleted = order.status === 'completed';
+                      const isOnlineOrder = Boolean(!order.cashier || order.isOnline || (order.customerPhone && order.customerPhone.length > 0) || order.pickupTime);
+
                       return (
-                        <div key={order.id} style={{ padding: '12px', border: '1px solid var(--border)', borderRadius: '8px', backgroundColor: 'var(--bg-card)' }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', fontWeight: 'bold', borderBottom: '1px solid var(--border)', paddingBottom: '4px', marginBottom: '6px' }}>
-                            <span>
-                              單號: {order.serialNum} ({order.type === 'dine-in' ? '內用' : '外帶'})
-                              <span style={{
-                                marginLeft: '8px',
-                                padding: '2px 6px',
-                                borderRadius: '4px',
-                                backgroundColor: isPending ? 'rgba(234, 88, 12, 0.1)' : 'rgba(22, 163, 74, 0.1)',
-                                color: isPending ? 'var(--primary)' : '#16a34a'
-                              }}>
-                                {isPending ? '處理中' : '已完成'}
+                        <div 
+                          key={order.id} 
+                          style={{ 
+                            padding: '14px', 
+                            border: isOnlineOrder ? '2px solid #8b5cf6' : '1px solid var(--border)', 
+                            borderRadius: '10px', 
+                            backgroundColor: isOnlineOrder ? (isReady ? '#f0fdf4' : 'rgba(139, 92, 246, 0.04)') : 'var(--bg-card)',
+                            boxShadow: isOnlineOrder ? '0 4px 12px rgba(139, 92, 246, 0.12)' : 'none',
+                            position: 'relative',
+                            transition: 'all 0.2s ease'
+                          }}
+                        >
+                          {/* Order Header */}
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.85rem', fontWeight: 'bold', borderBottom: '1px solid var(--border)', paddingBottom: '6px', marginBottom: '8px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                              {isOnlineOrder ? (
+                                <span style={{
+                                  background: 'linear-gradient(135deg, #7c3aed, #a855f7)',
+                                  color: 'white',
+                                  padding: '3px 8px',
+                                  borderRadius: '6px',
+                                  fontSize: '0.75rem',
+                                  fontWeight: '900',
+                                  letterSpacing: '0.5px'
+                                }}>
+                                  📱 顧客線上點餐
+                                </span>
+                              ) : (
+                                <span style={{
+                                  backgroundColor: 'var(--bg-body)',
+                                  color: 'var(--text-muted)',
+                                  padding: '2px 6px',
+                                  borderRadius: '4px',
+                                  fontSize: '0.72rem',
+                                  border: '1px solid var(--border)'
+                                }}>
+                                  🖥️ POS現場單
+                                </span>
+                              )}
+
+                              <span style={{ fontSize: '1.05rem', fontWeight: '900', color: isOnlineOrder ? '#7c3aed' : 'var(--text-main)' }}>
+                                單號: {order.serialNum}
                               </span>
+
+                              <span style={{
+                                padding: '2px 8px',
+                                borderRadius: '6px',
+                                fontSize: '0.75rem',
+                                fontWeight: 'bold',
+                                backgroundColor: order.type === 'dine-in' ? 'rgba(59, 130, 246, 0.12)' : 'rgba(249, 115, 22, 0.12)',
+                                color: order.type === 'dine-in' ? '#2563eb' : '#ea580c'
+                              }}>
+                                {order.type === 'dine-in' ? (order.tableName ? `🪑 內用 ${order.tableName} 桌` : '🪑 內用') : '🥡 外帶'}
+                              </span>
+
+                              {/* Status Tag */}
+                              <span style={{
+                                padding: '3px 8px',
+                                borderRadius: '6px',
+                                fontSize: '0.75rem',
+                                fontWeight: 'bold',
+                                backgroundColor: isPending 
+                                  ? 'rgba(234, 88, 12, 0.12)' 
+                                  : (isReady ? '#10b981' : 'rgba(22, 163, 74, 0.12)'),
+                                color: isPending 
+                                  ? 'var(--primary)' 
+                                  : (isReady ? '#ffffff' : '#16a34a')
+                              }}>
+                                {isPending ? '⏳ 待製作 (處理中)' : (isReady ? '🍜 製作完成 (待取餐)' : '✔ 已完成')}
+                              </span>
+                            </div>
+
+                            <span style={{ fontSize: '1.05rem', fontWeight: '900', color: 'var(--primary)' }}>
+                              NT$ {order.total}
                             </span>
-                            <span>NT$ {order.total}</span>
                           </div>
-                          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+
+                          {/* Customer Details for Online Orders */}
+                          {isOnlineOrder && (
+                            <div style={{
+                              backgroundColor: 'rgba(139, 92, 246, 0.08)',
+                              borderRadius: '6px',
+                              padding: '6px 10px',
+                              fontSize: '0.78rem',
+                              color: '#5b21b6',
+                              fontWeight: 'bold',
+                              marginBottom: '8px',
+                              display: 'flex',
+                              flexWrap: 'wrap',
+                              gap: '12px',
+                              alignItems: 'center'
+                            }}>
+                              {order.customerName && <span>👤 姓名: {order.customerName}</span>}
+                              {order.customerPhone && <span>📞 電話: {order.customerPhone}</span>}
+                              {order.pickupTime && <span>⏰ 預計取餐: {order.pickupTime}</span>}
+                              <span>💰 付款: {order.paymentMethod === 'online' ? '線上已付款' : (order.paymentMethod === 'cash' ? '現場現金' : order.paymentMethod)}</span>
+                              {order.remarks && <span style={{ color: '#b91c1c' }}>📝 備註: {order.remarks}</span>}
+                            </div>
+                          )}
+
+                          {/* Items Breakdown */}
+                          <div style={{ fontSize: '0.82rem', color: 'var(--text-main)', lineHeight: '1.5' }}>
                             {(order.items || []).map((it, idx) => (
-                              <div key={idx}>
-                                • {it.name} x{it.quantity} {it.specs && it.specs.length > 0 ? `(${it.specs.join(', ')})` : ''}
+                              <div key={idx} style={{ display: 'flex', alignItems: 'baseline', gap: '6px' }}>
+                                <strong>• {it.name}</strong>
+                                <span style={{ color: 'var(--primary)', fontWeight: 'bold' }}>x{it.quantity}</span>
+                                {it.specs && it.specs.length > 0 && (
+                                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                                    ({it.specs.join(', ')})
+                                  </span>
+                                )}
                               </div>
                             ))}
                           </div>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '8px', paddingTop: '6px', borderTop: '1px dashed var(--border)' }}>
-                            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-                              {order.customerName ? `顧客: ${order.customerName}` : ''} {order.tableName ? `(${order.tableName}桌)` : ''}
+
+                          {/* Footer Action Controls */}
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '10px', paddingTop: '8px', borderTop: '1px dashed var(--border)' }}>
+                            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                              下單時間: {order.time || new Date(order.timestamp).toLocaleTimeString('zh-TW', { hour12: false })}
+                              {!isOnlineOrder && order.customerName ? ` (${order.customerName})` : ''}
                             </div>
-                            <div style={{ display: 'flex', gap: '6px' }}>
-                              {isPending ? (
+
+                            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                              {/* 🍜 製作完成 Button (Prominent for Online / Pending Orders) */}
+                              {isPending && (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleUpdateOrderStatus(order.id, 'ready')}
+                                    style={{
+                                      padding: '6px 14px',
+                                      fontSize: '0.82rem',
+                                      backgroundColor: '#10b981',
+                                      color: 'white',
+                                      border: 'none',
+                                      borderRadius: '6px',
+                                      cursor: 'pointer',
+                                      fontWeight: '900',
+                                      boxShadow: '0 2px 6px rgba(16, 185, 129, 0.4)',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: '4px'
+                                    }}
+                                    title="標記餐點已製作完成，顧客手機端將即時同步顯示取餐通知"
+                                  >
+                                    🍜 製作完成
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    onClick={() => handleUpdateOrderStatus(order.id, 'completed')}
+                                    style={{
+                                      padding: '6px 10px',
+                                      fontSize: '0.78rem',
+                                      backgroundColor: 'var(--bg-body)',
+                                      color: 'var(--text-main)',
+                                      border: '1px solid var(--border)',
+                                      borderRadius: '6px',
+                                      cursor: 'pointer',
+                                      fontWeight: 'bold'
+                                    }}
+                                    title="直接標記為已完成"
+                                  >
+                                    ✔ 直接完成
+                                  </button>
+                                </>
+                              )}
+
+                              {isReady && (
                                 <button
                                   type="button"
                                   onClick={() => handleUpdateOrderStatus(order.id, 'completed')}
-                                  style={{ padding: '4px 8px', fontSize: '0.7rem', backgroundColor: '#16a34a', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}
+                                  style={{
+                                    padding: '6px 14px',
+                                    fontSize: '0.82rem',
+                                    backgroundColor: '#2563eb',
+                                    color: 'white',
+                                    border: 'none',
+                                    borderRadius: '6px',
+                                    cursor: 'pointer',
+                                    fontWeight: '900',
+                                    boxShadow: '0 2px 6px rgba(37, 99, 235, 0.3)',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '4px'
+                                  }}
+                                  title="顧客已領取餐點，結案完成訂單"
                                 >
-                                  ✔ 完成
+                                  ✔ 顧客已取餐 (完成)
                                 </button>
-                              ) : (
+                              )}
+
+                              {isCompleted && (
                                 <button
                                   type="button"
                                   onClick={() => {
@@ -2014,22 +2241,25 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                                       handleUpdateOrderStatus(order.id, 'deleted');
                                     }
                                   }}
-                                  style={{ padding: '4px 8px', fontSize: '0.7rem', backgroundColor: 'transparent', color: '#ef4444', border: '1px solid #ef4444', borderRadius: '4px', cursor: 'pointer' }}
+                                  style={{ padding: '4px 8px', fontSize: '0.72rem', backgroundColor: 'transparent', color: '#ef4444', border: '1px solid #ef4444', borderRadius: '4px', cursor: 'pointer' }}
                                 >
                                   退貨
                                 </button>
                               )}
+
                               <button
                                 type="button"
                                 onClick={() => handleOpenEditPosOrderModal(order)}
-                                style={{ padding: '4px 8px', fontSize: '0.7rem', backgroundColor: 'rgba(234, 88, 12, 0.08)', color: 'var(--primary)', border: '1px solid var(--primary)', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}
+                                style={{ padding: '5px 10px', fontSize: '0.75rem', backgroundColor: 'rgba(234, 88, 12, 0.08)', color: 'var(--primary)', border: '1px solid var(--primary)', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}
                                 title="編輯已送出訂單內容"
                               >
                                 ✏️ 編輯
                               </button>
+
                               <button
+                                type="button"
                                 onClick={() => printReceipt(order)}
-                                style={{ padding: '4px 8px', fontSize: '0.7rem', backgroundColor: 'transparent', color: 'var(--text-main)', border: '1px solid var(--border)', borderRadius: '4px', cursor: 'pointer' }}
+                                style={{ padding: '5px 10px', fontSize: '0.75rem', backgroundColor: 'transparent', color: 'var(--text-main)', border: '1px solid var(--border)', borderRadius: '4px', cursor: 'pointer' }}
                               >
                                 🖨️ 列印
                               </button>
