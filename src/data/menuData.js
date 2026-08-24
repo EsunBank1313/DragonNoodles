@@ -277,3 +277,32 @@ export const menuItems = [
     customizations: null
   }
 ];
+
+// Helper to check if an upgrade combo package can be applied to a specific menu item
+export const isComboApplicableToItem = (combo, item) => {
+  if (!combo || !item) return false;
+  if (item.customizations?.can_upgrade_combo === false) return false;
+
+  const scope = combo.applicableScope || 'all';
+
+  if (scope === 'all') {
+    return item.customizations?.can_upgrade_combo === true || 
+           item.category === 'mee-sua' || 
+           (typeof item.name === 'string' && item.name.includes('麵線'));
+  }
+
+  if (scope === 'category') {
+    const cats = combo.applicableCategories || [];
+    if (cats.length === 0) return true;
+    return cats.includes(item.category);
+  }
+
+  if (scope === 'items') {
+    const names = combo.applicableItemNames || [];
+    const ids = combo.applicableItemIds || [];
+    if (names.length === 0 && ids.length === 0) return true;
+    return names.includes(item.name) || (item.id && ids.includes(item.id));
+  }
+
+  return true;
+};

@@ -324,6 +324,16 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
           try { orderList = JSON.parse(orderItem.description); } catch (e) {}
         }
 
+        const upgradeCombosItem = storeItems.find(item => item.name === 'SYSTEM_SETTING_UPGRADE_COMBOS');
+        if (upgradeCombosItem && upgradeCombosItem.description) {
+          try {
+            const parsed = JSON.parse(upgradeCombosItem.description);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              setUpgradeCombos(parsed);
+            }
+          } catch (e) {}
+        }
+
         const addonsItem = storeItems.find(item => item.name === 'SYSTEM_SETTING_GLOBAL_ADDONS');
         let currentAddons = [
           { label: '大腸', priceChange: 15 },

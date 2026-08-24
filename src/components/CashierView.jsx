@@ -199,6 +199,7 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
   const [storeName, setStoreName] = useState('龍城麵線');
   const [adminPin, setAdminPin] = useState('8888');
   const [receiptConfig, setReceiptConfig] = useState(defaultReceiptConfig);
+  const [upgradeCombos, setUpgradeCombos] = useState(defaultUpgradeCombos);
   
   const [isAutoPrintEnabled, setIsAutoPrintEnabled] = useState(() => localStorage.getItem('is_auto_print_enabled') === 'true');
   const isAutoPrintEnabledRef = useRef(isAutoPrintEnabled);
@@ -706,6 +707,16 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
         const receiptItem = storeItems.find(item => item.name === 'SYSTEM_SETTING_RECEIPT_CONFIG');
         if (receiptItem && receiptItem.description) {
           try { setReceiptConfig({ ...defaultReceiptConfig, ...JSON.parse(receiptItem.description) }); } catch (e) {}
+        }
+
+        const upgradeCombosItem = storeItems.find(item => item.name === 'SYSTEM_SETTING_UPGRADE_COMBOS');
+        if (upgradeCombosItem && upgradeCombosItem.description) {
+          try {
+            const parsed = JSON.parse(upgradeCombosItem.description);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              setUpgradeCombos(parsed);
+            }
+          } catch (e) {}
         }
 
         const addonsItem = storeItems.find(item => item.name === 'SYSTEM_SETTING_GLOBAL_ADDONS');

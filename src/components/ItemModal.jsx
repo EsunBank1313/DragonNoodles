@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { defaultUpgradeCombos } from '../data/menuData';
+import { defaultUpgradeCombos, isComboApplicableToItem } from '../data/menuData';
 
 export default function ItemModal({ 
   item, 
@@ -15,9 +15,10 @@ export default function ItemModal({
   const [addonQuantities, setAddonQuantities] = useState({});
   const [selectedDropdowns, setSelectedDropdowns] = useState({});
   
-  // 🍱 Upgrade Combo States
-  const canUpgrade = item.customizations?.can_upgrade_combo !== false && 
-    (item.category === 'mee-sua' || item.customizations?.can_upgrade_combo === true || item.name.includes('麵線'));
+  // 🍱 Upgrade Combo States & Applicability Matching
+  const allCombos = (upgradeCombos && upgradeCombos.length > 0) ? upgradeCombos : defaultUpgradeCombos;
+  const availableUpgradeCombos = allCombos.filter(pkg => isComboApplicableToItem(pkg, item));
+  const canUpgrade = availableUpgradeCombos.length > 0;
   
   const [selectedUpgradeId, setSelectedUpgradeId] = useState(null);
   const [selectedUpgradeSlots, setSelectedUpgradeSlots] = useState({});
@@ -570,7 +571,7 @@ export default function ItemModal({
                   </div>
 
                   {/* Upgrade Tiers */}
-                  {(upgradeCombos || defaultUpgradeCombos).map((pkg) => {
+                  {availableUpgradeCombos.map((pkg) => {
                     const isSelected = (selectedUpgradeId === pkg.id);
                     return (
                       <div

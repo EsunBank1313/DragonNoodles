@@ -1970,6 +1970,127 @@ const handleSaveGlobalAddons = async (newAddons) => {
                         />
                       </div>
 
+                      {/* Applicability Scope Filter */}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '12px 14px', borderRadius: '8px', backgroundColor: 'var(--bg-card)', border: '1px solid var(--border)' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+                          <span style={{ fontSize: '0.82rem', fontWeight: 'bold', color: 'var(--primary)' }}>
+                            🎯 此套餐可被套用之商品範圍：
+                          </span>
+                          <div style={{ display: 'flex', gap: '14px', fontSize: '0.82rem' }}>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer', fontWeight: (pkg.applicableScope === 'all' || !pkg.applicableScope) ? 'bold' : 'normal' }}>
+                              <input
+                                type="radio"
+                                name={`scope_${pIdx}`}
+                                checked={pkg.applicableScope === 'all' || !pkg.applicableScope}
+                                onChange={() => {
+                                  const updated = [...currentList];
+                                  updated[pIdx].applicableScope = 'all';
+                                  setTempUpgradeCombos(updated);
+                                }}
+                                style={{ cursor: 'pointer' }}
+                              />
+                              全部主餐/允許商品
+                            </label>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer', fontWeight: pkg.applicableScope === 'category' ? 'bold' : 'normal' }}>
+                              <input
+                                type="radio"
+                                name={`scope_${pIdx}`}
+                                checked={pkg.applicableScope === 'category'}
+                                onChange={() => {
+                                  const updated = [...currentList];
+                                  updated[pIdx].applicableScope = 'category';
+                                  if (!updated[pIdx].applicableCategories) {
+                                    updated[pIdx].applicableCategories = ['mee-sua'];
+                                  }
+                                  setTempUpgradeCombos(updated);
+                                }}
+                                style={{ cursor: 'pointer' }}
+                              />
+                              指定商品分類
+                            </label>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer', fontWeight: pkg.applicableScope === 'items' ? 'bold' : 'normal' }}>
+                              <input
+                                type="radio"
+                                name={`scope_${pIdx}`}
+                                checked={pkg.applicableScope === 'items'}
+                                onChange={() => {
+                                  const updated = [...currentList];
+                                  updated[pIdx].applicableScope = 'items';
+                                  if (!updated[pIdx].applicableItemNames) {
+                                    updated[pIdx].applicableItemNames = [];
+                                  }
+                                  setTempUpgradeCombos(updated);
+                                }}
+                                style={{ cursor: 'pointer' }}
+                              />
+                              指定特定品項
+                            </label>
+                          </div>
+                        </div>
+
+                        {/* Category Filter Selection */}
+                        {pkg.applicableScope === 'category' && (
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', padding: '10px', backgroundColor: 'var(--bg-body)', borderRadius: '6px', border: '1px dashed var(--border)' }}>
+                            <span style={{ fontSize: '0.75rem', fontWeight: 'bold', color: 'var(--text-muted)', width: '100%' }}>請勾選允許套用此套餐的商品分類：</span>
+                            {productCategories.map(cat => {
+                              const isChecked = (pkg.applicableCategories || []).includes(cat.id);
+                              return (
+                                <label key={cat.id} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '5px 12px', borderRadius: '6px', border: isChecked ? '1.5px solid var(--primary)' : '1px solid var(--border)', backgroundColor: isChecked ? 'rgba(255, 107, 53, 0.1)' : 'var(--bg-card)', cursor: 'pointer', fontSize: '0.82rem', fontWeight: isChecked ? 'bold' : 'normal' }}>
+                                  <input
+                                    type="checkbox"
+                                    checked={isChecked}
+                                    onChange={(e) => {
+                                      const updated = [...currentList];
+                                      let list = updated[pIdx].applicableCategories ? [...updated[pIdx].applicableCategories] : [];
+                                      if (e.target.checked) {
+                                        if (!list.includes(cat.id)) list.push(cat.id);
+                                      } else {
+                                        list = list.filter(c => c !== cat.id);
+                                      }
+                                      updated[pIdx].applicableCategories = list;
+                                      setTempUpgradeCombos(updated);
+                                    }}
+                                    style={{ cursor: 'pointer' }}
+                                  />
+                                  <span>{cat.icon || '🏷️'} {cat.name}</span>
+                                </label>
+                              );
+                            })}
+                          </div>
+                        )}
+
+                        {/* Specific Items Selection */}
+                        {pkg.applicableScope === 'items' && (
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', padding: '10px', backgroundColor: 'var(--bg-body)', borderRadius: '6px', border: '1px dashed var(--border)', maxHeight: '180px', overflowY: 'auto' }}>
+                            <span style={{ fontSize: '0.75rem', fontWeight: 'bold', color: 'var(--text-muted)', width: '100%' }}>請勾選允許套用此套餐的特定商品（勾選的商品點餐時才會顯示此升級方案）：</span>
+                            {menuItems.filter(item => !item.name.startsWith('SYSTEM_SETTING_')).map(item => {
+                              const isChecked = (pkg.applicableItemNames || []).includes(item.name);
+                              return (
+                                <label key={item.id || item.name} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '5px 12px', borderRadius: '6px', border: isChecked ? '1.5px solid var(--primary)' : '1px solid var(--border)', backgroundColor: isChecked ? 'rgba(255, 107, 53, 0.1)' : 'var(--bg-card)', cursor: 'pointer', fontSize: '0.82rem', fontWeight: isChecked ? 'bold' : 'normal' }}>
+                                  <input
+                                    type="checkbox"
+                                    checked={isChecked}
+                                    onChange={(e) => {
+                                      const updated = [...currentList];
+                                      let list = updated[pIdx].applicableItemNames ? [...updated[pIdx].applicableItemNames] : [];
+                                      if (e.target.checked) {
+                                        if (!list.includes(item.name)) list.push(item.name);
+                                      } else {
+                                        list = list.filter(n => n !== item.name);
+                                      }
+                                      updated[pIdx].applicableItemNames = list;
+                                      setTempUpgradeCombos(updated);
+                                    }}
+                                    style={{ cursor: 'pointer' }}
+                                  />
+                                  <span>{item.name} (NT$ {item.price})</span>
+                                </label>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+
                       {/* Package slots (Fully Editable) */}
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', padding: '14px', borderRadius: '10px', backgroundColor: 'var(--bg-card)', border: '1px solid var(--border)' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
