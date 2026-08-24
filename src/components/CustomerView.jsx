@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { menuCategories, menuItems as defaultMenuItems, defaultUpgradeCombos } from '../data/menuData';
+import { menuCategories, menuItems as defaultMenuItems, defaultUpgradeCombos, isComboApplicableToItem } from '../data/menuData';
 import ItemModal from './ItemModal';
 
 import CartPanel from './CartPanel';

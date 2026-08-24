@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 import { formatSupabaseOrder } from './CustomerView';
-import { defaultUpgradeCombos } from '../data/menuData';
+import { defaultUpgradeCombos, isComboApplicableToItem } from '../data/menuData';
 import ItemModal from './ItemModal';
 import ThermalPrintPortal from './ThermalPrintPortal';
 import { defaultStoreProfile, defaultReceiptConfig, printThermalReceipt, printDailyClosingReport } from '../utils/printHelpers';
