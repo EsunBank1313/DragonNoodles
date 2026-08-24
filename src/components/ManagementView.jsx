@@ -1684,6 +1684,21 @@ const handleSaveGlobalAddons = async (newAddons) => {
           🍲 菜單與商品管理
         </button>
         <button
+          onClick={() => {
+            setActiveTab('upgrades');
+            setTempUpgradeCombos(JSON.parse(JSON.stringify(upgradeCombos || defaultUpgradeCombos)));
+          }}
+          style={{
+            padding: '10px 18px', fontSize: '0.88rem', fontWeight: 'bold', borderRadius: '8px', border: '1px solid var(--border)', cursor: 'pointer',
+            backgroundColor: activeTab === 'upgrades' ? '#ea580c' : 'var(--bg-card)',
+            color: activeTab === 'upgrades' ? 'white' : 'var(--text-main)',
+            boxShadow: activeTab === 'upgrades' ? '0 2px 8px rgba(234, 88, 12, 0.25)' : 'none',
+            display: 'flex', alignItems: 'center', gap: '6px'
+          }}
+        >
+          🍱 加價升級套餐設定 ({upgradeCombos.length})
+        </button>
+        <button
           onClick={() => setActiveTab('customer')}
           style={{
             padding: '10px 18px', fontSize: '0.88rem', fontWeight: 'bold', borderRadius: '8px', border: '1px solid var(--border)', cursor: 'pointer',

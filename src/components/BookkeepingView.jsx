@@ -2858,6 +2858,26 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
             💬 LINE 密鑰設定
           </button> */}
           <button 
+            onClick={() => {
+              window.location.search = '?management=true';
+            }} 
+            style={{
+              padding: '6px 14px',
+              fontSize: '0.75rem',
+              borderRadius: '6px',
+              border: '1px solid var(--primary)',
+              backgroundColor: 'rgba(255, 107, 53, 0.1)',
+              color: 'var(--primary)',
+              cursor: 'pointer',
+              fontWeight: 'bold',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px'
+            }}
+          >
+            🍱 菜單與套餐設定 (後台)
+          </button>
+          <button 
             onClick={onLogout} 
             style={{
               padding: '6px 14px',
