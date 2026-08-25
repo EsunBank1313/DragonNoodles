@@ -898,10 +898,14 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
     csv += `合計/總結,${totalRevenue},${totalSystemRevenue},${totalManualRevenue},${totalOrdersCount},${totalVariable},${totalFixed},${totalGrossProfit},${grossMarginPercent.toFixed(1)}%,${netProfit},${netMarginPercent.toFixed(1)}%,\n\n`;
 
     // 3. Product Sales Ranking Section
+    const totalQtyAll = itemSalesList.reduce((acc, curr) => acc + curr.qty, 0);
+    const totalRevAll = itemSalesList.reduce((acc, curr) => acc + curr.revenue, 0);
     csv += `=== 各餐點品項銷售與營業額排行 ===\n`;
-    csv += `排行, 品項名稱, 累積銷量, 銷售營業額(NT$), 食材總成本(NT$), 毛利額(NT$), 毛利率(%)\n`;
+    csv += `排行, 品項名稱, 累積銷量, 銷量佔比(%), 銷售營業額(NT$), 營業額佔比(%), 食材總成本(NT$), 毛利額(NT$), 毛利率(%)\n`;
     itemSalesList.forEach((item, idx) => {
-      csv += `${idx + 1},${item.name.replace(/,/g, ' ')},${item.qty},${item.revenue},${item.cost},${item.grossProfit},${item.grossMargin.toFixed(1)}%\n`;
+      const qPct = totalQtyAll > 0 ? ((item.qty / totalQtyAll) * 100).toFixed(1) : '0.0';
+      const rPct = totalRevAll > 0 ? ((item.revenue / totalRevAll) * 100).toFixed(1) : '0.0';
+      csv += `${idx + 1},${item.name.replace(/,/g, ' ')},${item.qty},${qPct}%,${item.revenue},${rPct}%,${item.cost},${item.grossProfit},${item.grossMargin.toFixed(1)}%\n`;
     });
 
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
@@ -1343,8 +1347,8 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
             <tr>
               <th>排行</th>
               <th>餐點/麵線品項名稱</th>
-              <th>累積銷售量</th>
-              <th>銷售總額 (NT$)</th>
+              <th>累積銷售量 (佔比)</th>
+              <th>銷售總額 (佔比)</th>
               <th>食材總成本 (NT$)</th>
               <th>毛利額 (NT$)</th>
               <th>毛利率 (%)</th>
@@ -1583,6 +1587,16 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
         plugins: {
           legend: {
             labels: { color: '#94a3b8', font: { family: 'Noto Sans TC' } }
+          },
+          tooltip: {
+            callbacks: {
+              label: function(context) {
+                var value = Number(context.raw) || 0;
+                var total = context.dataset.data.reduce(function(acc, curr) { return acc + (Number(curr) || 0); }, 0);
+                var percent = total > 0 ? ((value / total) * 100).toFixed(1) : '0.0';
+                return ' ' + percent + '% (NT$ ' + value.toLocaleString() + ')';
+              }
+            }
           }
         },
         scales: {
