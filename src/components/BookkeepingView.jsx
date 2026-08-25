@@ -1546,6 +1546,16 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
           legend: {
             position: 'right',
             labels: { color: '#94a3b8', font: { family: 'Noto Sans TC', size: 11 } }
+          },
+          tooltip: {
+            callbacks: {
+              label: function(context) {
+                var value = Number(context.raw) || 0;
+                var total = context.dataset.data.reduce(function(acc, curr) { return acc + (Number(curr) || 0); }, 0);
+                var percent = total > 0 ? ((value / total) * 100).toFixed(1) : '0.0';
+                return ' ' + percent + '% (' + value.toLocaleString() + ' 份)';
+              }
+            }
           }
         }
       }
