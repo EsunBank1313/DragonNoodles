@@ -1331,7 +1331,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
         </div>
       </div>
       <div class="chart-card">
-        <div class="chart-title">💵 各麵線與品項銷售總金額排行</div>
+        <div class="chart-title">💵 各麵線與品項銷售金額佔比</div>
         <div style="height: 320px; position: relative;">
           <canvas id="itemRevenueBarChart"></canvas>
         </div>
@@ -1565,28 +1565,26 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
       }
     });
 
-    // 4. Render Item Revenue Bar Chart
+    // 4. Render Item Revenue Doughnut Chart
     const ctx4 = document.getElementById('itemRevenueBarChart').getContext('2d');
     new Chart(ctx4, {
-      type: 'bar',
+      type: 'doughnut',
       data: {
         labels: itemLabels,
         datasets: [{
-          label: '銷售總額 (NT$)',
           data: itemRevenues,
-          backgroundColor: 'rgba(16, 185, 129, 0.8)',
-          borderColor: '#10b981',
-          borderWidth: 1,
-          borderRadius: 4
+          backgroundColor: palette.slice(0, itemLabels.length),
+          borderColor: '#1e293b',
+          borderWidth: 2
         }]
       },
       options: {
         responsive: true,
         maintainAspectRatio: false,
-        indexAxis: 'y',
         plugins: {
           legend: {
-            labels: { color: '#94a3b8', font: { family: 'Noto Sans TC' } }
+            position: 'right',
+            labels: { color: '#94a3b8', font: { family: 'Noto Sans TC', size: 11 } }
           },
           tooltip: {
             callbacks: {
@@ -1597,16 +1595,6 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                 return ' ' + percent + '% (NT$ ' + value.toLocaleString() + ')';
               }
             }
-          }
-        },
-        scales: {
-          x: {
-            grid: { color: '#334155' },
-            ticks: { color: '#94a3b8' }
-          },
-          y: {
-            grid: { color: '#334155' },
-            ticks: { color: '#94a3b8' }
           }
         }
       }
