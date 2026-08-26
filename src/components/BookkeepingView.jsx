@@ -3431,6 +3431,46 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                         ))
                       )}
                     </tbody>
+                    {/* 🏆 Total Summary Row at bottom of Table */}
+                    {targetReports.length > 0 && (
+                      <tfoot style={{ borderTop: '2px solid var(--primary)', backgroundColor: 'rgba(255, 107, 53, 0.06)' }}>
+                        <tr style={{ fontWeight: 'bold' }}>
+                          <td style={{ padding: '12px 10px', color: 'var(--primary)', fontSize: '0.85rem' }}>
+                            📊 區間累計總計 ({targetReports.length}天)
+                          </td>
+                          <td style={{ padding: '12px 10px', color: '#16a34a', fontSize: '0.9rem' }}>
+                            NT$ {totalPeriodRev.toLocaleString()}
+                          </td>
+                          <td style={{ padding: '12px 10px', color: '#ef4444', fontSize: '0.9rem' }}>
+                            NT$ {totalPeriodFixed.toLocaleString()}
+                          </td>
+                          <td style={{ padding: '12px 10px', color: '#ef4444', fontSize: '0.9rem' }}>
+                            NT$ {totalPeriodVariable.toLocaleString()}
+                          </td>
+                          <td style={{ padding: '12px 10px', color: '#dc2626', fontSize: '0.9rem' }}>
+                            NT$ {totalPeriodCost.toLocaleString()}
+                          </td>
+                          <td style={{ padding: '12px 10px', fontSize: '1.05rem', fontWeight: '900', color: isPeriodNetProfit ? '#16a34a' : '#dc2626' }}>
+                            {totalPeriodNetProfit >= 0 ? '+' : ''}NT$ {totalPeriodNetProfit.toLocaleString()}
+                          </td>
+                          <td style={{ padding: '12px 10px' }}>
+                            <span style={{
+                              padding: '3px 8px',
+                              borderRadius: '12px',
+                              fontSize: '0.75rem',
+                              fontWeight: '900',
+                              backgroundColor: isPeriodNetProfit ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.15)',
+                              color: isPeriodNetProfit ? '#16a34a' : '#dc2626'
+                            }}>
+                              {isPeriodNetProfit ? '🟢 總預估月淨利 盈餘' : '🔴 總預估月淨利 虧損'}
+                            </span>
+                          </td>
+                          <td style={{ padding: '12px 10px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.75rem' }}>
+                            淨利率 {netProfitMargin}%
+                          </td>
+                        </tr>
+                      </tfoot>
+                    )}
                   </table>
                 </div>
               </div>
@@ -3832,6 +3872,27 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
               const weekdayPercent = totalPeriodRev > 0 ? Math.round((weekdayRev / totalPeriodRev) * 100) : 0;
               const weekendPercent = totalPeriodRev > 0 ? (100 - weekdayPercent) : 0;
 
+              // 🏆 Total Financial Summary for Selected Period (總預估月淨利與財務指標)
+              let totalSystemRev = 0;
+              let totalManualRev = 0;
+              let totalPeriodFixed = 0;
+              let totalPeriodVariable = 0;
+
+              targetReports.forEach(r => {
+                totalSystemRev += (Number(r.systemRevenue) || 0);
+                totalManualRev += (Number(r.manualRev) || 0);
+                totalPeriodFixed += (Number(r.fixedCosts) || 0);
+                totalPeriodVariable += (Number(r.variableCosts) || 0);
+              });
+
+              const totalPeriodCost = totalPeriodFixed + totalPeriodVariable;
+              const totalPeriodGrossProfit = totalPeriodRev - totalPeriodVariable;
+              const totalPeriodNetProfit = totalPeriodRev - totalPeriodCost;
+              const isPeriodNetProfit = totalPeriodNetProfit >= 0;
+              const netProfitMargin = totalPeriodRev > 0 ? ((totalPeriodNetProfit / totalPeriodRev) * 100).toFixed(1) : '0.0';
+              const costRatio = totalPeriodRev > 0 ? ((totalPeriodCost / totalPeriodRev) * 100).toFixed(1) : '0.0';
+
+
               return (
                 <div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '10px' }}>
@@ -3909,6 +3970,137 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                       </button>
                     </div>
                   </div>
+
+                  {/* 🏆 Executive KPI Summary Cards - Total Estimated Monthly Net Profit & Breakdown */}
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                    gap: '14px',
+                    marginBottom: '20px'
+                  }}>
+                    {/* 1. 營業總收入 */}
+                    <div style={{
+                      backgroundColor: 'var(--bg-card)',
+                      border: '1px solid var(--border)',
+                      borderRadius: '12px',
+                      padding: '16px',
+                      boxShadow: 'var(--shadow-sm)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '4px'
+                    }}>
+                      <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 'bold' }}>
+                        💰 營業總收入 ({targetReports.length} 天)
+                      </div>
+                      <div style={{ fontSize: '1.35rem', fontWeight: '900', color: '#16a34a' }}>
+                        NT$ {totalPeriodRev.toLocaleString()}
+                      </div>
+                      <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                        系統: {totalSystemRev.toLocaleString()} | 人工: {totalManualRev.toLocaleString()}
+                      </div>
+                    </div>
+
+                    {/* 2. 固定成本支出 */}
+                    <div style={{
+                      backgroundColor: 'var(--bg-card)',
+                      border: '1px solid var(--border)',
+                      borderRadius: '12px',
+                      padding: '16px',
+                      boxShadow: 'var(--shadow-sm)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '4px'
+                    }}>
+                      <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 'bold' }}>
+                        🏢 總固定成本支出
+                      </div>
+                      <div style={{ fontSize: '1.35rem', fontWeight: '900', color: '#ef4444' }}>
+                        NT$ {totalPeriodFixed.toLocaleString()}
+                      </div>
+                      <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                        店面租金與固定開銷攤銷
+                      </div>
+                    </div>
+
+                    {/* 3. 進貨變動成本 */}
+                    <div style={{
+                      backgroundColor: 'var(--bg-card)',
+                      border: '1px solid var(--border)',
+                      borderRadius: '12px',
+                      padding: '16px',
+                      boxShadow: 'var(--shadow-sm)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '4px'
+                    }}>
+                      <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 'bold' }}>
+                        🛒 總進貨變動成本
+                      </div>
+                      <div style={{ fontSize: '1.35rem', fontWeight: '900', color: '#ef4444' }}>
+                        NT$ {totalPeriodVariable.toLocaleString()}
+                      </div>
+                      <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                        食材物料與採購進貨
+                      </div>
+                    </div>
+
+                    {/* 4. 合計總成本 */}
+                    <div style={{
+                      backgroundColor: 'var(--bg-card)',
+                      border: '1px solid var(--border)',
+                      borderRadius: '12px',
+                      padding: '16px',
+                      boxShadow: 'var(--shadow-sm)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '4px'
+                    }}>
+                      <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 'bold' }}>
+                        📦 合計營運總成本
+                      </div>
+                      <div style={{ fontSize: '1.35rem', fontWeight: '900', color: '#dc2626' }}>
+                        NT$ {totalPeriodCost.toLocaleString()}
+                      </div>
+                      <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                        佔總營收比重 {costRatio}%
+                      </div>
+                    </div>
+
+                    {/* 5. 總預估月淨利 (Highlighted Key Card) */}
+                    <div style={{
+                      backgroundColor: isPeriodNetProfit ? 'rgba(22, 163, 74, 0.08)' : 'rgba(220, 38, 38, 0.08)',
+                      border: isPeriodNetProfit ? '2px solid #16a34a' : '2px solid #dc2626',
+                      borderRadius: '12px',
+                      padding: '16px',
+                      boxShadow: isPeriodNetProfit ? '0 0 15px rgba(22, 163, 74, 0.2)' : '0 0 15px rgba(220, 38, 38, 0.2)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '4px'
+                    }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: '0.8rem', fontWeight: 'bold', color: isPeriodNetProfit ? '#16a34a' : '#dc2626' }}>
+                          🏆 總預估月淨利 (累計淨利)
+                        </span>
+                        <span style={{
+                          padding: '2px 6px',
+                          borderRadius: '4px',
+                          fontSize: '0.7rem',
+                          fontWeight: '900',
+                          backgroundColor: isPeriodNetProfit ? '#16a34a' : '#dc2626',
+                          color: 'white'
+                        }}>
+                          {isPeriodNetProfit ? '🟢 總體盈餘' : '🔴 總體虧損'}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: '1.5rem', fontWeight: '900', color: isPeriodNetProfit ? '#16a34a' : '#dc2626', marginTop: '2px' }}>
+                        {totalPeriodNetProfit >= 0 ? '+' : ''}NT$ {totalPeriodNetProfit.toLocaleString()}
+                      </div>
+                      <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                        淨利率: <strong style={{ color: isPeriodNetProfit ? '#16a34a' : '#dc2626' }}>{netProfitMargin}%</strong> (毛利 NT$ {totalPeriodGrossProfit.toLocaleString()})
+                      </div>
+                    </div>
+                  </div>
+
                   {/* Weekday vs Weekend & Day-of-Week Insights */}
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '16px', marginBottom: '20px' }}>
                     {/* Weekday vs Weekend Card */}
@@ -3992,7 +4184,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                         <th style={{ padding: '10px 12px' }}>固定成本支出</th>
                         <th style={{ padding: '10px 12px' }}>進貨變動成本</th>
                         <th style={{ padding: '10px 12px' }}>合計總成本</th>
-                        <th style={{ padding: '10px 12px' }}>預估月份淨利</th>
+                        <th style={{ padding: '10px 12px' }}>單日預估淨利</th>
                         <th style={{ padding: '10px 12px' }}>財務健康狀態</th>
                         <th style={{ padding: '10px 12px', textAlign: 'center' }}>操作</th>
                       </tr>
