@@ -3833,18 +3833,30 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
               const weekdayPercent = totalPeriodRev > 0 ? Math.round((weekdayRev / totalPeriodRev) * 100) : 0;
               const weekendPercent = totalPeriodRev > 0 ? (100 - weekdayPercent) : 0;
 
-              // 🏆 Total Financial Summary for Selected Period (總預估月淨利與財務指標)
+              // 🏆 Total Financial Summary for Selected Period (以完整月份金額計算總固定成本)
               let totalSystemRev = 0;
               let totalManualRev = 0;
-              let totalPeriodFixed = 0;
               let totalPeriodVariable = 0;
 
               targetReports.forEach(r => {
                 totalSystemRev += (Number(r.systemRevenue) || 0);
                 totalManualRev += (Number(r.manualRev) || 0);
-                totalPeriodFixed += (Number(r.fixedCosts) || 0);
                 totalPeriodVariable += (Number(r.variableCosts) || 0);
               });
+
+              // 依所選期間涵蓋之完整月份計算總固定成本 (不採每日零碎攤銷，以完整月份額度結算)
+              const uniqueReportMonths = Array.from(new Set(targetReports.map(r => r.month.slice(0, 7))));
+              let totalPeriodFixed = 0;
+              if (uniqueReportMonths.length > 0) {
+                uniqueReportMonths.forEach(m => {
+                  const activeFixed = fixedCosts.filter(fc => !fc.expiryDate || fc.expiryDate.slice(0, 7) >= m);
+                  totalPeriodFixed += activeFixed.reduce((sum, fc) => sum + (Number(fc.cost) || 0), 0);
+                });
+              } else {
+                const currentYM = selectedYearMonth;
+                const activeFixed = fixedCosts.filter(fc => !fc.expiryDate || fc.expiryDate.slice(0, 7) >= currentYM);
+                totalPeriodFixed = activeFixed.reduce((sum, fc) => sum + (Number(fc.cost) || 0), 0);
+              }
 
               const totalPeriodCost = totalPeriodFixed + totalPeriodVariable;
               const totalPeriodGrossProfit = totalPeriodRev - totalPeriodVariable;
@@ -3979,7 +3991,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                         NT$ {totalPeriodFixed.toLocaleString()}
                       </div>
                       <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '2px' }}>
-                        店面租金與固定開銷攤銷
+                        完整月份固定額度 ({uniqueReportMonths.length > 0 ? `${uniqueReportMonths.length} 個月` : '本月'})
                       </div>
                     </div>
 
