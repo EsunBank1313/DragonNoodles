@@ -498,6 +498,155 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
   const [newInvUnit, setNewInvUnit] = useState('斤');
   const [newInvMin, setNewInvMin] = useState('');
   
+  // 💰 Cash Audit (現金盤點) States
+  const [cashAudits, setCashAudits] = useState(() => {
+    try {
+      const saved = localStorage.getItem('restaurant_cash_audits');
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+      return [];
+    }
+  });
+  const [showCashAuditModal, setShowCashAuditModal] = useState(false);
+  const [showCashAuditPromptModal, setShowCashAuditPromptModal] = useState(false);
+  const [auditDate, setAuditDate] = useState(getTodayLocalDate());
+  const [auditDrawerFloat, setAuditDrawerFloat] = useState(() => localStorage.getItem('drawer_float_default') || '3000');
+  const [auditCountedCash, setAuditCountedCash] = useState('');
+  const [auditDenominations, setAuditDenominations] = useState({
+    d1000: '', d500: '', d200: '', d100: '', d50: '', d10: '', d5: '', d1: ''
+  });
+  const [showDenomCalc, setShowDenomCalc] = useState(false);
+  const [auditAuditor, setAuditAuditor] = useState('店長');
+  const [auditRemarks, setAuditRemarks] = useState('');
+  const [editingAuditId, setEditingAuditId] = useState(null);
+
+  // Daily prompt check for cash audit on load
+  useEffect(() => {
+    const todayStr = getTodayLocalDate();
+    const isSkipped = localStorage.getItem('cash_audit_skip_' + todayStr) === 'true';
+    const todayAudit = cashAudits.find(a => a.date === todayStr);
+    if (!todayAudit && !isSkipped) {
+      const timer = setTimeout(() => {
+        setShowCashAuditPromptModal(true);
+      }, 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [cashAudits]);
+
+  // Recalculate counted cash from denominations
+  const updateDenomAndSum = (field, val) => {
+    const newDenom = { ...auditDenominations, [field]: val };
+    setAuditDenominations(newDenom);
+    const sum = (Number(newDenom.d1000 || 0) * 1000) +
+                (Number(newDenom.d500 || 0) * 500) +
+                (Number(newDenom.d200 || 0) * 200) +
+                (Number(newDenom.d100 || 0) * 100) +
+                (Number(newDenom.d50 || 0) * 50) +
+                (Number(newDenom.d10 || 0) * 10) +
+                (Number(newDenom.d5 || 0) * 5) +
+                (Number(newDenom.d1 || 0) * 1);
+    setAuditCountedCash(String(sum));
+  };
+
+  // Open modal for a specific date (or today)
+  const handleOpenCashAuditModal = (targetDate = getTodayLocalDate()) => {
+    const existing = cashAudits.find(a => a.date === targetDate);
+    setAuditDate(targetDate);
+    if (existing) {
+      setEditingAuditId(existing.id);
+      setAuditDrawerFloat(String(existing.drawerFloat ?? 3000));
+      setAuditCountedCash(String(existing.countedCash ?? ''));
+      setAuditDenominations(existing.denominations || { d1000: '', d500: '', d200: '', d100: '', d50: '', d10: '', d5: '', d1: '' });
+      setAuditAuditor(existing.auditor || '店長');
+      setAuditRemarks(existing.remarks || '');
+    } else {
+      setEditingAuditId(null);
+      setAuditCountedCash('');
+      setAuditDenominations({ d1000: '', d500: '', d200: '', d100: '', d50: '', d10: '', d5: '', d1: '' });
+      setAuditRemarks('');
+    }
+    setShowCashAuditModal(true);
+  };
+
+  // Save cash audit record
+  const handleSaveCashAudit = async () => {
+    if (!auditDate) {
+      alert("請選擇盤點日期！");
+      return;
+    }
+    if (!auditCountedCash && auditCountedCash !== 0) {
+      alert("請輸入實收現金總金額！");
+      return;
+    }
+
+    // Get system orders on auditDate
+    const dateOrders = orders.filter(o => {
+      const d = o.timestamp ? new Date(o.timestamp).toLocaleDateString('en-CA') : (o.time ? o.time.slice(0, 10) : '');
+      return d === auditDate;
+    });
+    const manualForDate = Number(manualRevenues[auditDate] || 0);
+    const dateTotalRev = dateOrders.reduce((sum, o) => sum + (Number(o.total) || 0), 0) + manualForDate;
+    const dateCashRev = dateOrders.filter(o => !o.paymentMethod || o.paymentMethod === 'cash').reduce((sum, o) => sum + (Number(o.total) || 0), 0) + manualForDate;
+    const dateOnlineRev = dateOrders.filter(o => o.paymentMethod && o.paymentMethod !== 'cash').reduce((sum, o) => sum + (Number(o.total) || 0), 0);
+
+    const counted = Number(auditCountedCash || 0);
+    const floatVal = Number(auditDrawerFloat || 0);
+    const netActual = counted - floatVal;
+    const diff = netActual - dateCashRev;
+
+    const auditObj = {
+      id: editingAuditId || `audit_${auditDate}_${Date.now()}`,
+      date: auditDate,
+      timestamp: Date.now(),
+      systemTotalRevenue: dateTotalRev,
+      systemCashRevenue: dateCashRev,
+      systemOnlineRevenue: dateOnlineRev,
+      orderCount: dateOrders.length,
+      drawerFloat: floatVal,
+      countedCash: counted,
+      netActualCash: netActual,
+      difference: diff,
+      denominations: { ...auditDenominations },
+      auditor: auditAuditor || '店長',
+      remarks: auditRemarks || ''
+    };
+
+    const updated = cashAudits.filter(a => a.date !== auditDate).concat(auditObj).sort((a, b) => b.date.localeCompare(a.date));
+    setCashAudits(updated);
+    localStorage.setItem('restaurant_cash_audits', JSON.stringify(updated));
+    localStorage.setItem('drawer_float_default', String(floatVal));
+
+    try {
+      const auditKey = prefixNameForStore('SYSTEM_SETTING_CASH_AUDITS', storeCode);
+      const { data: exist } = await supabase.from('menu_items').select('*').eq('name', auditKey);
+      if (exist && exist.length > 0) {
+        await supabase.from('menu_items').update({ description: JSON.stringify(updated) }).eq('name', auditKey);
+      } else {
+        await supabase.from('menu_items').insert([{ name: auditKey, price: 0, category: 'settings', description: JSON.stringify(updated) }]);
+      }
+    } catch (e) {
+      console.error("Failed to sync cash audits to Supabase:", e);
+    }
+
+    const diffStatus = diff === 0 ? '✅ 帳實相符' : (diff > 0 ? `📈 溢收 +NT$ ${diff.toLocaleString()}` : `📉 短少 -NT$ ${Math.abs(diff).toLocaleString()}`);
+    alert(`🎉 ${auditDate} 現金盤點已儲存！\n實收營業現金：NT$ ${netActual.toLocaleString()}\n系統現金營收：NT$ ${dateCashRev.toLocaleString()}\n差額核算結果：${diffStatus}`);
+    setShowCashAuditModal(false);
+    setEditingAuditId(null);
+  };
+
+  // Delete cash audit record
+  const handleDeleteCashAudit = async (dateToDelete) => {
+    if (!confirm(`確定要刪除 ${dateToDelete} 的現金盤點紀錄嗎？`)) return;
+    const updated = cashAudits.filter(a => a.date !== dateToDelete);
+    setCashAudits(updated);
+    localStorage.setItem('restaurant_cash_audits', JSON.stringify(updated));
+
+    try {
+      const auditKey = prefixNameForStore('SYSTEM_SETTING_CASH_AUDITS', storeCode);
+      await supabase.from('menu_items').update({ description: JSON.stringify(updated) }).eq('name', auditKey);
+    } catch (e) {}
+  };
+
   // Edit Vendor index state
   const [editingVendorIndex, setEditingVendorIndex] = useState(null);
     const [selectedBookkeepingDate, setSelectedBookkeepingDate] = useState(getTodayLocalDate());
@@ -1788,6 +1937,14 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
         const condsItem = storeItems.find(i => i.name === 'SYSTEM_SETTING_CONDIMENTS_AVAILABILITY');
         if (condsItem && condsItem.description) {
           setCondimentsAvailability(JSON.parse(condsItem.description));
+        }
+                const cashAuditsItem = storeItems.find(i => i.name === 'SYSTEM_SETTING_CASH_AUDITS');
+        if (cashAuditsItem && cashAuditsItem.description) {
+          try {
+            const parsed = JSON.parse(cashAuditsItem.description);
+            setCashAudits(parsed);
+            localStorage.setItem('restaurant_cash_audits', JSON.stringify(parsed));
+          } catch (e) {}
         }
         const closedDatesItem = storeItems.find(i => i.name === 'SYSTEM_SETTING_CLOSED_DATES');
         if (closedDatesItem && closedDatesItem.description) {
@@ -3083,6 +3240,67 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
             {/* 1. SALES TAB */}
             {activeTab === 'sales' && (
               <div>
+                {/* Daily Cash Audit Quick Status Card */}
+                {(() => {
+                  const selectedAudit = cashAudits.find(a => a.date === selectedBookkeepingDate);
+                  return (
+                    <div style={{
+                      padding: '12px 16px',
+                      borderRadius: '8px',
+                      backgroundColor: selectedAudit ? (selectedAudit.difference === 0 ? 'rgba(16, 185, 129, 0.08)' : (selectedAudit.difference > 0 ? 'rgba(59, 130, 246, 0.08)' : 'rgba(239, 68, 68, 0.08)')) : 'rgba(234, 88, 12, 0.08)',
+                      border: selectedAudit ? (selectedAudit.difference === 0 ? '1px solid #10b981' : (selectedAudit.difference > 0 ? '1px solid #3b82f6' : '1px solid #ef4444')) : '1px dashed #ea580c',
+                      marginBottom: '16px',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      flexWrap: 'wrap',
+                      gap: '10px'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem' }}>
+                        <span>💰</span>
+                        <strong style={{ color: 'var(--text-main)' }}>當日實收現金盤點：</strong>
+                        {selectedAudit ? (
+                          <span>
+                            實收 <strong style={{ color: '#059669' }}>NT$ {selectedAudit.netActualCash.toLocaleString()}</strong> / 系統現金 NT$ {selectedAudit.systemCashRevenue.toLocaleString()}
+                            <span style={{
+                              marginLeft: '8px',
+                              padding: '2px 6px',
+                              borderRadius: '4px',
+                              fontWeight: 'bold',
+                              fontSize: '0.75rem',
+                              backgroundColor: selectedAudit.difference === 0 ? '#10b981' : (selectedAudit.difference > 0 ? '#2563eb' : '#ef4444'),
+                              color: 'white'
+                            }}>
+                              {selectedAudit.difference === 0 ? '✓ 帳實相符' : (selectedAudit.difference > 0 ? `+NT$ ${selectedAudit.difference.toLocaleString()} (溢收)` : `-NT$ ${Math.abs(selectedAudit.difference).toLocaleString()} (短少)`)}
+                            </span>
+                          </span>
+                        ) : (
+                          <span style={{ color: '#ea580c', fontWeight: 'bold' }}>
+                            ⚠️ 該日尚未輸入實收現金盤點
+                          </span>
+                        )}
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => handleOpenCashAuditModal(selectedBookkeepingDate)}
+                        style={{
+                          padding: '5px 12px',
+                          fontSize: '0.78rem',
+                          borderRadius: '6px',
+                          border: selectedAudit ? '1px solid var(--border)' : 'none',
+                          backgroundColor: selectedAudit ? 'var(--bg-card)' : '#10b981',
+                          color: selectedAudit ? 'var(--text-main)' : 'white',
+                          boxShadow: selectedAudit ? 'none' : '0 2px 4px rgba(16, 185, 129, 0.3)',
+                          cursor: 'pointer',
+                          fontWeight: 'bold'
+                        }}
+                      >
+                        {selectedAudit ? '✏️ 重新盤點' : '💵 立即盤點該日現金'}
+                      </button>
+                    </div>
+                  );
+                })()}
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '8px' }}>
                   <h4 style={{ fontSize: '0.9rem', fontWeight: 'bold', margin: 0 }}>📝 當日已結交易流水帳明細</h4>
                   <div style={{ display: 'flex', gap: '8px' }}>

@@ -196,6 +196,21 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
 
   // Closed Dates for Locking
   const [closedDates, setClosedDates] = useState([]);
+  // Daily Opening Prompt Modal State
+  const [showDailyOpenPromptModal, setShowDailyOpenPromptModal] = useState(false);
+  const hasPromptedDailyOpenRef = useRef(false);
+
+  useEffect(() => {
+    if (storeOpenStatus !== null && !hasPromptedDailyOpenRef.current) {
+      hasPromptedDailyOpenRef.current = true;
+      const todayStr = getTodayLocalDate();
+      const isOpen = Boolean(storeOpenStatus && storeOpenStatus.is_open && storeOpenStatus.open_date === todayStr);
+      if (!isOpen) {
+        setShowDailyOpenPromptModal(true);
+      }
+    }
+  }, [storeOpenStatus]);
+
 
   // Orders state and printing integration
   const [orders, setOrders] = useState([]);
@@ -1823,6 +1838,52 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
               </span>
             </button>
 
+            {/* 🏁 Daily Closing (今日打烊收店) Button */}
+            <button
+              type="button"
+              onClick={handleDailyClosingAndLock}
+              style={{
+                padding: '6px 14px',
+                fontSize: '0.85rem',
+                borderRadius: 'var(--radius-sm)',
+                border: '1px solid #ef4444',
+                backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                color: '#ef4444',
+                cursor: 'pointer',
+                fontWeight: '900',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                boxShadow: '0 1px 3px rgba(239, 68, 68, 0.2)'
+              }}
+              title="執行今日打烊收店：列印日結單 (Z-Report)，關閉線上點餐並鎖定收銀帳目"
+            >
+              🏁 今日打烊收店
+            </button>
+
+            {/* 🛎️ Store Opening (開店 / 打烊) Button */}
+            <button
+              type="button"
+              onClick={handleToggleStoreOpen}
+              style={{
+                padding: '6px 14px',
+                fontSize: '0.85rem',
+                borderRadius: 'var(--radius-sm)',
+                border: isStoreOpenToday ? '1px solid #10b981' : '2px solid #ea580c',
+                backgroundColor: isStoreOpenToday ? 'rgba(16, 185, 129, 0.12)' : '#ea580c',
+                color: isStoreOpenToday ? '#059669' : 'white',
+                cursor: 'pointer',
+                fontWeight: '900',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                boxShadow: isStoreOpenToday ? 'none' : '0 0 10px rgba(234, 88, 12, 0.5)'
+              }}
+              title="點擊切換今日開店狀態（開放或關閉顧客線上點餐）"
+            >
+              {isStoreOpenToday ? '🟢 營業中 (線上點餐中)' : '🛎️ 今日開店 (開啟線上點餐)'}
+            </button>
+
             {/* Shift Handover (X-Report) Button */}
             <button
               type="button"
@@ -1890,6 +1951,89 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
           </button>
         </div>
       </header>
+
+
+      {/* 🛎️ Daily Store Opening Prompt Modal */}
+      {showDailyOpenPromptModal && !isStoreOpenToday && (
+        <div style={{
+          position: 'fixed',
+          top: 0, left: 0, right: 0, bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.75)',
+          zIndex: 99999,
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          padding: '20px',
+          backdropFilter: 'blur(4px)'
+        }}>
+          <div style={{
+            backgroundColor: 'var(--bg-card)',
+            borderRadius: '16px',
+            padding: '32px 28px',
+            maxWidth: '480px',
+            width: '100%',
+            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 0 30px rgba(234, 88, 12, 0.3)',
+            border: '2px solid var(--primary)',
+            textAlign: 'center',
+            animation: 'fadeIn 0.2s ease'
+          }}>
+            <div style={{ fontSize: '3.5rem', marginBottom: '12px' }}>🛎️</div>
+            <h2 style={{ fontSize: '1.5rem', fontWeight: '900', color: 'var(--text-main)', margin: '0 0 10px 0' }}>
+              早安！今日尚未開店
+            </h2>
+            <p style={{ fontSize: '0.95rem', color: 'var(--text-muted)', lineHeight: '1.6', marginBottom: '24px' }}>
+              本日日期：<strong style={{ color: 'var(--primary)' }}>{getTodayLocalDate()}</strong><br />
+              點擊下方按鈕以啟動本日營業，系統將正式開放顧客進行線上點餐！
+            </p>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <button
+                type="button"
+                onClick={async () => {
+                  setShowDailyOpenPromptModal(false);
+                  await handleToggleStoreOpen();
+                }}
+                style={{
+                  width: '100%',
+                  padding: '16px',
+                  fontSize: '1.15rem',
+                  fontWeight: '900',
+                  backgroundColor: '#ea580c',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '10px',
+                  cursor: 'pointer',
+                  boxShadow: '0 4px 14px rgba(234, 88, 12, 0.4)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '8px'
+                }}
+              >
+                🛎️ 立即執行【今日開店】(開啟線上點餐)
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setShowDailyOpenPromptModal(false)}
+                style={{
+                  width: '100%',
+                  padding: '12px',
+                  fontSize: '0.9rem',
+                  fontWeight: 'bold',
+                  backgroundColor: 'var(--bg-body)',
+                  color: 'var(--text-muted)',
+                  border: '1px solid var(--border)',
+                  borderRadius: '8px',
+                  cursor: 'pointer'
+                }}
+              >
+                稍後再開 (先使用現場收銀)
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* POS Watched Low Stock Alert Banner */}
       {watchedLowStockItems.length > 0 && (
