@@ -3431,46 +3431,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                         ))
                       )}
                     </tbody>
-                    {/* 🏆 Total Summary Row at bottom of Table */}
-                    {targetReports.length > 0 && (
-                      <tfoot style={{ borderTop: '2px solid var(--primary)', backgroundColor: 'rgba(255, 107, 53, 0.06)' }}>
-                        <tr style={{ fontWeight: 'bold' }}>
-                          <td style={{ padding: '12px 10px', color: 'var(--primary)', fontSize: '0.85rem' }}>
-                            📊 區間累計總計 ({targetReports.length}天)
-                          </td>
-                          <td style={{ padding: '12px 10px', color: '#16a34a', fontSize: '0.9rem' }}>
-                            NT$ {totalPeriodRev.toLocaleString()}
-                          </td>
-                          <td style={{ padding: '12px 10px', color: '#ef4444', fontSize: '0.9rem' }}>
-                            NT$ {totalPeriodFixed.toLocaleString()}
-                          </td>
-                          <td style={{ padding: '12px 10px', color: '#ef4444', fontSize: '0.9rem' }}>
-                            NT$ {totalPeriodVariable.toLocaleString()}
-                          </td>
-                          <td style={{ padding: '12px 10px', color: '#dc2626', fontSize: '0.9rem' }}>
-                            NT$ {totalPeriodCost.toLocaleString()}
-                          </td>
-                          <td style={{ padding: '12px 10px', fontSize: '1.05rem', fontWeight: '900', color: isPeriodNetProfit ? '#16a34a' : '#dc2626' }}>
-                            {totalPeriodNetProfit >= 0 ? '+' : ''}NT$ {totalPeriodNetProfit.toLocaleString()}
-                          </td>
-                          <td style={{ padding: '12px 10px' }}>
-                            <span style={{
-                              padding: '3px 8px',
-                              borderRadius: '12px',
-                              fontSize: '0.75rem',
-                              fontWeight: '900',
-                              backgroundColor: isPeriodNetProfit ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.15)',
-                              color: isPeriodNetProfit ? '#16a34a' : '#dc2626'
-                            }}>
-                              {isPeriodNetProfit ? '🟢 總預估月淨利 盈餘' : '🔴 總預估月淨利 虧損'}
-                            </span>
-                          </td>
-                          <td style={{ padding: '12px 10px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.75rem' }}>
-                            淨利率 {netProfitMargin}%
-                          </td>
-                        </tr>
-                      </tfoot>
-                    )}
+
                   </table>
                 </div>
               </div>
@@ -4251,6 +4212,46 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                         })
                       )}
                     </tbody>
+                    {/* 🏆 Total Summary Row at bottom of Monthly Report Table */}
+                    {targetReports.length > 0 && (
+                      <tfoot style={{ borderTop: '2px solid var(--primary)', backgroundColor: 'rgba(255, 107, 53, 0.06)' }}>
+                        <tr style={{ fontWeight: 'bold' }}>
+                          <td style={{ padding: '12px 10px', color: 'var(--primary)', fontSize: '0.85rem' }}>
+                            📊 區間累計總計 ({targetReports.length}天)
+                          </td>
+                          <td style={{ padding: '12px 10px', color: '#16a34a', fontSize: '0.9rem' }}>
+                            NT$ {totalPeriodRev.toLocaleString()}
+                          </td>
+                          <td style={{ padding: '12px 10px', color: '#ef4444', fontSize: '0.9rem' }}>
+                            NT$ {totalPeriodFixed.toLocaleString()}
+                          </td>
+                          <td style={{ padding: '12px 10px', color: '#ef4444', fontSize: '0.9rem' }}>
+                            NT$ {totalPeriodVariable.toLocaleString()}
+                          </td>
+                          <td style={{ padding: '12px 10px', color: '#dc2626', fontSize: '0.9rem' }}>
+                            NT$ {totalPeriodCost.toLocaleString()}
+                          </td>
+                          <td style={{ padding: '12px 10px', fontSize: '1.05rem', fontWeight: '900', color: isPeriodNetProfit ? '#16a34a' : '#dc2626' }}>
+                            {totalPeriodNetProfit >= 0 ? '+' : ''}NT$ {totalPeriodNetProfit.toLocaleString()}
+                          </td>
+                          <td style={{ padding: '12px 10px' }}>
+                            <span style={{
+                              padding: '3px 8px',
+                              borderRadius: '12px',
+                              fontSize: '0.75rem',
+                              fontWeight: '900',
+                              backgroundColor: isPeriodNetProfit ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.15)',
+                              color: isPeriodNetProfit ? '#16a34a' : '#dc2626'
+                            }}>
+                              {isPeriodNetProfit ? '🟢 總預估月淨利 盈餘' : '🔴 總預估月淨利 虧損'}
+                            </span>
+                          </td>
+                          <td style={{ padding: '12px 10px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.75rem' }}>
+                            淨利率 {netProfitMargin}%
+                          </td>
+                        </tr>
+                      </tfoot>
+                    )}
                   </table>
                 </div>
               </div>
