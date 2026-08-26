@@ -5001,6 +5001,453 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
         </div>
       )}
 
+      
+      {/* 💰 Cash Audit Prompt Modal (Daily Login Reminder) */}
+      {showCashAuditPromptModal && (
+        <div style={{
+          position: 'fixed',
+          top: 0, left: 0, right: 0, bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.75)',
+          zIndex: 99999,
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          padding: '20px',
+          backdropFilter: 'blur(4px)'
+        }}>
+          <div style={{
+            backgroundColor: 'var(--bg-card)',
+            borderRadius: '16px',
+            padding: '32px 28px',
+            maxWidth: '460px',
+            width: '100%',
+            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 0 30px rgba(16, 185, 129, 0.3)',
+            border: '2px solid #10b981',
+            textAlign: 'center',
+            animation: 'fadeIn 0.2s ease'
+          }}>
+            <div style={{ fontSize: '3.5rem', marginBottom: '12px' }}>💰</div>
+            <h2 style={{ fontSize: '1.4rem', fontWeight: '900', color: 'var(--text-main)', margin: '0 0 10px 0' }}>
+              今日尚未進行現金盤點
+            </h2>
+            <p style={{ fontSize: '0.9rem', color: 'var(--text-muted)', lineHeight: '1.6', marginBottom: '24px' }}>
+              本日日期：<strong style={{ color: 'var(--primary)' }}>{getTodayLocalDate()}</strong><br />
+              及時盤點抽屜實收現金並與系統營業額比對，能確保帳目精準並及早發現溢收或短少！
+            </p>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowCashAuditPromptModal(false);
+                  handleOpenCashAuditModal(getTodayLocalDate());
+                }}
+                style={{
+                  width: '100%',
+                  padding: '14px',
+                  fontSize: '1.05rem',
+                  fontWeight: '900',
+                  backgroundColor: '#10b981',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '10px',
+                  cursor: 'pointer',
+                  boxShadow: '0 4px 12px rgba(16, 185, 129, 0.4)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '8px'
+                }}
+              >
+                💵 立即進行現金盤點
+              </button>
+
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const todayStr = getTodayLocalDate();
+                    localStorage.setItem('cash_audit_skip_' + todayStr, 'true');
+                    setShowCashAuditPromptModal(false);
+                  }}
+                  style={{
+                    flex: 1,
+                    padding: '10px',
+                    fontSize: '0.85rem',
+                    fontWeight: 'bold',
+                    backgroundColor: 'var(--bg-body)',
+                    color: 'var(--text-muted)',
+                    border: '1px solid var(--border)',
+                    borderRadius: '8px',
+                    cursor: 'pointer'
+                  }}
+                >
+                  今日不再提示
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setShowCashAuditPromptModal(false)}
+                  style={{
+                    flex: 1,
+                    padding: '10px',
+                    fontSize: '0.85rem',
+                    fontWeight: 'bold',
+                    backgroundColor: 'var(--bg-body)',
+                    color: 'var(--text-muted)',
+                    border: '1px solid var(--border)',
+                    borderRadius: '8px',
+                    cursor: 'pointer'
+                  }}
+                >
+                  稍後提醒
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 💵 Cash Audit Entry & Calculation Modal */}
+      {showCashAuditModal && (() => {
+        const targetOrders = orders.filter(o => {
+          const d = o.timestamp ? new Date(o.timestamp).toLocaleDateString('en-CA') : (o.time ? o.time.slice(0, 10) : '');
+          return d === auditDate;
+        });
+        const manualForTarget = Number(manualRevenues[auditDate] || 0);
+        const sysTotalRev = targetOrders.reduce((sum, o) => sum + (Number(o.total) || 0), 0) + manualForTarget;
+        const sysCashRev = targetOrders.filter(o => !o.paymentMethod || o.paymentMethod === 'cash').reduce((sum, o) => sum + (Number(o.total) || 0), 0) + manualForTarget;
+        const sysOnlineRev = targetOrders.filter(o => o.paymentMethod && o.paymentMethod !== 'cash').reduce((sum, o) => sum + (Number(o.total) || 0), 0);
+
+        const counted = Number(auditCountedCash || 0);
+        const floatVal = Number(auditDrawerFloat || 0);
+        const netActual = counted - floatVal;
+        const diff = netActual - sysCashRev;
+
+        return (
+          <div style={{
+            position: 'fixed',
+            top: 0, left: 0, right: 0, bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.75)',
+            zIndex: 99999,
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            padding: '20px',
+            backdropFilter: 'blur(4px)'
+          }}>
+            <div style={{
+              backgroundColor: 'var(--bg-card)',
+              borderRadius: '16px',
+              padding: '28px',
+              maxWidth: '560px',
+              width: '100%',
+              maxHeight: '90vh',
+              overflowY: 'auto',
+              boxShadow: 'var(--shadow-xl)',
+              border: '2px solid var(--primary)',
+              animation: 'fadeIn 0.2s ease'
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', borderBottom: '1px solid var(--border)', paddingBottom: '12px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ fontSize: '1.6rem' }}>💵</span>
+                  <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: '900', color: 'var(--text-main)' }}>
+                    {editingAuditId ? '✏️ 編輯現金盤點紀錄' : '💰 每日實收現金盤點與對帳'}
+                  </h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowCashAuditModal(false)}
+                  style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: '1.3rem', cursor: 'pointer' }}
+                >
+                  ✕
+                </button>
+              </div>
+
+              {/* Date Selector */}
+              <div style={{ marginBottom: '16px' }}>
+                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 'bold', color: 'var(--text-muted)', marginBottom: '6px' }}>
+                  📅 盤點日期
+                </label>
+                <input
+                  type="date"
+                  value={auditDate}
+                  onChange={(e) => setAuditDate(e.target.value)}
+                  style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-input)', color: 'var(--text-main)', fontSize: '0.95rem' }}
+                />
+              </div>
+
+              {/* System Revenue Reference Card */}
+              <div style={{
+                backgroundColor: 'rgba(234, 88, 12, 0.08)',
+                border: '1px solid rgba(234, 88, 12, 0.3)',
+                borderRadius: '10px',
+                padding: '14px 16px',
+                marginBottom: '18px'
+              }}>
+                <div style={{ fontSize: '0.8rem', color: 'var(--primary)', fontWeight: 'bold', marginBottom: '6px' }}>
+                  📊 系統當日帳目記錄 (自動核算)
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.9rem' }}>
+                  <span>系統總營業額：<strong>NT$ {sysTotalRev.toLocaleString()}</strong> ({targetOrders.length} 筆)</span>
+                  <span>系統現金營收：<strong style={{ color: 'var(--primary)', fontSize: '1.05rem' }}>NT$ {sysCashRev.toLocaleString()}</strong></span>
+                </div>
+                {sysOnlineRev > 0 && (
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+                    * 線上/非現金支付：NT$ {sysOnlineRev.toLocaleString()}
+                  </div>
+                )}
+              </div>
+
+              {/* Float & Counted Cash Inputs */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '16px' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 'bold', color: 'var(--text-muted)', marginBottom: '6px' }}>
+                    🪙 抽屜零錢備用金 (NT$)
+                  </label>
+                  <input
+                    type="number"
+                    value={auditDrawerFloat}
+                    onChange={(e) => setAuditDrawerFloat(e.target.value)}
+                    placeholder="例: 3000"
+                    style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-input)', color: 'var(--text-main)', fontSize: '0.95rem' }}
+                  />
+                  <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>開班時抽屜內的固定底層零錢</span>
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 'bold', color: 'var(--text-main)', marginBottom: '6px' }}>
+                    💵 抽屜盤點總現金 (NT$) *
+                  </label>
+                  <input
+                    type="number"
+                    value={auditCountedCash}
+                    onChange={(e) => setAuditCountedCash(e.target.value)}
+                    placeholder="例: 17200"
+                    style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '2px solid #10b981', backgroundColor: 'var(--bg-input)', color: 'var(--text-main)', fontSize: '1.1rem', fontWeight: 'bold' }}
+                  />
+                  <span style={{ fontSize: '0.72rem', color: '#10b981' }}>抽屜內所有鈔票與硬幣加總</span>
+                </div>
+              </div>
+
+              {/* Denominations Counter Toggle */}
+              <div style={{ marginBottom: '18px' }}>
+                <button
+                  type="button"
+                  onClick={() => setShowDenomCalc(!showDenomCalc)}
+                  style={{
+                    padding: '6px 12px',
+                    fontSize: '0.8rem',
+                    borderRadius: '6px',
+                    border: '1px solid var(--border)',
+                    backgroundColor: showDenomCalc ? 'rgba(16, 185, 129, 0.1)' : 'var(--bg-body)',
+                    color: showDenomCalc ? '#10b981' : 'var(--text-muted)',
+                    cursor: 'pointer',
+                    fontWeight: 'bold',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px'
+                  }}
+                >
+                  🧮 {showDenomCalc ? '收起紙鈔硬幣面額計算機' : '展開紙鈔硬幣面額計算機 (快速點鈔加總)'}
+                </button>
+
+                {showDenomCalc && (
+                  <div style={{
+                    marginTop: '10px',
+                    padding: '14px',
+                    backgroundColor: 'var(--bg-body)',
+                    borderRadius: '10px',
+                    border: '1px solid var(--border)',
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(4, 1fr)',
+                    gap: '10px'
+                  }}>
+                    <div>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>千元 (1000)</span>
+                      <input
+                        type="number"
+                        value={auditDenominations.d1000}
+                        onChange={(e) => updateDenomAndSum('d1000', e.target.value)}
+                        placeholder="張數"
+                        style={{ width: '100%', padding: '6px', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-card)', color: 'var(--text-main)', fontSize: '0.85rem' }}
+                      />
+                    </div>
+                    <div>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>五百 (500)</span>
+                      <input
+                        type="number"
+                        value={auditDenominations.d500}
+                        onChange={(e) => updateDenomAndSum('d500', e.target.value)}
+                        placeholder="張數"
+                        style={{ width: '100%', padding: '6px', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-card)', color: 'var(--text-main)', fontSize: '0.85rem' }}
+                      />
+                    </div>
+                    <div>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>二百 (200)</span>
+                      <input
+                        type="number"
+                        value={auditDenominations.d200}
+                        onChange={(e) => updateDenomAndSum('d200', e.target.value)}
+                        placeholder="張數"
+                        style={{ width: '100%', padding: '6px', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-card)', color: 'var(--text-main)', fontSize: '0.85rem' }}
+                      />
+                    </div>
+                    <div>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>百元 (100)</span>
+                      <input
+                        type="number"
+                        value={auditDenominations.d100}
+                        onChange={(e) => updateDenomAndSum('d100', e.target.value)}
+                        placeholder="張數"
+                        style={{ width: '100%', padding: '6px', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-card)', color: 'var(--text-main)', fontSize: '0.85rem' }}
+                      />
+                    </div>
+                    <div>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>五十元 (50)</span>
+                      <input
+                        type="number"
+                        value={auditDenominations.d50}
+                        onChange={(e) => updateDenomAndSum('d50', e.target.value)}
+                        placeholder="個數"
+                        style={{ width: '100%', padding: '6px', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-card)', color: 'var(--text-main)', fontSize: '0.85rem' }}
+                      />
+                    </div>
+                    <div>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>十元 (10)</span>
+                      <input
+                        type="number"
+                        value={auditDenominations.d10}
+                        onChange={(e) => updateDenomAndSum('d10', e.target.value)}
+                        placeholder="個數"
+                        style={{ width: '100%', padding: '6px', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-card)', color: 'var(--text-main)', fontSize: '0.85rem' }}
+                      />
+                    </div>
+                    <div>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>五元 (5)</span>
+                      <input
+                        type="number"
+                        value={auditDenominations.d5}
+                        onChange={(e) => updateDenomAndSum('d5', e.target.value)}
+                        placeholder="個數"
+                        style={{ width: '100%', padding: '6px', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-card)', color: 'var(--text-main)', fontSize: '0.85rem' }}
+                      />
+                    </div>
+                    <div>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>一元 (1)</span>
+                      <input
+                        type="number"
+                        value={auditDenominations.d1}
+                        onChange={(e) => updateDenomAndSum('d1', e.target.value)}
+                        placeholder="個數"
+                        style={{ width: '100%', padding: '6px', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-card)', color: 'var(--text-main)', fontSize: '0.85rem' }}
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Real-time Discrepancy Preview Card */}
+              <div style={{
+                padding: '16px',
+                borderRadius: '12px',
+                backgroundColor: diff === 0 ? 'rgba(16, 185, 129, 0.1)' : (diff > 0 ? 'rgba(59, 130, 246, 0.1)' : 'rgba(239, 68, 68, 0.1)'),
+                border: diff === 0 ? '2px solid #10b981' : (diff > 0 ? '2px solid #3b82f6' : '2px solid #ef4444'),
+                marginBottom: '18px'
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                  <span style={{ fontSize: '0.9rem', fontWeight: 'bold', color: 'var(--text-main)' }}>
+                    扣除備用金後實收現金：
+                  </span>
+                  <strong style={{ fontSize: '1.15rem', color: '#059669' }}>
+                    NT$ {netActual.toLocaleString()}
+                  </strong>
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px dashed var(--border)', paddingTop: '8px' }}>
+                  <span style={{ fontSize: '0.95rem', fontWeight: 'bold', color: 'var(--text-main)' }}>
+                    核算差額 (實收 - 系統)：
+                  </span>
+                  <strong style={{
+                    fontSize: '1.3rem',
+                    fontWeight: '900',
+                    color: diff === 0 ? '#10b981' : (diff > 0 ? '#2563eb' : '#ef4444')
+                  }}>
+                    {diff === 0 ? '✅ 帳實相符 ($0)' : (diff > 0 ? `📈 溢收 +NT$ ${diff.toLocaleString()}` : `📉 短少 -NT$ ${Math.abs(diff).toLocaleString()}`)}
+                  </strong>
+                </div>
+              </div>
+
+              {/* Auditor & Remarks */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '12px', marginBottom: '20px' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 'bold', color: 'var(--text-muted)', marginBottom: '4px' }}>
+                    👤 盤點人員
+                  </label>
+                  <input
+                    type="text"
+                    value={auditAuditor}
+                    onChange={(e) => setAuditAuditor(e.target.value)}
+                    style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-input)', color: 'var(--text-main)', fontSize: '0.85rem' }}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 'bold', color: 'var(--text-muted)', marginBottom: '4px' }}>
+                    📝 備註說明 (選填)
+                  </label>
+                  <input
+                    type="text"
+                    value={auditRemarks}
+                    onChange={(e) => setAuditRemarks(e.target.value)}
+                    placeholder="例: 找錯50元、備用金增補等"
+                    style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-input)', color: 'var(--text-main)', fontSize: '0.85rem' }}
+                  />
+                </div>
+              </div>
+
+              {/* Submit Buttons */}
+              <div style={{ display: 'flex', gap: '12px' }}>
+                <button
+                  type="button"
+                  onClick={handleSaveCashAudit}
+                  style={{
+                    flex: 2,
+                    padding: '14px',
+                    fontSize: '1.05rem',
+                    fontWeight: '900',
+                    backgroundColor: '#10b981',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '10px',
+                    cursor: 'pointer',
+                    boxShadow: '0 4px 12px rgba(16, 185, 129, 0.4)'
+                  }}
+                >
+                  ✓ 儲存現金盤點紀錄
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowCashAuditModal(false)}
+                  style={{
+                    flex: 1,
+                    padding: '14px',
+                    fontSize: '0.95rem',
+                    fontWeight: 'bold',
+                    backgroundColor: 'var(--bg-body)',
+                    color: 'var(--text-muted)',
+                    border: '1px solid var(--border)',
+                    borderRadius: '10px',
+                    cursor: 'pointer'
+                  }}
+                >
+                  取消
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* EDIT BOOKKEEPING ORDER MODAL */}
       {editingBookkeepingOrder && (
         <div style={{

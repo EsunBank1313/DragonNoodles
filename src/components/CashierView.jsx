@@ -1754,180 +1754,184 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
-        padding: '12px 24px',
+        padding: '10px 20px',
         backgroundColor: 'var(--bg-card)',
         borderBottom: '1px solid var(--border)',
         boxShadow: 'var(--shadow-sm)',
-        zIndex: 10
+        zIndex: 10,
+        gap: '12px'
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <span style={{ fontSize: '1.5rem' }}>💵</span>
-          <h1 style={{ fontSize: '1.1rem', fontWeight: 'bold', margin: 0 }}>{storeName} 現場收銀系統 (POS)</h1>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-          {/* Offline Mode Indicator Badge */}
+        {/* Left: Brand Title & Offline Status */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 'fit-content' }}>
+          <span style={{ fontSize: '1.4rem' }}>💵</span>
+          <h1 style={{ fontSize: '1.05rem', fontWeight: 'bold', margin: 0, whiteSpace: 'nowrap' }}>
+            {storeName} 現場收銀 (POS)
+          </h1>
           {!isOnline && (
             <div style={{
               display: 'flex',
               alignItems: 'center',
-              gap: '6px',
-              padding: '5px 12px',
+              gap: '4px',
+              padding: '3px 8px',
               borderRadius: '20px',
               backgroundColor: '#fee2e2',
-              border: '2px solid #ef4444',
+              border: '1px solid #ef4444',
               color: '#b91c1c',
-              fontSize: '0.8rem',
-              fontWeight: '900',
-              animation: 'pulse 1.5s infinite'
+              fontSize: '0.75rem',
+              fontWeight: '900'
             }}>
-              📶 離線模式 {offlineQueue.length > 0 ? `(待同步 ${offlineQueue.length} 筆)` : ''}
+              📶 離線模式 {offlineQueue.length > 0 ? `(${offlineQueue.length})` : ''}
             </div>
           )}
+        </div>
 
-          {/* Quick Sold-out Mode Toggle Button */}
+        {/* Right: Actions Toolbar (Single line, sleek, unified heights) */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'nowrap' }}>
+          {/* 1. Store Open Toggle (今日開店 / 營業中) */}
+          <button
+            type="button"
+            onClick={handleToggleStoreOpen}
+            style={{
+              height: '36px',
+              padding: '0 12px',
+              fontSize: '0.82rem',
+              borderRadius: '6px',
+              border: isStoreOpenToday ? '1px solid #10b981' : '1px solid #ea580c',
+              backgroundColor: isStoreOpenToday ? 'rgba(16, 185, 129, 0.12)' : '#ea580c',
+              color: isStoreOpenToday ? '#059669' : 'white',
+              cursor: 'pointer',
+              fontWeight: '900',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+              whiteSpace: 'nowrap'
+            }}
+            title="點擊切換今日開店狀態（開放或關閉顧客線上點餐）"
+          >
+            {isStoreOpenToday ? '🟢 營業中' : '🛎️ 今日開店'}
+          </button>
+
+          {/* 2. Daily Closing (今日打烊收店) */}
+          <button
+            type="button"
+            onClick={handleDailyClosingAndLock}
+            style={{
+              height: '36px',
+              padding: '0 12px',
+              fontSize: '0.82rem',
+              borderRadius: '6px',
+              border: '1px solid #ef4444',
+              backgroundColor: 'rgba(239, 68, 68, 0.1)',
+              color: '#ef4444',
+              cursor: 'pointer',
+              fontWeight: '900',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+              whiteSpace: 'nowrap'
+            }}
+            title="列印日結單 (Z-Report)，關閉線上點餐並鎖定收銀帳目"
+          >
+            🏁 今日打烊收店
+          </button>
+
+          {/* 3. Sold-out Management (沽清管理) */}
           <button
             type="button"
             onClick={() => setIsManagingSoldOut(!isManagingSoldOut)}
             style={{
-              padding: '6px 12px',
-              fontSize: '0.8rem',
-              borderRadius: 'var(--radius-sm)',
-              border: isManagingSoldOut ? '2px solid #ea580c' : '1px solid #ea580c',
-              backgroundColor: isManagingSoldOut ? '#ea580c' : 'rgba(234, 88, 12, 0.08)',
-              color: isManagingSoldOut ? 'white' : '#ea580c',
+              height: '36px',
+              padding: '0 12px',
+              fontSize: '0.82rem',
+              borderRadius: '6px',
+              border: isManagingSoldOut ? '2px solid #ea580c' : '1px solid var(--border)',
+              backgroundColor: isManagingSoldOut ? '#ea580c' : 'var(--bg-body)',
+              color: isManagingSoldOut ? 'white' : 'var(--text-main)',
               cursor: 'pointer',
               fontWeight: 'bold',
               display: 'flex',
               alignItems: 'center',
               gap: '4px',
-              boxShadow: isManagingSoldOut ? '0 0 10px rgba(234, 88, 12, 0.5)' : 'none'
+              whiteSpace: 'nowrap'
             }}
           >
-            ⚡ {isManagingSoldOut ? '✓ 結束沽清設定' : '沽清/售完管理'}
+            ⚡ {isManagingSoldOut ? '結束沽清' : '沽清/售完'}
           </button>
 
-          {/* Unified POS Settings & Print Controls */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <button
-              type="button"
-              onClick={() => setShowPosSettingsModal(true)}
-              style={{
-                padding: '6px 14px',
-                fontSize: '0.85rem',
-                borderRadius: '8px',
-                border: '1px solid var(--primary)',
-                backgroundColor: 'rgba(255, 107, 53, 0.08)',
-                color: 'var(--primary)',
-                cursor: 'pointer',
-                fontWeight: '900',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                boxShadow: '0 1px 3px rgba(0,0,0,0.05)'
-              }}
-            >
-              ⚙️ POS 功能與列印設定
-              <span style={{ fontSize: '0.7rem', padding: '2px 6px', borderRadius: '4px', backgroundColor: isAutoPrintEnabled ? '#16a34a' : '#64748b', color: 'white' }}>
-                {isAutoPrintEnabled ? '🖨️自動出單:開' : '🖨️自動出單:關'}
-              </span>
-              <span style={{ fontSize: '0.7rem', padding: '2px 6px', borderRadius: '4px', backgroundColor: printKitchenTicket ? '#0284c7' : '#64748b', color: 'white' }}>
-                {printKitchenTicket ? '🍳廚房單:開' : '🍳廚房單:關'}
-              </span>
-              <span style={{ fontSize: '0.7rem', padding: '2px 6px', borderRadius: '4px', backgroundColor: isVoiceAnnounceEnabled ? '#10b981' : '#64748b', color: 'white' }}>
-                {isVoiceAnnounceEnabled ? '🗣️語音:開' : '🗣️語音:關'}
-              </span>
-            </button>
+          {/* 4. POS Settings (設定) */}
+          <button
+            type="button"
+            onClick={() => setShowPosSettingsModal(true)}
+            style={{
+              height: '36px',
+              padding: '0 12px',
+              fontSize: '0.82rem',
+              borderRadius: '6px',
+              border: '1px solid var(--border)',
+              backgroundColor: 'var(--bg-body)',
+              color: 'var(--text-main)',
+              cursor: 'pointer',
+              fontWeight: 'bold',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+              whiteSpace: 'nowrap'
+            }}
+            title="POS 功能與列印設定"
+          >
+            ⚙️ POS與列印設定
+          </button>
 
-            {/* 🏁 Daily Closing (今日打烊收店) Button */}
+          {/* 5. Shift Handover (換班交接) */}
+          <button
+            type="button"
+            onClick={() => setShowShiftHandoverModal(true)}
+            style={{
+              height: '36px',
+              padding: '0 12px',
+              fontSize: '0.82rem',
+              borderRadius: '6px',
+              border: '1px solid #2563eb',
+              backgroundColor: 'rgba(37, 99, 235, 0.08)',
+              color: '#2563eb',
+              cursor: 'pointer',
+              fontWeight: 'bold',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+              whiteSpace: 'nowrap'
+            }}
+          >
+            🔄 換班交接
+          </button>
+
+          {/* 6. Restock Alert (補貨提醒) */}
+          {watchedLowStockItems.length > 0 && (
             <button
               type="button"
-              onClick={handleDailyClosingAndLock}
+              onClick={() => setShowStockAlertModal(true)}
               style={{
-                padding: '6px 14px',
-                fontSize: '0.85rem',
-                borderRadius: 'var(--radius-sm)',
+                height: '36px',
+                padding: '0 10px',
+                fontSize: '0.78rem',
+                borderRadius: '6px',
                 border: '1px solid #ef4444',
-                backgroundColor: 'rgba(239, 68, 68, 0.1)',
-                color: '#ef4444',
-                cursor: 'pointer',
-                fontWeight: '900',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                boxShadow: '0 1px 3px rgba(239, 68, 68, 0.2)'
-              }}
-              title="執行今日打烊收店：列印日結單 (Z-Report)，關閉線上點餐並鎖定收銀帳目"
-            >
-              🏁 今日打烊收店
-            </button>
-
-            {/* 🛎️ Store Opening (開店 / 打烊) Button */}
-            <button
-              type="button"
-              onClick={handleToggleStoreOpen}
-              style={{
-                padding: '6px 14px',
-                fontSize: '0.85rem',
-                borderRadius: 'var(--radius-sm)',
-                border: isStoreOpenToday ? '1px solid #10b981' : '2px solid #ea580c',
-                backgroundColor: isStoreOpenToday ? 'rgba(16, 185, 129, 0.12)' : '#ea580c',
-                color: isStoreOpenToday ? '#059669' : 'white',
-                cursor: 'pointer',
-                fontWeight: '900',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                boxShadow: isStoreOpenToday ? 'none' : '0 0 10px rgba(234, 88, 12, 0.5)'
-              }}
-              title="點擊切換今日開店狀態（開放或關閉顧客線上點餐）"
-            >
-              {isStoreOpenToday ? '🟢 營業中 (線上點餐中)' : '🛎️ 今日開店 (開啟線上點餐)'}
-            </button>
-
-            {/* Shift Handover (X-Report) Button */}
-            <button
-              type="button"
-              onClick={() => setShowShiftHandoverModal(true)}
-              style={{
-                padding: '6px 12px',
-                fontSize: '0.8rem',
-                borderRadius: 'var(--radius-sm)',
-                border: '1px solid #2563eb',
-                backgroundColor: 'rgba(37, 99, 235, 0.08)',
-                color: '#2563eb',
-                cursor: 'pointer',
+                backgroundColor: '#fee2e2',
+                color: '#b91c1c',
                 fontWeight: 'bold',
+                cursor: 'pointer',
                 display: 'flex',
                 alignItems: 'center',
-                gap: '4px'
+                gap: '4px',
+                whiteSpace: 'nowrap'
               }}
+              title="點擊查看缺貨與偏低之關注項目"
             >
-              🔄 換班交接
+              ⚠️ 補貨 ({watchedLowStockItems.length})
             </button>
+          )}
 
-            {watchedLowStockItems.length > 0 && (
-              <button
-                type="button"
-                onClick={() => setShowStockAlertModal(true)}
-                style={{
-                  padding: '4px 10px',
-                  fontSize: '0.75rem',
-                  borderRadius: '6px',
-                  border: '1px solid #ef4444',
-                  backgroundColor: '#fee2e2',
-                  color: '#b91c1c',
-                  fontWeight: 'bold',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '4px'
-                }}
-                title="點擊查看缺貨與偏低之關注項目"
-              >
-                ⚠️ 補貨提醒 ({watchedLowStockItems.length})
-              </button>
-            )}
-          </div>
+          {/* 7. Logout Lock (登出鎖定) */}
           <button 
             onClick={async () => {
               try {
@@ -1937,17 +1941,22 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
               onLogout();
             }}
             style={{
-              padding: '6px 12px',
-              fontSize: '0.8rem',
-              borderRadius: 'var(--radius-sm)',
+              height: '36px',
+              padding: '0 12px',
+              fontSize: '0.82rem',
+              borderRadius: '6px',
               border: '1px solid var(--border)',
-              backgroundColor: 'var(--bg-card)',
+              backgroundColor: 'var(--bg-body)',
               color: 'var(--text-muted)',
               cursor: 'pointer',
-              fontWeight: '600'
+              fontWeight: 'bold',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+              whiteSpace: 'nowrap'
             }}
           >
-            🔒 登出鎖定
+            🔒 登出
           </button>
         </div>
       </header>
