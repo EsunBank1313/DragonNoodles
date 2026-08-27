@@ -3939,10 +3939,15 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
 
                   {/* Quick Weight Presets Input */}
                   <div>
-                    <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '4px' }}>
-                      自訂快捷重量按鈕 (以逗號隔開):
-                    </label>
-                    <div style={{ display: 'flex', gap: '6px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                      <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 'bold' }}>
+                        自訂快捷重量按鈕 (以逗號隔開):
+                      </label>
+                      <span style={{ fontSize: '0.72rem', color: 'var(--primary)' }}>
+                        目前: {(weightConfig.quickWeightPresets || [0.5, 1, 1.5, 2, 3, 5]).join(', ')} {weightConfig.weightUnit || '斤'}
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', gap: '6px', marginBottom: '6px' }}>
                       <input
                         type="text"
                         value={quickPresetsEditStr}
@@ -3954,20 +3959,82 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                         type="button"
                         onClick={async () => {
                           const parsedArr = quickPresetsEditStr.split(',').map(s => parseFloat(s.trim())).filter(n => !isNaN(n) && n > 0);
-                          const updated = { ...weightConfig, quickWeightPresets: parsedArr.length > 0 ? parsedArr : [0.5, 1, 1.5, 2, 3, 5] };
+                          const finalPresets = parsedArr.length > 0 ? parsedArr : [0.5, 1, 1.5, 2, 3, 5];
+                          const updated = { ...weightConfig, quickWeightPresets: finalPresets };
                           setWeightConfig(updated);
                           localStorage.setItem('pos_weight_config', JSON.stringify(updated));
                           try {
                             const key = prefixNameForStore('SYSTEM_SETTING_WEIGHT_CONFIG', storeCode);
                             await supabase.from('menu_items').upsert([{ id: 9991, name: key, price: 0, category: 'settings', description: JSON.stringify(updated) }]);
                           } catch (err) {}
-                          alert("快捷重量鍵已儲存更新！");
+                          alert("✅ 快捷重量鍵已成功儲存更新！");
                         }}
                         style={{ padding: '6px 12px', fontSize: '0.78rem', backgroundColor: '#ea580c', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}
                       >
                         儲存
                       </button>
                     </div>
+
+                    {/* Quick Preset Templates */}
+                    <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', alignItems: 'center', marginTop: '4px' }}>
+                      <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>一鍵套用常用範本:</span>
+                      {[
+                        { label: '🍎 水果蔬果', val: '0.5, 1, 1.5, 2, 3, 5', unit: '斤' },
+                        { label: '🥩 生鮮肉品', val: '0.5, 0.8, 1, 1.2, 1.5, 2', unit: '斤' },
+                        { label: '🍵 茶葉南北貨', val: '0.25, 0.5, 0.75, 1, 2', unit: '斤' },
+                        { label: '📦 大宗秤重', val: '5, 10, 15, 20, 30', unit: '公斤' }
+                      ].map(tpl => (
+                        <button
+                          key={tpl.label}
+                          type="button"
+                          onClick={async () => {
+                            setQuickPresetsEditStr(tpl.val);
+                            const parsedArr = tpl.val.split(',').map(s => parseFloat(s.trim())).filter(n => !isNaN(n) && n > 0);
+                            const updated = { ...weightConfig, quickWeightPresets: parsedArr, weightUnit: tpl.unit };
+                            setWeightConfig(updated);
+                            localStorage.setItem('pos_weight_config', JSON.stringify(updated));
+                            try {
+                              const key = prefixNameForStore('SYSTEM_SETTING_WEIGHT_CONFIG', storeCode);
+                              await supabase.from('menu_items').upsert([{ id: 9991, name: key, price: 0, category: 'settings', description: JSON.stringify(updated) }]);
+                            } catch (err) {}
+                            alert(`已套用【${tpl.label}】快捷重量與單位範本！`);
+                          }}
+                          style={{
+                            padding: '2px 6px',
+                            fontSize: '0.7rem',
+                            borderRadius: '4px',
+                            border: '1px solid var(--border)',
+                            backgroundColor: 'var(--bg-card)',
+                            color: 'var(--text-main)',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          {tpl.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Default Tare Weight Input */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>預設去皮/扣籃重 ({weightConfig.weightUnit || '斤'}):</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={weightConfig.defaultTare || 0}
+                      onChange={async (e) => {
+                        const val = parseFloat(e.target.value) || 0;
+                        const updated = { ...weightConfig, defaultTare: val };
+                        setWeightConfig(updated);
+                        localStorage.setItem('pos_weight_config', JSON.stringify(updated));
+                        try {
+                          const key = prefixNameForStore('SYSTEM_SETTING_WEIGHT_CONFIG', storeCode);
+                          await supabase.from('menu_items').upsert([{ id: 9991, name: key, price: 0, category: 'settings', description: JSON.stringify(updated) }]);
+                        } catch (err) {}
+                      }}
+                      style={{ width: '80px', padding: '4px 8px', fontSize: '0.8rem', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-card)', color: 'var(--text-main)', textAlign: 'right' }}
+                    />
                   </div>
 
                   {/* Rounding Mode */}

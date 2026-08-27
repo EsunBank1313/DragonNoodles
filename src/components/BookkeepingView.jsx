@@ -5525,144 +5525,280 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
 
       
 
-      {/* 🏷️ Tag Manager Modal (自訂評鑑標籤管理) */}
-      {showTagManagerModal && (
-        <div style={{
-          position: 'fixed',
-          top: 0, left: 0, right: 0, bottom: 0,
-          backgroundColor: 'rgba(0, 0, 0, 0.75)',
-          zIndex: 99999,
-          display: 'flex',
-          justifyContent: 'center',
-          alignItems: 'center',
-          padding: '20px',
-          backdropFilter: 'blur(4px)'
-        }}>
-          <div style={{
-            backgroundColor: 'var(--bg-card)',
-            borderRadius: '16px',
-            padding: '24px',
-            maxWidth: '520px',
-            width: '100%',
-            maxHeight: '90vh',
-            overflowY: 'auto',
-            boxShadow: 'var(--shadow-xl)',
-            border: '2px solid var(--primary)',
-            animation: 'fadeIn 0.2s ease'
-          }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', borderBottom: '1px solid var(--border)', paddingBottom: '10px' }}>
-              <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: '900', color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                🏷️ 自訂供應商評鑑標籤庫
-              </h3>
-              <button
-                type="button"
-                onClick={() => setShowTagManagerModal(false)}
-                style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: '1.4rem', cursor: 'pointer' }}
-              >
-                ✕
-              </button>
-            </div>
+      {/* 🏷️ Tag Manager Modal (自訂評鑑標籤管理 - 支援編輯、刪除、載入行業範本) */}
+      {showTagManagerModal && (() => {
+        const defaultTemplates = {
+          fruit: [
+            { id: 'f1', name: '🍏 品質極佳', isGood: true },
+            { id: 'f2', name: '🌟 甜度高/口感極佳', isGood: true },
+            { id: 'f3', name: '⚖️ 足秤無損', isGood: true },
+            { id: 'f4', name: '🌿 當天現採新鮮', isGood: true },
+            { id: 'f5', name: '📦 包裝保護完整', isGood: true },
+            { id: 'f6', name: '🚚 送貨準時', isGood: true },
+            { id: 'f7', name: '⚠️ 輕微壓傷/瑕疵', isGood: false },
+            { id: 'f8', name: '🚨 損耗偏高', isGood: false },
+            { id: 'f9', name: '⏰ 延遲送達', isGood: false },
+            { id: 'f10', name: '📉 甜度/熟度不均', isGood: false }
+          ],
+          restaurant: [
+            { id: 'r1', name: '🥩 新鮮無異味', isGood: true },
+            { id: 'r2', name: '❄️ 冷鏈溫控良好', isGood: true },
+            { id: 'r3', name: '⏱️ 效期新鮮', isGood: true },
+            { id: 'r4', name: '💰 批發價格優惠', isGood: true },
+            { id: 'r5', name: '🤝 配合度高', isGood: true },
+            { id: 'r6', name: '⚠️ 效期偏短', isGood: false },
+            { id: 'r7', name: '❌ 少送/缺件', isGood: false },
+            { id: 'r8', name: '⏰ 延遲送達', isGood: false },
+            { id: 'r9', name: '💸 漲價通知', isGood: false }
+          ],
+          retail: [
+            { id: 'g1', name: '📦 耐摔耐重', isGood: true },
+            { id: 'g2', name: '📐 尺寸規格精準', isGood: true },
+            { id: 'g3', name: '💰 批發底價', isGood: true },
+            { id: 'g4', name: '🚚 快速出貨', isGood: true },
+            { id: 'g5', name: '⚠️ 外箱破損', isGood: false },
+            { id: 'g6', name: '❌ 規格錯誤', isGood: false }
+          ]
+        };
 
-            {/* Add New Tag Section */}
-            <div style={{ padding: '14px', borderRadius: '10px', backgroundColor: 'var(--bg-body)', border: '1px solid var(--border)', marginBottom: '18px' }}>
-              <div style={{ fontSize: '0.82rem', fontWeight: 'bold', color: 'var(--text-main)', marginBottom: '8px' }}>
-                ➕ 新增自訂標籤
-              </div>
-              <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '8px' }}>
-                <input
-                  type="text"
-                  value={newCustomTagName}
-                  onChange={(e) => setNewCustomTagName(e.target.value)}
-                  placeholder="例: 🍉 甜度爆表 或 🥩 油花均勻"
-                  style={{ flex: 1, padding: '8px 10px', fontSize: '0.85rem', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-card)', color: 'var(--text-main)' }}
-                />
-                <select
-                  value={newCustomTagIsGood ? 'good' : 'bad'}
-                  onChange={(e) => setNewCustomTagIsGood(e.target.value === 'good')}
-                  style={{ padding: '8px', fontSize: '0.8rem', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-card)', color: 'var(--text-main)' }}
-                >
-                  <option value="good">🟢 正向好評</option>
-                  <option value="bad">🔴 警示/需注意</option>
-                </select>
+        const handleLoadTemplate = async (type) => {
+          if (!confirm(`確定要載入【${type === 'fruit' ? '水果生鮮' : (type === 'restaurant' ? '餐飲食材' : '通用包材')}】評鑑標籤範本嗎？`)) return;
+          const tplTags = defaultTemplates[type] || defaultTemplates.fruit;
+          setVendorEvalTags(tplTags);
+          localStorage.setItem('restaurant_vendor_eval_tags', JSON.stringify(tplTags));
+          try {
+            const tagKey = prefixNameForStore('SYSTEM_SETTING_VENDOR_EVAL_TAGS', storeCode);
+            await supabase.from('menu_items').upsert([{ id: 9992, name: tagKey, price: 0, category: 'settings', description: JSON.stringify(tplTags) }]);
+          } catch (err) {}
+          alert("✅ 標籤範本載入成功！");
+        };
+
+        return (
+          <div style={{
+            position: 'fixed',
+            top: 0, left: 0, right: 0, bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.75)',
+            zIndex: 99999,
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            padding: '20px',
+            backdropFilter: 'blur(4px)'
+          }}>
+            <div style={{
+              backgroundColor: 'var(--bg-card)',
+              borderRadius: '16px',
+              padding: '24px',
+              maxWidth: '560px',
+              width: '100%',
+              maxHeight: '90vh',
+              overflowY: 'auto',
+              boxShadow: 'var(--shadow-xl)',
+              border: '2px solid var(--primary)',
+              animation: 'fadeIn 0.2s ease'
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', borderBottom: '1px solid var(--border)', paddingBottom: '10px' }}>
+                <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: '900', color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  🏷️ 自訂供應商評鑑標籤庫
+                </h3>
                 <button
                   type="button"
-                  onClick={async () => {
-                    if (!newCustomTagName.trim()) {
-                      alert("請輸入標籤名稱！");
-                      return;
-                    }
-                    const newTag = {
-                      id: `tag_${Date.now()}`,
-                      name: newCustomTagName.trim(),
-                      isGood: newCustomTagIsGood
-                    };
-                    const updated = [...vendorEvalTags, newTag];
-                    setVendorEvalTags(updated);
-                    localStorage.setItem('restaurant_vendor_eval_tags', JSON.stringify(updated));
-                    try {
-                      const tagKey = prefixNameForStore('SYSTEM_SETTING_VENDOR_EVAL_TAGS', storeCode);
-                      await supabase.from('menu_items').upsert([{ id: 9992, name: tagKey, price: 0, category: 'settings', description: JSON.stringify(updated) }]);
-                    } catch (err) {}
-                    setNewCustomTagName('');
-                  }}
-                  style={{ padding: '8px 16px', fontSize: '0.85rem', fontWeight: 'bold', backgroundColor: '#10b981', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', whiteSpace: 'nowrap' }}
+                  onClick={() => setShowTagManagerModal(false)}
+                  style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: '1.4rem', cursor: 'pointer' }}
                 >
-                  新增
+                  ✕
+                </button>
+              </div>
+
+              {/* Template Quick Loader */}
+              <div style={{ padding: '10px 14px', borderRadius: '8px', backgroundColor: 'rgba(255, 107, 53, 0.08)', border: '1px solid rgba(255, 107, 53, 0.2)', marginBottom: '14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+                <span style={{ fontSize: '0.78rem', fontWeight: 'bold', color: 'var(--primary)' }}>
+                  📂 一鍵載入行業專屬標籤庫:
+                </span>
+                <div style={{ display: 'flex', gap: '6px' }}>
+                  <button
+                    type="button"
+                    onClick={() => handleLoadTemplate('fruit')}
+                    style={{ padding: '4px 8px', fontSize: '0.75rem', borderRadius: '4px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-card)', color: 'var(--text-main)', cursor: 'pointer', fontWeight: 'bold' }}
+                  >
+                    🍎 水果生鮮
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleLoadTemplate('restaurant')}
+                    style={{ padding: '4px 8px', fontSize: '0.75rem', borderRadius: '4px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-card)', color: 'var(--text-main)', cursor: 'pointer', fontWeight: 'bold' }}
+                  >
+                    🍜 餐飲食材
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleLoadTemplate('retail')}
+                    style={{ padding: '4px 8px', fontSize: '0.75rem', borderRadius: '4px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-card)', color: 'var(--text-main)', cursor: 'pointer', fontWeight: 'bold' }}
+                  >
+                    📦 通用包材
+                  </button>
+                </div>
+              </div>
+
+              {/* Add New Tag Section */}
+              <div style={{ padding: '14px', borderRadius: '10px', backgroundColor: 'var(--bg-body)', border: '1px solid var(--border)', marginBottom: '18px' }}>
+                <div style={{ fontSize: '0.82rem', fontWeight: 'bold', color: 'var(--text-main)', marginBottom: '8px' }}>
+                  ➕ 新增自訂標籤
+                </div>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '8px' }}>
+                  <input
+                    type="text"
+                    value={newCustomTagName}
+                    onChange={(e) => setNewCustomTagName(e.target.value)}
+                    placeholder="例: 🍉 甜度爆表 或 🥩 油花均勻"
+                    style={{ flex: 1, padding: '8px 10px', fontSize: '0.85rem', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-card)', color: 'var(--text-main)' }}
+                  />
+                  <select
+                    value={newCustomTagIsGood ? 'good' : 'bad'}
+                    onChange={(e) => setNewCustomTagIsGood(e.target.value === 'good')}
+                    style={{ padding: '8px', fontSize: '0.8rem', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-card)', color: 'var(--text-main)' }}
+                  >
+                    <option value="good">🟢 正向好評</option>
+                    <option value="bad">🔴 警示/需注意</option>
+                  </select>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (!newCustomTagName.trim()) {
+                        alert("請輸入標籤名稱！");
+                        return;
+                      }
+                      const newTag = {
+                        id: `tag_${Date.now()}`,
+                        name: newCustomTagName.trim(),
+                        isGood: newCustomTagIsGood
+                      };
+                      const updated = [...vendorEvalTags, newTag];
+                      setVendorEvalTags(updated);
+                      localStorage.setItem('restaurant_vendor_eval_tags', JSON.stringify(updated));
+                      try {
+                        const tagKey = prefixNameForStore('SYSTEM_SETTING_VENDOR_EVAL_TAGS', storeCode);
+                        await supabase.from('menu_items').upsert([{ id: 9992, name: tagKey, price: 0, category: 'settings', description: JSON.stringify(updated) }]);
+                      } catch (err) {}
+                      setNewCustomTagName('');
+                    }}
+                    style={{ padding: '8px 16px', fontSize: '0.85rem', fontWeight: 'bold', backgroundColor: '#10b981', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', whiteSpace: 'nowrap' }}
+                  >
+                    新增
+                  </button>
+                </div>
+              </div>
+
+              {/* Tag List & Live Editable Badges */}
+              <div style={{ marginBottom: '20px' }}>
+                <div style={{ fontSize: '0.82rem', fontWeight: 'bold', color: 'var(--text-main)', marginBottom: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span>現有標籤庫清單 ({vendorEvalTags.length} 個標籤):</span>
+                  <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>點擊文字即可直接編輯改名</span>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '260px', overflowY: 'auto' }}>
+                  {vendorEvalTags.map(tag => (
+                    <div
+                      key={tag.id || tag.name}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        padding: '8px 12px',
+                        borderRadius: '8px',
+                        backgroundColor: tag.isGood ? 'rgba(34, 197, 94, 0.08)' : 'rgba(239, 68, 68, 0.08)',
+                        border: tag.isGood ? '1px solid rgba(34, 197, 94, 0.3)' : '1px solid rgba(239, 68, 68, 0.3)'
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1 }}>
+                        <span style={{
+                          padding: '2px 6px',
+                          borderRadius: '4px',
+                          fontSize: '0.7rem',
+                          fontWeight: 'bold',
+                          backgroundColor: tag.isGood ? '#16a34a' : '#ef4444',
+                          color: 'white'
+                        }}>
+                          {tag.isGood ? '好評' : '警示'}
+                        </span>
+                        <input
+                          type="text"
+                          value={tag.name}
+                          onChange={async (e) => {
+                            const newName = e.target.value;
+                            const updated = vendorEvalTags.map(t => (t.id ? t.id === tag.id : t.name === tag.name) ? { ...t, name: newName } : t);
+                            setVendorEvalTags(updated);
+                            localStorage.setItem('restaurant_vendor_eval_tags', JSON.stringify(updated));
+                            try {
+                              const tagKey = prefixNameForStore('SYSTEM_SETTING_VENDOR_EVAL_TAGS', storeCode);
+                              await supabase.from('menu_items').upsert([{ id: 9992, name: tagKey, price: 0, category: 'settings', description: JSON.stringify(updated) }]);
+                            } catch (err) {}
+                          }}
+                          style={{
+                            flex: 1,
+                            padding: '4px 8px',
+                            fontSize: '0.85rem',
+                            fontWeight: 'bold',
+                            border: '1px solid var(--border)',
+                            backgroundColor: 'var(--bg-card)',
+                            color: 'var(--text-main)',
+                            borderRadius: '4px'
+                          }}
+                        />
+                      </div>
+
+                      <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            const updated = vendorEvalTags.map(t => (t.id ? t.id === tag.id : t.name === tag.name) ? { ...t, isGood: !t.isGood } : t);
+                            setVendorEvalTags(updated);
+                            localStorage.setItem('restaurant_vendor_eval_tags', JSON.stringify(updated));
+                            try {
+                              const tagKey = prefixNameForStore('SYSTEM_SETTING_VENDOR_EVAL_TAGS', storeCode);
+                              await supabase.from('menu_items').upsert([{ id: 9992, name: tagKey, price: 0, category: 'settings', description: JSON.stringify(updated) }]);
+                            } catch (err) {}
+                          }}
+                          style={{ padding: '4px 8px', fontSize: '0.72rem', backgroundColor: 'transparent', border: '1px solid var(--border)', borderRadius: '4px', cursor: 'pointer', color: 'var(--text-muted)' }}
+                          title="切換好評/警示屬性"
+                        >
+                          切換性質
+                        </button>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            const updated = vendorEvalTags.filter(t => (t.id ? t.id !== tag.id : t.name !== tag.name));
+                            setVendorEvalTags(updated);
+                            localStorage.setItem('restaurant_vendor_eval_tags', JSON.stringify(updated));
+                            try {
+                              const tagKey = prefixNameForStore('SYSTEM_SETTING_VENDOR_EVAL_TAGS', storeCode);
+                              await supabase.from('menu_items').upsert([{ id: 9992, name: tagKey, price: 0, category: 'settings', description: JSON.stringify(updated) }]);
+                            } catch (err) {}
+                          }}
+                          style={{ padding: '4px 8px', fontSize: '0.72rem', backgroundColor: 'transparent', border: '1px solid #ef4444', color: '#ef4444', borderRadius: '4px', cursor: 'pointer' }}
+                          title="刪除標籤"
+                        >
+                          🗑️ 刪除
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div style={{ marginTop: '20px', display: 'flex', justifyContent: 'flex-end' }}>
+                <button
+                  type="button"
+                  onClick={() => setShowTagManagerModal(false)}
+                  style={{ padding: '8px 20px', fontSize: '0.85rem', fontWeight: 'bold', backgroundColor: 'var(--bg-body)', color: 'var(--text-main)', border: '1px solid var(--border)', borderRadius: '8px', cursor: 'pointer' }}
+                >
+                  完成
                 </button>
               </div>
             </div>
-
-            {/* Existing Tags List */}
-            <div>
-              <div style={{ fontSize: '0.82rem', fontWeight: 'bold', color: 'var(--text-muted)', marginBottom: '10px' }}>
-                目前現有標籤庫 ({vendorEvalTags.length} 個)：
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                {vendorEvalTags.map(tag => (
-                  <div key={tag.id || tag.name} style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    padding: '8px 12px',
-                    borderRadius: '8px',
-                    backgroundColor: 'var(--bg-body)',
-                    border: '1px solid var(--border)'
-                  }}>
-                    <span style={{ fontSize: '0.85rem', fontWeight: 'bold', color: tag.isGood ? '#16a34a' : '#dc2626' }}>
-                      {tag.name}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        const updated = vendorEvalTags.filter(t => (t.id ? t.id !== tag.id : t.name !== tag.name));
-                        setVendorEvalTags(updated);
-                        localStorage.setItem('restaurant_vendor_eval_tags', JSON.stringify(updated));
-                        try {
-                          const tagKey = prefixNameForStore('SYSTEM_SETTING_VENDOR_EVAL_TAGS', storeCode);
-                          await supabase.from('menu_items').upsert([{ id: 9992, name: tagKey, price: 0, category: 'settings', description: JSON.stringify(updated) }]);
-                        } catch (err) {}
-                      }}
-                      style={{ padding: '2px 6px', fontSize: '0.72rem', backgroundColor: 'transparent', color: '#ef4444', border: '1px solid #ef4444', borderRadius: '4px', cursor: 'pointer' }}
-                    >
-                      🗑️ 刪除
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div style={{ marginTop: '20px', display: 'flex', justifyContent: 'flex-end' }}>
-              <button
-                type="button"
-                onClick={() => setShowTagManagerModal(false)}
-                style={{ padding: '8px 20px', fontSize: '0.85rem', fontWeight: 'bold', backgroundColor: 'var(--bg-body)', color: 'var(--text-main)', border: '1px solid var(--border)', borderRadius: '8px', cursor: 'pointer' }}
-              >
-                關閉
-              </button>
-            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* 💰 Cash Audit Prompt Modal (Daily Login Reminder) */}
       {showCashAuditPromptModal && (
