@@ -98,6 +98,19 @@ export const calculateItemCost = (item) => {
   return (baseUnitCost + addonsCost) * qty;
 };
 
+const defaultVendorEvalTags = [
+  { id: 't1', name: '🍏 品質極佳', isGood: true },
+  { id: 't2', name: '🌟 甜度高', isGood: true },
+  { id: 't3', name: '⚖️ 足秤無損', isGood: true },
+  { id: 't4', name: '🚚 送貨準時', isGood: true },
+  { id: 't5', name: '💰 價格實惠', isGood: true },
+  { id: 't6', name: '🤝 配合度高', isGood: true },
+  { id: 't7', name: '⚠️ 輕微壓傷', isGood: false },
+  { id: 't8', name: '🚨 損耗偏高', isGood: false },
+  { id: 't9', name: '⏰ 延遲送達', isGood: false },
+  { id: 't10', name: '📦 包裝破損', isGood: false }
+];
+
 const defaultInventory = [
   { name: '紅麵線', qty: 100, unit: '斤', minStock: 20 },
   { name: '新鮮蚵仔', qty: 30, unit: '斤', minStock: 5 },
@@ -680,6 +693,25 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
   const [localClosedDates, setLocalClosedDates] = useState([]);
   const closedDates = parentClosedDates || localClosedDates;
   const setClosedDates = parentSetClosedDates || setLocalClosedDates;
+
+  // 🏷️ Customizable Vendor Evaluation Tags & Rating States
+  const [vendorEvalTags, setVendorEvalTags] = useState(() => {
+    try {
+      const saved = localStorage.getItem('restaurant_vendor_eval_tags');
+      return saved ? JSON.parse(saved) : defaultVendorEvalTags;
+    } catch (e) {
+      return defaultVendorEvalTags;
+    }
+  });
+  const [showTagManagerModal, setShowTagManagerModal] = useState(false);
+  const [newCustomTagName, setNewCustomTagName] = useState('');
+  const [newCustomTagIsGood, setNewCustomTagIsGood] = useState(true);
+  const [showVendorScorecard, setShowVendorScorecard] = useState(true);
+
+  // Form states for purchase rating
+  const [purchaseRating, setPurchaseRating] = useState(5);
+  const [purchaseSelectedTags, setPurchaseSelectedTags] = useState([]);
+  const [purchaseQualityNote, setPurchaseQualityNote] = useState('');
 
   // Form states for adding purchases (Variable Costs)
   const [purchaseDate, setPurchaseDate] = useState(selectedBookkeepingDate || '');
@@ -1952,6 +1984,14 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
           setClosedDates(cloudClosed);
         }
         
+                const tagsItem = storeItems.find(i => i.name === 'SYSTEM_SETTING_VENDOR_EVAL_TAGS');
+        if (tagsItem && tagsItem.description) {
+          try {
+            const parsed = JSON.parse(tagsItem.description);
+            setVendorEvalTags(parsed);
+            localStorage.setItem('restaurant_vendor_eval_tags', JSON.stringify(parsed));
+          } catch (e) {}
+        }
         const vendorsItem = storeItems.find(i => i.name === 'SYSTEM_SETTING_VENDORS_V2');
         if (vendorsItem && vendorsItem.description) {
           try {
@@ -2464,44 +2504,75 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
     const time = new Date().toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' });
     const costNum = Number(purchaseCost);
 
+    const purchaseObj = {
+      purchase_id: `PUR-${Date.now().toString().slice(-6)}-${Math.floor(100 + Math.random() * 900)}`,
+      date: purchaseDate,
+      time,
+      vendor: vendorName.trim(),
+      item_name: prefixNameForStore(purchaseItemName, storeCode),
+      quantity: purchaseQty.trim(),
+      cost: costNum,
+      status: purchaseStatus,
+      rating: purchaseRating,
+      tags: purchaseSelectedTags,
+      quality_note: purchaseQualityNote.trim()
+    };
+
     if (isPurchasesOnCloud) {
       try {
-        const { error } = await supabase.from('purchases').insert([{
-          purchase_id: `PUR-${Date.now().toString().slice(-6)}-${Math.floor(100 + Math.random() * 900)}`,
-          date: purchaseDate,
-          time,
-          vendor: vendorName.trim(),
-          item_name: prefixNameForStore(purchaseItemName, storeCode),
-          quantity: purchaseQty.trim(),
-          cost: costNum,
-          status: purchaseStatus
-        }]);
+        const { error } = await supabase.from('purchases').insert([purchaseObj]);
         if (error) throw error;
         updateInventoryFromPurchase(vendorName.trim(), purchaseItemName, purchaseQty.trim(), purchaseDate, time);
         fetchPurchases();
-        alert("新增變動支出成功！");
+        alert("新增變動進貨與供應商評鑑成功！");
       } catch (err) {
         console.error("Failed to add purchase in BookkeepingView:", err);
-        alert("新增變動支出失敗！原因通常為 Supabase 資料庫中的 purchases 資料表啟用了 RLS (資料列安全政策) 但未設定授權。請依指示在 Supabase SQL 編輯器關閉該表的 RLS。");
+        // Fallback to local
+        const localObj = {
+          id: purchaseObj.purchase_id,
+          date: purchaseDate,
+          time,
+          vendor: vendorName.trim(),
+          itemName: purchaseItemName,
+          quantity: purchaseQty.trim(),
+          cost: costNum,
+          status: purchaseStatus,
+          rating: purchaseRating,
+          tags: purchaseSelectedTags,
+          qualityNote: purchaseQualityNote.trim()
+        };
+        const updated = [localObj, ...purchases];
+        setPurchases(updated);
+        localStorage.setItem('restaurant_purchases', JSON.stringify(updated));
+        updateInventoryFromPurchase(vendorName.trim(), purchaseItemName, purchaseQty.trim(), purchaseDate, time);
+        fetchPurchases();
+        alert("新增變動進貨與評鑑成功（已儲存於本機）！");
       }
     } else {
-      const newPurchase = {
-        id: `PUR-${Date.now().toString().slice(-6)}-${Math.floor(100 + Math.random() * 900)}`,
+      const localObj = {
+        id: purchaseObj.purchase_id,
         date: purchaseDate,
         time,
         vendor: vendorName.trim(),
         itemName: purchaseItemName,
         quantity: purchaseQty.trim(),
         cost: costNum,
-        status: purchaseStatus
+        status: purchaseStatus,
+        rating: purchaseRating,
+        tags: purchaseSelectedTags,
+        qualityNote: purchaseQualityNote.trim()
       };
-      const updated = [newPurchase, ...purchases];
+      const updated = [localObj, ...purchases];
       setPurchases(updated);
       localStorage.setItem('restaurant_purchases', JSON.stringify(updated));
       updateInventoryFromPurchase(vendorName.trim(), purchaseItemName, purchaseQty.trim(), purchaseDate, time);
       fetchPurchases();
-      alert("新增變動支出成功（已儲存於本機）！");
+      alert("新增變動進貨與評鑑成功（已儲存於本機）！");
     }
+
+    setPurchaseSelectedTags([]);
+    setPurchaseQualityNote('');
+    setPurchaseRating(5);
 
     setPurchaseVendor('');
     setPurchaseQty('');
@@ -3567,10 +3638,229 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                     </select>
                   </div>
 
-                  <button type="submit" style={{ padding: '8px 16px', fontSize: '0.8rem', borderRadius: '4px', border: 'none', backgroundColor: 'var(--primary)', color: 'white', fontWeight: 'bold', height: '33px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                    ➕ 登錄支出
+                  {/* ⭐ Vendor Rating & Customizable Tags Section */}
+                  <div style={{ width: '100%', padding: '12px', borderRadius: '8px', backgroundColor: 'var(--bg-card)', border: '1px solid var(--border)', marginTop: '6px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <span style={{ fontSize: '0.85rem', fontWeight: 'bold', color: 'var(--text-main)' }}>
+                          ⭐ 供應商進貨品質評分：
+                        </span>
+                        <div style={{ display: 'flex', gap: '4px' }}>
+                          {[1, 2, 3, 4, 5].map(star => (
+                            <button
+                              key={star}
+                              type="button"
+                              onClick={() => setPurchaseRating(star)}
+                              style={{
+                                background: 'none',
+                                border: 'none',
+                                fontSize: '1.3rem',
+                                cursor: 'pointer',
+                                padding: '0 2px',
+                                color: star <= purchaseRating ? '#f59e0b' : '#64748b',
+                                transition: 'transform 0.1s ease'
+                              }}
+                              title={`${star} 星評分`}
+                            >
+                              ★
+                            </button>
+                          ))}
+                          <span style={{ fontSize: '0.85rem', fontWeight: 'bold', color: '#f59e0b', marginLeft: '6px' }}>
+                            {purchaseRating} 星 ({purchaseRating >= 4.5 ? '極佳' : (purchaseRating >= 3 ? '良好' : '需注意')})
+                          </span>
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => setShowTagManagerModal(true)}
+                        style={{
+                          padding: '4px 10px',
+                          fontSize: '0.75rem',
+                          borderRadius: '6px',
+                          border: '1px solid var(--border)',
+                          backgroundColor: 'var(--bg-body)',
+                          color: 'var(--text-muted)',
+                          cursor: 'pointer',
+                          fontWeight: 'bold',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '4px'
+                        }}
+                      >
+                        ⚙️ 自訂/管理評鑑標籤
+                      </button>
+                    </div>
+
+                    {/* Clickable Tag Selector */}
+                    <div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '6px' }}>
+                        點選品質與服務標籤 (可複選)：
+                      </div>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                        {vendorEvalTags.map(tag => {
+                          const isSelected = purchaseSelectedTags.includes(tag.name);
+                          return (
+                            <button
+                              key={tag.id || tag.name}
+                              type="button"
+                              onClick={() => {
+                                if (isSelected) {
+                                  setPurchaseSelectedTags(purchaseSelectedTags.filter(t => t !== tag.name));
+                                } else {
+                                  setPurchaseSelectedTags([...purchaseSelectedTags, tag.name]);
+                                }
+                              }}
+                              style={{
+                                padding: '4px 10px',
+                                fontSize: '0.78rem',
+                                borderRadius: '16px',
+                                border: isSelected ? (tag.isGood ? '1px solid #16a34a' : '1px solid #dc2626') : '1px solid var(--border)',
+                                backgroundColor: isSelected ? (tag.isGood ? 'rgba(22, 163, 74, 0.15)' : 'rgba(220, 38, 38, 0.15)') : 'var(--bg-body)',
+                                color: isSelected ? (tag.isGood ? '#16a34a' : '#dc2626') : 'var(--text-main)',
+                                cursor: 'pointer',
+                                fontWeight: isSelected ? '900' : 'normal',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '4px'
+                              }}
+                            >
+                              {tag.name} {isSelected ? '✓' : ''}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Quality / Waste Note */}
+                    <div>
+                      <input
+                        type="text"
+                        value={purchaseQualityNote}
+                        onChange={(e) => setPurchaseQualityNote(e.target.value)}
+                        placeholder="📝 品質/甜度/損耗備註 (例: 甜度15度、無黑點，或 底部輕微壓傷損耗5%)"
+                        style={{
+                          width: '100%',
+                          padding: '8px 12px',
+                          fontSize: '0.8rem',
+                          borderRadius: '6px',
+                          border: '1px solid var(--border)',
+                          backgroundColor: 'var(--bg-body)',
+                          color: 'var(--text-main)'
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  <button type="submit" style={{ padding: '10px 20px', fontSize: '0.9rem', borderRadius: '6px', border: 'none', backgroundColor: 'var(--primary)', color: 'white', fontWeight: '900', cursor: 'pointer', whiteSpace: 'nowrap', boxShadow: '0 2px 6px rgba(234, 88, 12, 0.3)', width: '100%', marginTop: '4px' }}>
+                    ➕ 登錄進貨與評鑑紀錄
                   </button>
                 </form>
+
+
+                {/* 🏆 Vendor Scorecard & Rating Overview (供應商評鑑排行榜與品質看板) */}
+                <div style={{
+                  backgroundColor: 'var(--bg-body)',
+                  border: '1px solid var(--border)',
+                  borderRadius: '10px',
+                  padding: '16px',
+                  marginBottom: '20px'
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                    <div style={{ fontSize: '0.9rem', fontWeight: 'bold', color: 'var(--primary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      🏆 供應商評鑑排行榜與品質績效看板 ({vendors.length} 家廠商)
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowVendorScorecard(!showVendorScorecard)}
+                      style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: '0.8rem', cursor: 'pointer', fontWeight: 'bold' }}
+                    >
+                      {showVendorScorecard ? '收起看板 ▴' : '展開看板 ▾'}
+                    </button>
+                  </div>
+
+                  {showVendorScorecard && (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '12px' }}>
+                      {vendors.map(v => {
+                        const vendorPurchases = purchases.filter(p => p.vendor === v.name);
+                        const ratedPurchases = vendorPurchases.filter(p => p.rating > 0);
+                        const totalSpent = vendorPurchases.reduce((sum, p) => sum + (Number(p.cost) || 0), 0);
+                        const avgRating = ratedPurchases.length > 0
+                          ? (ratedPurchases.reduce((sum, p) => sum + p.rating, 0) / ratedPurchases.length).toFixed(1)
+                          : '5.0';
+                        const avgNum = parseFloat(avgRating);
+
+                        // Tag count
+                        const tagMap = {};
+                        vendorPurchases.forEach(p => {
+                          const tList = Array.isArray(p.tags) ? p.tags : (typeof p.tags === 'string' ? JSON.parse(p.tags || '[]') : []);
+                          tList.forEach(t => { tagMap[t] = (tagMap[t] || 0) + 1; });
+                        });
+
+                        const tierBadge = avgNum >= 4.5
+                          ? { label: '🏆 金牌優質', bg: 'rgba(22, 163, 74, 0.15)', color: '#16a34a' }
+                          : (avgNum >= 3.5
+                            ? { label: '🟢 穩定配合', bg: 'rgba(59, 130, 246, 0.15)', color: '#2563eb' }
+                            : { label: '⚠️ 待觀察/常有損耗', bg: 'rgba(220, 38, 38, 0.15)', color: '#dc2626' });
+
+                        return (
+                          <div key={v.id} style={{
+                            backgroundColor: 'var(--bg-card)',
+                            border: '1px solid var(--border)',
+                            borderRadius: '8px',
+                            padding: '12px 14px',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '8px'
+                          }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <strong style={{ fontSize: '0.95rem', color: 'var(--text-main)' }}>{v.name}</strong>
+                              <span style={{
+                                padding: '2px 6px',
+                                borderRadius: '4px',
+                                fontSize: '0.7rem',
+                                fontWeight: '900',
+                                backgroundColor: tierBadge.bg,
+                                color: tierBadge.color
+                              }}>
+                                {tierBadge.label}
+                              </span>
+                            </div>
+
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem' }}>
+                              <span>
+                                平均評分：<strong style={{ color: '#f59e0b', fontSize: '0.95rem' }}>★ {avgRating}</strong> ({ratedPurchases.length} 筆評鑑)
+                              </span>
+                              <span style={{ color: 'var(--text-muted)' }}>
+                                累計進貨：<strong>NT$ {totalSpent.toLocaleString()}</strong> ({vendorPurchases.length} 次)
+                              </span>
+                            </div>
+
+                            {/* Tag Badges Cloud */}
+                            {Object.keys(tagMap).length > 0 ? (
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '2px' }}>
+                                {Object.entries(tagMap).map(([tagName, count]) => (
+                                  <span key={tagName} style={{
+                                    padding: '2px 6px',
+                                    borderRadius: '10px',
+                                    fontSize: '0.7rem',
+                                    backgroundColor: 'var(--bg-body)',
+                                    border: '1px solid var(--border)',
+                                    color: 'var(--text-muted)'
+                                  }}>
+                                    {tagName} <strong style={{ color: 'var(--primary)' }}>x{count}</strong>
+                                  </span>
+                                ))}
+                              </div>
+                            ) : (
+                              <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>暫無標籤紀錄</div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
 
                 {/* Purchase List Table */}
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '10px' }}>
@@ -3601,6 +3891,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                         <th style={{ padding: '10px 12px' }}>品項</th>
                         <th style={{ padding: '10px 12px' }}>數量/重量</th>
                         <th style={{ padding: '10px 12px' }}>金額</th>
+                        <th style={{ padding: '10px 12px' }}>品質評鑑與標籤</th>
                         <th style={{ padding: '10px 12px' }}>付款狀態</th>
                         <th style={{ padding: '10px 12px', textAlign: 'center' }}>操作</th>
                       </tr>
@@ -3618,6 +3909,32 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                             <td style={{ padding: '10px 12px', fontWeight: 'bold' }}>{p.itemName}</td>
                             <td style={{ padding: '10px 12px' }}>{p.quantity}</td>
                             <td style={{ padding: '10px 12px', fontWeight: 'bold', color: '#ef4444' }}>NT$ {p.cost}</td>
+                            <td style={{ padding: '10px 12px' }}>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                                {p.rating ? (
+                                  <span style={{ color: '#f59e0b', fontWeight: 'bold', fontSize: '0.8rem' }}>
+                                    {'★'.repeat(p.rating)}{'☆'.repeat(Math.max(0, 5 - p.rating))}
+                                  </span>
+                                ) : null}
+                                {(() => {
+                                  const tagList = Array.isArray(p.tags) ? p.tags : (typeof p.tags === 'string' ? JSON.parse(p.tags || '[]') : []);
+                                  return tagList.length > 0 ? (
+                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '3px' }}>
+                                      {tagList.map((t, idx) => (
+                                        <span key={idx} style={{ fontSize: '0.68rem', padding: '1px 5px', borderRadius: '4px', backgroundColor: 'var(--bg-body)', border: '1px solid var(--border)', color: 'var(--text-muted)' }}>
+                                          {t}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  ) : null;
+                                })()}
+                                {(p.qualityNote || p.quality_note) && (
+                                  <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                                    📝 {p.qualityNote || p.quality_note}
+                                  </span>
+                                )}
+                              </div>
+                            </td>
                             <td style={{ padding: '10px 12px' }}>
                               <span style={{
                                 padding: '2px 8px',
@@ -5207,6 +5524,146 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
       )}
 
       
+
+      {/* 🏷️ Tag Manager Modal (自訂評鑑標籤管理) */}
+      {showTagManagerModal && (
+        <div style={{
+          position: 'fixed',
+          top: 0, left: 0, right: 0, bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.75)',
+          zIndex: 99999,
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          padding: '20px',
+          backdropFilter: 'blur(4px)'
+        }}>
+          <div style={{
+            backgroundColor: 'var(--bg-card)',
+            borderRadius: '16px',
+            padding: '24px',
+            maxWidth: '520px',
+            width: '100%',
+            maxHeight: '90vh',
+            overflowY: 'auto',
+            boxShadow: 'var(--shadow-xl)',
+            border: '2px solid var(--primary)',
+            animation: 'fadeIn 0.2s ease'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', borderBottom: '1px solid var(--border)', paddingBottom: '10px' }}>
+              <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: '900', color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                🏷️ 自訂供應商評鑑標籤庫
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowTagManagerModal(false)}
+                style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: '1.4rem', cursor: 'pointer' }}
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Add New Tag Section */}
+            <div style={{ padding: '14px', borderRadius: '10px', backgroundColor: 'var(--bg-body)', border: '1px solid var(--border)', marginBottom: '18px' }}>
+              <div style={{ fontSize: '0.82rem', fontWeight: 'bold', color: 'var(--text-main)', marginBottom: '8px' }}>
+                ➕ 新增自訂標籤
+              </div>
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '8px' }}>
+                <input
+                  type="text"
+                  value={newCustomTagName}
+                  onChange={(e) => setNewCustomTagName(e.target.value)}
+                  placeholder="例: 🍉 甜度爆表 或 🥩 油花均勻"
+                  style={{ flex: 1, padding: '8px 10px', fontSize: '0.85rem', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-card)', color: 'var(--text-main)' }}
+                />
+                <select
+                  value={newCustomTagIsGood ? 'good' : 'bad'}
+                  onChange={(e) => setNewCustomTagIsGood(e.target.value === 'good')}
+                  style={{ padding: '8px', fontSize: '0.8rem', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-card)', color: 'var(--text-main)' }}
+                >
+                  <option value="good">🟢 正向好評</option>
+                  <option value="bad">🔴 警示/需注意</option>
+                </select>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (!newCustomTagName.trim()) {
+                      alert("請輸入標籤名稱！");
+                      return;
+                    }
+                    const newTag = {
+                      id: `tag_${Date.now()}`,
+                      name: newCustomTagName.trim(),
+                      isGood: newCustomTagIsGood
+                    };
+                    const updated = [...vendorEvalTags, newTag];
+                    setVendorEvalTags(updated);
+                    localStorage.setItem('restaurant_vendor_eval_tags', JSON.stringify(updated));
+                    try {
+                      const tagKey = prefixNameForStore('SYSTEM_SETTING_VENDOR_EVAL_TAGS', storeCode);
+                      await supabase.from('menu_items').upsert([{ id: 9992, name: tagKey, price: 0, category: 'settings', description: JSON.stringify(updated) }]);
+                    } catch (err) {}
+                    setNewCustomTagName('');
+                  }}
+                  style={{ padding: '8px 16px', fontSize: '0.85rem', fontWeight: 'bold', backgroundColor: '#10b981', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', whiteSpace: 'nowrap' }}
+                >
+                  新增
+                </button>
+              </div>
+            </div>
+
+            {/* Existing Tags List */}
+            <div>
+              <div style={{ fontSize: '0.82rem', fontWeight: 'bold', color: 'var(--text-muted)', marginBottom: '10px' }}>
+                目前現有標籤庫 ({vendorEvalTags.length} 個)：
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                {vendorEvalTags.map(tag => (
+                  <div key={tag.id || tag.name} style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    padding: '8px 12px',
+                    borderRadius: '8px',
+                    backgroundColor: 'var(--bg-body)',
+                    border: '1px solid var(--border)'
+                  }}>
+                    <span style={{ fontSize: '0.85rem', fontWeight: 'bold', color: tag.isGood ? '#16a34a' : '#dc2626' }}>
+                      {tag.name}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const updated = vendorEvalTags.filter(t => (t.id ? t.id !== tag.id : t.name !== tag.name));
+                        setVendorEvalTags(updated);
+                        localStorage.setItem('restaurant_vendor_eval_tags', JSON.stringify(updated));
+                        try {
+                          const tagKey = prefixNameForStore('SYSTEM_SETTING_VENDOR_EVAL_TAGS', storeCode);
+                          await supabase.from('menu_items').upsert([{ id: 9992, name: tagKey, price: 0, category: 'settings', description: JSON.stringify(updated) }]);
+                        } catch (err) {}
+                      }}
+                      style={{ padding: '2px 6px', fontSize: '0.72rem', backgroundColor: 'transparent', color: '#ef4444', border: '1px solid #ef4444', borderRadius: '4px', cursor: 'pointer' }}
+                    >
+                      🗑️ 刪除
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div style={{ marginTop: '20px', display: 'flex', justifyContent: 'flex-end' }}>
+              <button
+                type="button"
+                onClick={() => setShowTagManagerModal(false)}
+                style={{ padding: '8px 20px', fontSize: '0.85rem', fontWeight: 'bold', backgroundColor: 'var(--bg-body)', color: 'var(--text-main)', border: '1px solid var(--border)', borderRadius: '8px', cursor: 'pointer' }}
+              >
+                關閉
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 💰 Cash Audit Prompt Modal (Daily Login Reminder) */}
       {showCashAuditPromptModal && (
         <div style={{

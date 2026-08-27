@@ -197,6 +197,28 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
   // Closed Dates for Locking
   const [closedDates, setClosedDates] = useState([]);
   // Daily Opening Prompt Modal State
+  // ⚖️ Weight & Unit Pricing Configuration (水果生鮮/秤重/計價客製化)
+  const [weightConfig, setWeightConfig] = useState(() => {
+    try {
+      const saved = localStorage.getItem('pos_weight_config');
+      return saved ? JSON.parse(saved) : {
+        weightUnit: '斤',
+        quickWeightPresets: [0.5, 1, 1.5, 2, 3, 5],
+        defaultTare: 0.0,
+        roundingMode: 'round' // 'round', 'floor', 'floor5', 'none'
+      };
+    } catch (e) {
+      return { weightUnit: '斤', quickWeightPresets: [0.5, 1, 1.5, 2, 3, 5], defaultTare: 0.0, roundingMode: 'round' };
+    }
+  });
+  const [showWeightPromptModal, setShowWeightPromptModal] = useState(false);
+  const [activeWeightItem, setActiveWeightItem] = useState(null);
+  const [inputGrossWeight, setInputGrossWeight] = useState('');
+  const [inputTareWeight, setInputTareWeight] = useState('0');
+  const [weightDiscount, setWeightDiscount] = useState(0);
+  const [weightItemNotes, setWeightItemNotes] = useState('');
+  const [quickPresetsEditStr, setQuickPresetsEditStr] = useState('0.5, 1, 1.5, 2, 3, 5');
+
   const [showDailyOpenPromptModal, setShowDailyOpenPromptModal] = useState(false);
   const hasPromptedDailyOpenRef = useRef(false);
 
@@ -723,6 +745,17 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
           } catch (e) {}
         }
 
+                const weightConfigItem = storeItems.find(item => item.name === 'SYSTEM_SETTING_WEIGHT_CONFIG');
+        if (weightConfigItem && weightConfigItem.description) {
+          try {
+            const parsed = JSON.parse(weightConfigItem.description);
+            setWeightConfig(parsed);
+            if (Array.isArray(parsed.quickWeightPresets)) {
+              setQuickPresetsEditStr(parsed.quickWeightPresets.join(', '));
+            }
+            localStorage.setItem('pos_weight_config', JSON.stringify(parsed));
+          } catch (e) {}
+        }
         const receiptItem = storeItems.find(item => item.name === 'SYSTEM_SETTING_RECEIPT_CONFIG');
         if (receiptItem && receiptItem.description) {
           try { setReceiptConfig({ ...defaultReceiptConfig, ...JSON.parse(receiptItem.description) }); } catch (e) {}
@@ -995,12 +1028,29 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
     }
   }, [cashReceived, finalTotal]);
 
-  // Handle adding product to cart
+  // Handle adding product to cart (Supports Weight & Unit Dual Pricing)
   const handleProductClick = (item) => {
     if (item.customizations?.is_available === false) {
       alert(`「${item.name}」已售完！無法加入訂單。`);
       return;
     }
+
+    // Check if item is weight-based (按斤/台斤/公斤/秤重賣)
+    const isWeightItem = item.pricing_mode === 'weight' ||
+      item.customizations?.pricing_mode === 'weight' ||
+      item.unit === '斤' || item.unit === '台斤' || item.unit === '公斤' || item.unit === '兩' || item.unit === 'g' || item.unit === 'kg' ||
+      item.name.includes('/斤') || item.name.includes('/台斤') || item.name.includes('/公斤') || item.name.includes('(斤)');
+
+    if (isWeightItem) {
+      setActiveWeightItem(item);
+      setInputGrossWeight('');
+      setInputTareWeight(String(weightConfig.defaultTare || 0));
+      setWeightDiscount(0);
+      setWeightItemNotes('');
+      setShowWeightPromptModal(true);
+      return;
+    }
+
     const canUpgrade = (upgradeCombos || defaultUpgradeCombos).some(pkg => isComboApplicableToItem(pkg, item));
     if (item.customizations || canUpgrade) {
       // Open customization modal
@@ -1961,6 +2011,330 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
         </div>
       </header>
 
+
+
+      {/* ⚖️ Weight & Scale Keypad Modal (按斤/秤重計價專用面板) */}
+      {showWeightPromptModal && activeWeightItem && (() => {
+        const unit = activeWeightItem.unit || weightConfig.weightUnit || '斤';
+        const price = Number(activeWeightItem.price || 0);
+        const gross = parseFloat(inputGrossWeight) || 0;
+        const tare = parseFloat(inputTareWeight) || 0;
+        const net = Math.max(0, gross - tare);
+        const rawAmount = net * price;
+
+        let calculatedAmount = rawAmount;
+        if (weightConfig.roundingMode === 'floor') {
+          calculatedAmount = Math.floor(rawAmount);
+        } else if (weightConfig.roundingMode === 'floor5') {
+          calculatedAmount = Math.floor(rawAmount / 5) * 5;
+        } else if (weightConfig.roundingMode === 'none') {
+          calculatedAmount = Math.round(rawAmount * 10) / 10;
+        } else {
+          calculatedAmount = Math.round(rawAmount);
+        }
+
+        const finalAmount = Math.max(0, calculatedAmount - weightDiscount);
+
+        const handleAddWeightToCart = () => {
+          if (net <= 0) {
+            alert("請先輸入有效重量！");
+            return;
+          }
+
+          const specDetails = [
+            `${net.toFixed(2).replace(/\.00$/, '')} ${unit} (@ NT$ ${price}/${unit})`
+          ];
+          if (tare > 0) specDetails.push(`扣皮重 ${tare} ${unit}`);
+          if (weightDiscount > 0) specDetails.push(`抹零優惠 -NT$ ${weightDiscount}`);
+          if (weightItemNotes) specDetails.push(weightItemNotes);
+
+          const cartItem = {
+            cartId: `${activeWeightItem.id}-${Date.now()}`,
+            id: activeWeightItem.id,
+            name: activeWeightItem.name,
+            basePrice: price,
+            itemPrice: finalAmount,
+            totalPrice: finalAmount,
+            quantity: 1,
+            pricing_mode: 'weight',
+            weight: net,
+            unit,
+            specs: specDetails,
+            image: activeWeightItem.image
+          };
+
+          setCart([...cart, cartItem]);
+          setShowWeightPromptModal(false);
+        };
+
+        const handleNumKey = (val) => {
+          if (val === 'C') {
+            setInputGrossWeight('');
+          } else if (val === '⌫') {
+            setInputGrossWeight(prev => prev.slice(0, -1));
+          } else if (val === '.') {
+            if (!inputGrossWeight.includes('.')) {
+              setInputGrossWeight(prev => (prev ? prev + '.' : '0.'));
+            }
+          } else {
+            setInputGrossWeight(prev => prev + val);
+          }
+        };
+
+        return (
+          <div style={{
+            position: 'fixed',
+            top: 0, left: 0, right: 0, bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.75)',
+            zIndex: 99999,
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            padding: '20px',
+            backdropFilter: 'blur(4px)'
+          }}>
+            <div style={{
+              backgroundColor: 'var(--bg-card)',
+              borderRadius: '16px',
+              padding: '24px',
+              maxWidth: '520px',
+              width: '100%',
+              boxShadow: 'var(--shadow-xl)',
+              border: '2px solid var(--primary)',
+              animation: 'fadeIn 0.2s ease'
+            }}>
+              {/* Header */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', borderBottom: '1px solid var(--border)', paddingBottom: '10px' }}>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: '900', color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    ⚖️ {activeWeightItem.name}
+                  </h3>
+                  <div style={{ fontSize: '0.85rem', color: 'var(--primary)', fontWeight: 'bold', marginTop: '2px' }}>
+                    單價：NT$ {price} / {unit}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowWeightPromptModal(false)}
+                  style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: '1.4rem', cursor: 'pointer' }}
+                >
+                  ✕
+                </button>
+              </div>
+
+              {/* Weight Presets */}
+              <div style={{ marginBottom: '14px' }}>
+                <div style={{ fontSize: '0.78rem', fontWeight: 'bold', color: 'var(--text-muted)', marginBottom: '6px' }}>
+                  ⚡ 快捷重量鍵 (可於設定中自訂)：
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: '6px' }}>
+                  {(weightConfig.quickWeightPresets || [0.5, 1, 1.5, 2, 3, 5]).map(w => (
+                    <button
+                      key={w}
+                      type="button"
+                      onClick={() => setInputGrossWeight(String(w))}
+                      style={{
+                        padding: '8px 2px',
+                        fontSize: '0.82rem',
+                        fontWeight: 'bold',
+                        borderRadius: '6px',
+                        border: gross === w ? '2px solid #ea580c' : '1px solid var(--border)',
+                        backgroundColor: gross === w ? '#ea580c' : 'var(--bg-body)',
+                        color: gross === w ? 'white' : 'var(--text-main)',
+                        cursor: 'pointer',
+                        textAlign: 'center'
+                      }}
+                    >
+                      {w} {unit}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Weight Display & Keypad Grid */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '16px', marginBottom: '16px' }}>
+                {/* Left: Input values & summary */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 'bold', marginBottom: '4px' }}>
+                      秤重重量 ({unit}):
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={inputGrossWeight}
+                      onChange={(e) => setInputGrossWeight(e.target.value)}
+                      placeholder="0.00"
+                      style={{
+                        width: '100%',
+                        padding: '10px',
+                        fontSize: '1.4rem',
+                        fontWeight: '900',
+                        textAlign: 'right',
+                        borderRadius: '8px',
+                        border: '2px solid #10b981',
+                        backgroundColor: 'var(--bg-body)',
+                        color: 'var(--text-main)'
+                      }}
+                    />
+                  </div>
+
+                  {/* Tare / 去皮重 */}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                    <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>扣籃/皮重:</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={inputTareWeight}
+                        onChange={(e) => setInputTareWeight(e.target.value)}
+                        style={{ width: '65px', padding: '4px', fontSize: '0.8rem', borderRadius: '4px', border: '1px solid var(--border)', textAlign: 'right', backgroundColor: 'var(--bg-body)', color: 'var(--text-main)' }}
+                      />
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{unit}</span>
+                    </div>
+                  </div>
+
+                  {/* Quick Rounding / 抹零折扣 */}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                    <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>抹零優惠:</span>
+                    <div style={{ display: 'flex', gap: '4px' }}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const mod = calculatedAmount % 5;
+                          setWeightDiscount(mod);
+                        }}
+                        style={{ padding: '3px 6px', fontSize: '0.72rem', borderRadius: '4px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-body)', cursor: 'pointer' }}
+                      >
+                        抹至5元
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const mod = calculatedAmount % 10;
+                          setWeightDiscount(mod);
+                        }}
+                        style={{ padding: '3px 6px', fontSize: '0.72rem', borderRadius: '4px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-body)', cursor: 'pointer' }}
+                      >
+                        抹至10元
+                      </button>
+                      {weightDiscount > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setWeightDiscount(0)}
+                          style={{ padding: '3px 6px', fontSize: '0.72rem', borderRadius: '4px', border: '1px solid #ef4444', color: '#ef4444', backgroundColor: 'transparent', cursor: 'pointer' }}
+                        >
+                          不抹零
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Note */}
+                  <input
+                    type="text"
+                    value={weightItemNotes}
+                    onChange={(e) => setWeightItemNotes(e.target.value)}
+                    placeholder="備註 (例: 削皮/現切/微熟)"
+                    style={{ padding: '6px 8px', fontSize: '0.78rem', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-body)', color: 'var(--text-main)' }}
+                  />
+                </div>
+
+                {/* Right: Numeric Keypad */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px' }}>
+                  {['7', '8', '9', '4', '5', '6', '1', '2', '3', '0', '.', '⌫'].map(k => (
+                    <button
+                      key={k}
+                      type="button"
+                      onClick={() => handleNumKey(k)}
+                      style={{
+                        padding: '12px 0',
+                        fontSize: '1.1rem',
+                        fontWeight: 'bold',
+                        borderRadius: '8px',
+                        border: '1px solid var(--border)',
+                        backgroundColor: k === '⌫' ? '#fee2e2' : 'var(--bg-body)',
+                        color: k === '⌫' ? '#b91c1c' : 'var(--text-main)',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      {k}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Total Calculation Display Card */}
+              <div style={{
+                padding: '14px',
+                borderRadius: '10px',
+                backgroundColor: 'rgba(234, 88, 12, 0.08)',
+                border: '1px solid rgba(234, 88, 12, 0.3)',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginBottom: '16px'
+              }}>
+                <div>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                    淨重：<strong>{net.toFixed(2).replace(/\.00$/, '')} {unit}</strong> × NT$ {price}/{unit}
+                  </div>
+                  {weightDiscount > 0 && (
+                    <div style={{ fontSize: '0.75rem', color: '#16a34a', fontWeight: 'bold' }}>
+                      抹零優惠：-NT$ {weightDiscount}
+                    </div>
+                  )}
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>應收金額</div>
+                  <div style={{ fontSize: '1.5rem', fontWeight: '900', color: 'var(--primary)' }}>
+                    NT$ {finalAmount.toLocaleString()}
+                  </div>
+                </div>
+              </div>
+
+              {/* Confirm Buttons */}
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <button
+                  type="button"
+                  onClick={handleAddWeightToCart}
+                  style={{
+                    flex: 2,
+                    padding: '14px',
+                    fontSize: '1.05rem',
+                    fontWeight: '900',
+                    backgroundColor: '#10b981',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '10px',
+                    cursor: 'pointer',
+                    boxShadow: '0 4px 12px rgba(16, 185, 129, 0.3)'
+                  }}
+                >
+                  ➕ 確認加入結帳 (NT$ {finalAmount.toLocaleString()})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowWeightPromptModal(false)}
+                  style={{
+                    flex: 1,
+                    padding: '14px',
+                    fontSize: '0.9rem',
+                    fontWeight: 'bold',
+                    backgroundColor: 'var(--bg-body)',
+                    color: 'var(--text-muted)',
+                    border: '1px solid var(--border)',
+                    borderRadius: '10px',
+                    cursor: 'pointer'
+                  }}
+                >
+                  取消
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* 🛎️ Daily Store Opening Prompt Modal */}
       {showDailyOpenPromptModal && !isStoreOpenToday && (
@@ -3529,6 +3903,96 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                     style={{ transform: 'scale(1.2)', cursor: 'pointer' }}
                   />
                 </label>
+              </div>
+
+
+              {/* Section 4: Weight & Dual Pricing Customization (稱重計價與快捷鍵設定) */}
+              <div style={{ padding: '12px', borderRadius: '8px', backgroundColor: 'var(--bg-body)', border: '1px solid var(--border)' }}>
+                <div style={{ fontSize: '0.85rem', fontWeight: 'bold', color: 'var(--text-main)', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  ⚖️ 稱重計價與單位自訂設定
+                </div>
+                
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  {/* Default Weight Unit */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>預設秤重單位:</span>
+                    <select
+                      value={weightConfig.weightUnit || '斤'}
+                      onChange={async (e) => {
+                        const updated = { ...weightConfig, weightUnit: e.target.value };
+                        setWeightConfig(updated);
+                        localStorage.setItem('pos_weight_config', JSON.stringify(updated));
+                        try {
+                          const key = prefixNameForStore('SYSTEM_SETTING_WEIGHT_CONFIG', storeCode);
+                          await supabase.from('menu_items').upsert([{ id: 9991, name: key, price: 0, category: 'settings', description: JSON.stringify(updated) }]);
+                        } catch (err) {}
+                      }}
+                      style={{ padding: '4px 8px', fontSize: '0.8rem', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-card)', color: 'var(--text-main)' }}
+                    >
+                      <option value="斤">台斤 (斤)</option>
+                      <option value="公斤">公斤 (kg)</option>
+                      <option value="公克">公克 (g)</option>
+                      <option value="兩">兩</option>
+                      <option value="磅">磅 (lb)</option>
+                    </select>
+                  </div>
+
+                  {/* Quick Weight Presets Input */}
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '4px' }}>
+                      自訂快捷重量按鈕 (以逗號隔開):
+                    </label>
+                    <div style={{ display: 'flex', gap: '6px' }}>
+                      <input
+                        type="text"
+                        value={quickPresetsEditStr}
+                        onChange={(e) => setQuickPresetsEditStr(e.target.value)}
+                        placeholder="例如: 0.5, 1, 1.5, 2, 3, 5"
+                        style={{ flex: 1, padding: '6px 8px', fontSize: '0.8rem', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-card)', color: 'var(--text-main)' }}
+                      />
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          const parsedArr = quickPresetsEditStr.split(',').map(s => parseFloat(s.trim())).filter(n => !isNaN(n) && n > 0);
+                          const updated = { ...weightConfig, quickWeightPresets: parsedArr.length > 0 ? parsedArr : [0.5, 1, 1.5, 2, 3, 5] };
+                          setWeightConfig(updated);
+                          localStorage.setItem('pos_weight_config', JSON.stringify(updated));
+                          try {
+                            const key = prefixNameForStore('SYSTEM_SETTING_WEIGHT_CONFIG', storeCode);
+                            await supabase.from('menu_items').upsert([{ id: 9991, name: key, price: 0, category: 'settings', description: JSON.stringify(updated) }]);
+                          } catch (err) {}
+                          alert("快捷重量鍵已儲存更新！");
+                        }}
+                        style={{ padding: '6px 12px', fontSize: '0.78rem', backgroundColor: '#ea580c', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}
+                      >
+                        儲存
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Rounding Mode */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>秤重計價抹零/取整規則:</span>
+                    <select
+                      value={weightConfig.roundingMode || 'round'}
+                      onChange={async (e) => {
+                        const updated = { ...weightConfig, roundingMode: e.target.value };
+                        setWeightConfig(updated);
+                        localStorage.setItem('pos_weight_config', JSON.stringify(updated));
+                        try {
+                          const key = prefixNameForStore('SYSTEM_SETTING_WEIGHT_CONFIG', storeCode);
+                          await supabase.from('menu_items').upsert([{ id: 9991, name: key, price: 0, category: 'settings', description: JSON.stringify(updated) }]);
+                        } catch (err) {}
+                      }}
+                      style={{ padding: '4px 8px', fontSize: '0.8rem', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-card)', color: 'var(--text-main)' }}
+                    >
+                      <option value="round">四捨五入至整數元 (預設)</option>
+                      <option value="floor">無條件捨去小數點</option>
+                      <option value="floor5">捨去個位數至 5 或 0 (例 $218 ➔ $215)</option>
+                      <option value="none">保留精確小數</option>
+                    </select>
+                  </div>
+                </div>
               </div>
 
               {/* Section 3: UI Scale Control */}
