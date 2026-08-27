@@ -7,6 +7,7 @@ import ThermalPrintPortal from './ThermalPrintPortal';
 import { defaultStoreProfile, defaultReceiptConfig, printThermalReceipt, printDailyClosingReport } from '../utils/printHelpers';
 import ModuleCenterModal from './ModuleCenterModal';
 import { getActiveModuleSettings, isModuleEnabled } from '../utils/moduleContext';
+import { getActiveStoreCode, filterItemsByStore, filterOrdersByStore, prefixNameForStore, stripNameForStore, getStoreStorage, setStoreStorage, getStoreSessionStorage, setStoreSessionStorage, removeStoreSessionStorage } from '../utils/storeContext';
 
 export default function CashierView({ storeCode: propStoreCode, cashierName, sessionId: propSessionId, onLogout }) {
   const storeCode = propStoreCode || getActiveStoreCode();
