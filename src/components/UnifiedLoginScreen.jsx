@@ -9,6 +9,7 @@ export default function UnifiedLoginScreen({
   onChangeRole, 
   adminPin, 
   onSuccess,
+  onNavigate,
   onBackToDemo
 }) {
   const [storeDisplayName, setStoreDisplayName] = useState('龍城麵線');
@@ -174,7 +175,31 @@ export default function UnifiedLoginScreen({
       }
     }
 
-    onSuccess(activeRole, activeRole === 'pos' ? { staffName, sessionId: sid } : true);
+    // Persist login auth state
+    if (activeRole === 'pos') {
+      localStorage.setItem('is_cashier_authenticated', 'true');
+      sessionStorage.setItem('is_cashier_authenticated', 'true');
+      localStorage.setItem('pos_login_time', String(Date.now()));
+      sessionStorage.setItem('pos_login_time', String(Date.now()));
+      localStorage.setItem('cashier_name', staffName);
+      sessionStorage.setItem('cashier_name', staffName);
+    } else if (activeRole === 'bookkeeping') {
+      localStorage.setItem('is_bookkeeping_authenticated', 'true');
+      sessionStorage.setItem('is_bookkeeping_authenticated', 'true');
+      localStorage.setItem('bookkeeping_login_time', String(Date.now()));
+      sessionStorage.setItem('bookkeeping_login_time', String(Date.now()));
+    } else if (activeRole === 'management') {
+      localStorage.setItem('is_management_authenticated', 'true');
+      sessionStorage.setItem('is_management_authenticated', 'true');
+      localStorage.setItem('management_login_time', String(Date.now()));
+      sessionStorage.setItem('management_login_time', String(Date.now()));
+    }
+
+    if (onSuccess) {
+      onSuccess(activeRole, activeRole === 'pos' ? { staffName, sessionId: sid } : true);
+    } else if (onNavigate) {
+      onNavigate(activeRole, staffName, sid);
+    }
   };
 
   // Check pin and session availability

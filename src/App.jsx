@@ -52,9 +52,7 @@ function App() {
   const [tableNumber, setTableNumber] = useState(initial.table);
   const [storeName, setStoreName] = useState(() => localStorage.getItem('app_store_name') || '龍城麵線');
   const [adminPin, setAdminPin] = useState(() => localStorage.getItem('app_admin_pin') || '8888');
-  const [showSetupWizard, setShowSetupWizard] = useState(() => {
-    return localStorage.getItem('app_setup_wizard_completed') !== 'true';
-  });
+  const [showSetupWizard, setShowSetupWizard] = useState(false);
 
   // 6 hours in milliseconds
   const SIX_HOURS_MS = 6 * 60 * 60 * 1000;
@@ -99,6 +97,9 @@ function App() {
       try {
         const { data } = await supabase.from('menu_items').select('*');
         if (data && data.length > 0) {
+          // Data exists! Existing store -> ensure wizard is never shown
+          localStorage.setItem('app_setup_wizard_completed', 'true');
+          setShowSetupWizard(false);
           const profileItem = data.find(i => i.name === 'SYSTEM_SETTING_STORE_PROFILE');
           if (profileItem && profileItem.description) {
             try {
@@ -181,6 +182,16 @@ function App() {
         <UnifiedLoginScreen
           storeName={storeName}
           adminPin={adminPin}
+          onSuccess={(targetRole, payload) => {
+            const staffName = typeof payload === 'object' ? (payload.staffName || '') : (typeof payload === 'string' ? payload : '');
+            const sid = typeof payload === 'object' ? (payload.sessionId || '') : '';
+            if (staffName) setCashierName(staffName);
+            if (sid) setPosSessionId(sid);
+            if (targetRole === 'pos') setIsCashierAuth(true);
+            if (targetRole === 'bookkeeping') setIsBookkeepingAuth(true);
+            if (targetRole === 'management') setIsManagementAuth(true);
+            setRole(targetRole);
+          }}
           onNavigate={(targetRole, name = '', sid = '') => {
             if (name) setCashierName(name);
             if (sid) setPosSessionId(sid);
