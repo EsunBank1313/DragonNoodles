@@ -6,6 +6,7 @@ import { defaultStoreProfile, defaultReceiptConfig, printViaHiddenIframe } from 
 import { getActiveStoreCode, filterItemsByStore, prefixNameForStore, stripNameForStore, getStoreLinks, syncRegisteredStoresCache, generateRandomStoreToken } from '../utils/storeContext';
 import ThemeSelector from './ThemeSelector';
 import { menuItems as defaultMenuItems, defaultUpgradeCombos } from '../data/menuData';
+import { SYSTEM_MODULES, INDUSTRY_PRESETS, getActiveModuleSettings, saveActiveModuleSettings } from '../utils/moduleContext';
 
 
 // Preset categories and rich icon collection
@@ -292,6 +293,9 @@ function IconPicker({ value, onChange, placeholder = '圖示' }) {
   );
 }
 export default function ManagementView({ storeCode: propStoreCode, onSwitchStore, onBackToDemo, onLogout }) {
+  const [systemModules, setSystemModules] = useState(() => getActiveModuleSettings());
+  const [selectedIndustryPreset, setSelectedIndustryPreset] = useState('custom');
+  const [isSavingModules, setIsSavingModules] = useState(false);
   const storeCode = propStoreCode || getActiveStoreCode();
   const isMasterAdmin = (storeCode === 'dragon') || (typeof window !== 'undefined' && sessionStorage.getItem('is_master_admin_session') === 'true');
   
@@ -3675,468 +3679,152 @@ const handleSaveGlobalAddons = async (newAddons) => {
         )}
 
         {/* SaaS Multi-Store Management Tab (Master Only) */}
-        {isMasterAdmin && activeTab === 'saas' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', textAlign: 'left' }}>
-            
-            {/* Store switcher banner */}
-            <div style={{
-              backgroundColor: '#7c3aed',
-              color: 'white',
-              borderRadius: '12px',
-              padding: '20px 24px',
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              flexWrap: 'wrap',
-              gap: '16px',
-              boxShadow: '0 4px 14px rgba(124, 58, 237, 0.3)'
-            }}>
-              <div>
-                <span style={{ fontSize: '0.8rem', opacity: 0.9, fontWeight: 'bold' }}>SaaS 多門市加盟與客戶管理總台</span>
-                <h3 style={{ margin: '4px 0 0 0', fontSize: '1.4rem', fontWeight: '900' }}>
-                  🏢 目前管理門市：【 {newStoreName.trim() || storeName || '龍城麵線'} 】
-                  <span style={{ fontSize: '0.9rem', fontWeight: 'normal', opacity: 0.85, marginLeft: '8px' }}>
-                    (代碼: {storeCode})
-                  </span>
-                </h3>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setNewClientStaffToken(generateRandomStoreToken('st'));
-                  setShowNewStoreModal(true);
-                }}
-                style={{
-                  padding: '12px 24px',
-                  fontSize: '0.95rem',
-                  fontWeight: '900',
-                  backgroundColor: '#ffffff',
-                  color: '#7c3aed',
-                  border: 'none',
-                  borderRadius: '8px',
-                  cursor: 'pointer',
-                  boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px'
-                }}
-              >
-                ➕ 一鍵開通新客戶門市
-              </button>
-            </div>
-
-            {/* Registered Stores Table */}
-            <div style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px', padding: '20px' }}>
-              <h4 style={{ margin: '0 0 16px 0', fontSize: '1rem', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                📋 已開通客戶門市列表 ({registeredStores.length} 間)
-              </h4>
-
-              <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
-                  <thead>
-                    <tr style={{ backgroundColor: 'var(--bg-body)', borderBottom: '1px solid var(--border)' }}>
-                      <th style={{ padding: '12px', textAlign: 'left' }}>門市名稱</th>
-                      <th style={{ padding: '12px', textAlign: 'left' }}>公開代碼 (顧客端)</th>
-                      <th style={{ padding: '12px', textAlign: 'left' }}>🔐 內部安全金鑰 (POS/後台)</th>
-                      <th style={{ padding: '12px', textAlign: 'left' }}>預設管理 PIN</th>
-                      <th style={{ padding: '12px', textAlign: 'left' }}>開通日期</th>
-                      <th style={{ padding: '12px', textAlign: 'right' }}>操作與專屬連結</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {registeredStores.map((st, idx) => {
-                      const links = getStoreLinks(st.code);
-                      const isCurrent = st.code === storeCode;
-                      return (
-                        <tr key={idx} style={{ borderBottom: '1px solid var(--border)', backgroundColor: isCurrent ? 'rgba(124, 58, 237, 0.05)' : 'transparent' }}>
-                          <td style={{ padding: '12px', fontWeight: 'bold' }}>
-                            {st.name} {isCurrent && <span style={{ fontSize: '0.7rem', color: '#7c3aed', backgroundColor: 'rgba(124, 58, 237, 0.1)', padding: '2px 6px', borderRadius: '4px', marginLeft: '4px' }}>目前選中</span>}
-                          </td>
-                          <td style={{ padding: '12px', fontFamily: 'monospace', fontWeight: 'bold', color: 'var(--primary)' }}>
-                            {st.code}
-                          </td>
-                          <td style={{ padding: '12px', fontFamily: 'monospace', fontWeight: 'bold', color: '#7c3aed' }}>
-                            {st.staffToken || (st.code === 'dragon' ? 'dg_8f2a1c' : (st.code === 'luzhou' ? 'lz_9b7e41' : '自動配發'))}
-                          </td>
-                          <td style={{ padding: '12px', fontFamily: 'monospace' }}>
-                            {st.adminPin || '8888'}
-                          </td>
-                          <td style={{ padding: '12px', color: 'var(--text-muted)' }}>
-                            {st.createdAt || '2026-01-01'}
-                          </td>
-                          <td style={{ padding: '12px', textAlign: 'right' }}>
-                            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '6px', flexWrap: 'wrap' }}>
-                              {!isCurrent ? (
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    const targetToken = st.staffToken || (st.code === 'dragon' ? 'dg_8f2a1c' : (st.code === 'luzhou' ? 'lz_9b7e41' : st.code));
-                                    window.location.search = `?store=${targetToken}&admin=true`;
-                                  }}
-                                  style={{ padding: '4px 10px', fontSize: '0.75rem', borderRadius: '6px', border: '1px solid #7c3aed', color: '#7c3aed', backgroundColor: 'rgba(124,58,237,0.05)', cursor: 'pointer', fontWeight: 'bold' }}
-                                >
-                                  🔄 切換管理此店菜單
-                                </button>
-                              ) : (
-                                <span style={{ padding: '4px 8px', fontSize: '0.75rem', color: '#16a34a', fontWeight: 'bold' }}>
-                                  ✓ 目前管理中
-                                </span>
-                              )}
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setEditingStore(st);
-                                  setEditStoreName(st.name);
-                                  setEditStoreCode(st.code);
-                                  setEditStaffToken(st.staffToken || (st.code === 'dragon' ? 'dg_8f2a1c' : (st.code === 'luzhou' ? 'lz_9b7e41' : '')));
-                                  setEditAdminPin(st.adminPin || '8888');
-                                }}
-                                style={{ padding: '4px 8px', fontSize: '0.75rem', borderRadius: '6px', border: '1px solid #ea580c', color: '#ea580c', backgroundColor: 'transparent', cursor: 'pointer', fontWeight: 'bold' }}
-                              >
-                                ✏️ 編輯基本資料
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setCreatedStoreLinks({ ...links, name: st.name, code: st.code, pin: st.adminPin || '8888' });
-                                }}
-                                style={{ padding: '4px 8px', fontSize: '0.75rem', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-body)', cursor: 'pointer', fontWeight: 'bold' }}
-                              >
-                                🔗 網址
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  const text = `【${st.name}】專屬餐飲系統入口\n\n📱 顧客掃碼點餐：${links.customerUrl}\n💵 現場 POS 收銀：${links.posUrl}\n📊 營業記帳系統：${links.bookkeepingUrl}\n🛠️ 後台管理系統：${links.adminUrl}\n🔐 統一登入入口：${links.loginUrl}\n\n🔑 預設後台管理 PIN 碼：${st.adminPin || '8888'}`;
-                                  navigator.clipboard.writeText(text);
-                                  alert(`已成功複製【${st.name}】全套系統連結與登入 PIN 碼！可直接傳給客戶。`);
-                                }}
-                                style={{ padding: '4px 8px', fontSize: '0.75rem', borderRadius: '6px', border: 'none', backgroundColor: '#16a34a', color: 'white', cursor: 'pointer', fontWeight: 'bold' }}
-                              >
-                                📋 複製
-                              </button>
-                              {st.code !== 'dragon' && (
-                                <button
-                                  type="button"
-                                  onClick={() => handleDeleteStore(st)}
-                                  style={{ padding: '4px 8px', fontSize: '0.75rem', borderRadius: '6px', border: '1px solid #ef4444', color: '#ef4444', backgroundColor: 'transparent', cursor: 'pointer', fontWeight: 'bold' }}
-                                  title="移除門市"
-                                >
-                                  🗑️
-                                </button>
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            {/* Modal: Create New Client Store */}
-            {showNewStoreModal && (
-              <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: '20px' }}>
-                <div style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '16px', padding: '28px', maxWidth: '480px', width: '100%', boxShadow: 'var(--shadow-lg)' }}>
-                  <h3 style={{ margin: '0 0 16px 0', fontSize: '1.2rem', fontWeight: 'bold', color: 'var(--text-main)' }}>
-                    ➕ 開通新客戶門市 (1 秒即時建置)
+        {activeTab === 'modules' && (
+          <div style={{ maxWidth: '1100px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            {/* Header */}
+            <div style={{ padding: '20px 24px', borderRadius: '16px', backgroundColor: 'var(--bg-card)', border: '1px solid var(--border)', boxShadow: 'var(--shadow-sm)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: '900', color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    🧩 系統功能模組管理中心 (Module & Feature Center)
                   </h3>
+                  <p style={{ margin: '4px 0 0 0', fontSize: '0.82rem', color: 'var(--text-muted)' }}>
+                    本系統支援自由模組化架構。您可以根據您的門市行業型態，一鍵套用範本或自由開關 10 大獨立功能。
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setIsSavingModules(true);
+                    try {
+                      saveActiveModuleSettings(systemModules);
+                      await supabase.from('menu_items').upsert([{
+                        id: 9993,
+                        name: 'SYSTEM_SETTING_ENABLED_MODULES',
+                        price: 0,
+                        category: 'settings',
+                        description: JSON.stringify(systemModules)
+                      }]);
+                      alert("🎉 系統功能模組已成功儲存並同步生效！");
+                    } catch (e) {
+                      alert("儲存失敗：" + e.message);
+                    } finally {
+                      setIsSavingModules(false);
+                    }
+                  }}
+                  disabled={isSavingModules}
+                  style={{
+                    padding: '10px 24px',
+                    fontSize: '0.9rem',
+                    fontWeight: 'bold',
+                    backgroundColor: 'var(--primary)',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '8px',
+                    cursor: 'pointer',
+                    boxShadow: 'var(--shadow-md)'
+                  }}
+                >
+                  {isSavingModules ? '儲存中...' : '💾 儲存並套用功能模組'}
+                </button>
+              </div>
 
-                  <form onSubmit={handleCreateNewTenantStore} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                      <label style={{ fontSize: '0.82rem', fontWeight: 'bold' }}>1. 客戶店名 (門市顯示名稱) *</label>
-                      <input
-                        type="text"
-                        placeholder="例如: 清心涼麵、阿財古早味"
-                        value={newClientStoreName}
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          setNewClientStoreName(val);
-                          if (!newClientStaffToken) {
-                            setNewClientStaffToken(generateRandomStoreToken(newClientStoreCode || 'st'));
-                          }
-                        }}
-                        required
-                        style={{ padding: '9px 12px', fontSize: '0.9rem', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-body)', color: 'var(--text-main)' }}
-                      />
-                    </div>
-
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <label style={{ fontSize: '0.82rem', fontWeight: 'bold' }}>2. 門市公開代碼 (顧客點餐使用) *</label>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const randCode = 'st_' + Math.random().toString(36).substr(2, 5);
-                            setNewClientStoreCode(randCode);
-                            if (!newClientStaffToken) {
-                              setNewClientStaffToken(generateRandomStoreToken(randCode));
-                            }
-                          }}
-                          style={{ padding: '2px 8px', fontSize: '0.72rem', backgroundColor: 'var(--bg-body)', border: '1px solid var(--border)', borderRadius: '4px', cursor: 'pointer', color: 'var(--text-muted)' }}
-                        >
-                          🎲 隨機代碼
-                        </button>
-                      </div>
-                      <input
-                        type="text"
-                        placeholder="例如: qingxin、a-cai、shop88"
-                        value={newClientStoreCode}
-                        onChange={(e) => {
-                          const clean = e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, '');
-                          setNewClientStoreCode(clean);
-                          if (!newClientStaffToken && clean) {
-                            setNewClientStaffToken(generateRandomStoreToken(clean));
-                          }
-                        }}
-                        required
-                        style={{ padding: '9px 12px', fontSize: '0.9rem', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-body)', color: 'var(--text-main)', fontFamily: 'monospace' }}
-                      />
-                      <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', lineHeight: '1.4' }}>
-                        📱 顧客點餐網址：https://dragon.twabc.com/?store={newClientStoreCode || '代碼'}
-                      </span>
-                    </div>
-
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <label style={{ fontSize: '0.82rem', fontWeight: 'bold', color: '#7c3aed' }}>
-                          3. 🔐 內部專屬安全金鑰 (POS / 記帳 / 後台私鑰) *
-                        </label>
-                        <button
-                          type="button"
-                          onClick={() => setNewClientStaffToken(generateRandomStoreToken(newClientStoreCode || 'st'))}
-                          style={{ padding: '2px 8px', fontSize: '0.72rem', backgroundColor: 'rgba(124, 58, 237, 0.1)', color: '#7c3aed', border: '1px solid #7c3aed', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}
-                        >
-                          🎲 重新生成金鑰
-                        </button>
-                      </div>
-                      <div style={{ display: 'flex', gap: '8px' }}>
-                        <input
-                          type="text"
-                          placeholder="例如: qx_9b7e41"
-                          value={newClientStaffToken}
-                          onChange={(e) => setNewClientStaffToken(e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, ''))}
-                          required
-                          style={{ flex: 1, padding: '9px 12px', fontSize: '0.9rem', borderRadius: '6px', border: '2px solid #7c3aed', backgroundColor: 'var(--bg-body)', color: '#7c3aed', fontFamily: 'monospace', fontWeight: 'bold' }}
-                        />
-                      </div>
-                      <span style={{ fontSize: '0.72rem', color: '#7c3aed', lineHeight: '1.4' }}>
-                        🛡️ 僅有帶此金鑰網址才能開啟內部系統；若外部人員嘗試用公開代碼進入，將直接顯示 404 死頁！
-                      </span>
-                    </div>
-
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                      <label style={{ fontSize: '0.82rem', fontWeight: 'bold' }}>4. 預設管理員 PIN 碼 (4~8 位數字)</label>
-                      <input
-                        type="text"
-                        placeholder="預設 8888"
-                        value={newClientAdminPin}
-                        onChange={(e) => setNewClientAdminPin(e.target.value.replace(/\D/g, ''))}
-                        maxLength={8}
-                        style={{ padding: '9px 12px', fontSize: '0.9rem', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-body)', color: 'var(--text-main)', letterSpacing: '2px', fontFamily: 'monospace' }}
-                      />
-                    </div>
-
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                      <label style={{ fontSize: '0.8rem', fontWeight: 'bold' }}>初始範本菜單</label>
-                      <select
-                        value={newClientTemplate}
-                        onChange={(e) => setNewClientTemplate(e.target.value)}
-                        style={{ padding: '8px 12px', fontSize: '0.85rem', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-body)', color: 'var(--text-main)' }}
-                      >
-                        <option value="noodle">🍜 麵線小吃類初始菜單範本</option>
-                        <option value="general">🍱 便當簡餐類初始菜單範本</option>
-                        <option value="blank">⚪ 空白菜單 (由客戶自行在後台新增)</option>
-                      </select>
-                    </div>
-
-                    <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
+              {/* Industry Presets Quick Selector */}
+              <div style={{ marginTop: '18px', padding: '14px', borderRadius: '10px', backgroundColor: 'rgba(255, 107, 53, 0.08)', border: '1px solid rgba(255, 107, 53, 0.2)' }}>
+                <div style={{ fontSize: '0.82rem', fontWeight: 'bold', color: 'var(--primary)', marginBottom: '10px' }}>
+                  ⚡ 一鍵套用行業預設模組範本：
+                </div>
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                  {Object.keys(INDUSTRY_PRESETS).map(key => {
+                    const preset = INDUSTRY_PRESETS[key];
+                    const isSelected = selectedIndustryPreset === key;
+                    return (
                       <button
+                        key={key}
                         type="button"
-                        onClick={() => setShowNewStoreModal(false)}
-                        style={{ flex: 1, padding: '10px', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'transparent', cursor: 'pointer', fontWeight: 'bold' }}
+                        onClick={() => {
+                          const newSettings = {};
+                          SYSTEM_MODULES.forEach(m => {
+                            newSettings[m.id] = preset.enabledModuleIds.includes(m.id);
+                          });
+                          setSystemModules(newSettings);
+                          setSelectedIndustryPreset(key);
+                        }}
+                        style={{
+                          padding: '8px 14px',
+                          fontSize: '0.82rem',
+                          fontWeight: isSelected ? 'bold' : 'normal',
+                          borderRadius: '8px',
+                          border: isSelected ? '2px solid var(--primary)' : '1px solid var(--border)',
+                          backgroundColor: isSelected ? 'var(--primary)' : 'var(--bg-card)',
+                          color: isSelected ? 'white' : 'var(--text-main)',
+                          cursor: 'pointer',
+                          transition: 'all 0.15s ease'
+                        }}
                       >
-                        取消
+                        {preset.name}
                       </button>
-                      <button
-                        type="submit"
-                        style={{ flex: 1.5, padding: '10px', borderRadius: '6px', border: 'none', backgroundColor: '#7c3aed', color: 'white', cursor: 'pointer', fontWeight: 'bold', boxShadow: '0 2px 8px rgba(124,58,237,0.3)' }}
-                      >
-                        🚀 立即開通新門市
-                      </button>
-                    </div>
-                  </form>
+                    );
+                  })}
                 </div>
               </div>
-            )}
+            </div>
 
-            {/* Modal: Edit Existing Client Store */}
-            {editingStore && (
-              <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: '20px' }}>
-                <div style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '16px', padding: '28px', maxWidth: '480px', width: '100%', boxShadow: 'var(--shadow-lg)' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                    <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 'bold', color: 'var(--text-main)' }}>
-                      ✏️ 編輯門市資料：【{editingStore.name}】
-                    </h3>
-                    <button
-                      type="button"
-                      onClick={() => setEditingStore(null)}
-                      style={{ background: 'none', border: 'none', fontSize: '1.2rem', cursor: 'pointer', color: 'var(--text-muted)' }}
-                    >
-                      ✕
-                    </button>
-                  </div>
-
-                  <form onSubmit={handleSaveEditedStore} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                      <label style={{ fontSize: '0.82rem', fontWeight: 'bold' }}>1. 門市顯示名稱 *</label>
-                      <input
-                        type="text"
-                        value={editStoreName}
-                        onChange={(e) => setEditStoreName(e.target.value)}
-                        required
-                        style={{ padding: '9px 12px', fontSize: '0.9rem', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-body)', color: 'var(--text-main)' }}
-                      />
-                    </div>
-
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                      <label style={{ fontSize: '0.82rem', fontWeight: 'bold' }}>2. 門市公開代碼 (顧客點餐使用) *</label>
-                      <input
-                        type="text"
-                        value={editStoreCode}
-                        disabled={editingStore.code === 'dragon'}
-                        onChange={(e) => setEditStoreCode(e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, ''))}
-                        required
-                        style={{ padding: '9px 12px', fontSize: '0.9rem', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: editingStore.code === 'dragon' ? 'var(--bg-body)' : 'var(--bg-card)', color: 'var(--text-main)', fontFamily: 'monospace', opacity: editingStore.code === 'dragon' ? 0.7 : 1 }}
-                      />
-                      <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                        📱 顧客點餐網址：https://dragon.twabc.com/?store={editStoreCode}
-                      </span>
-                    </div>
-
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <label style={{ fontSize: '0.82rem', fontWeight: 'bold', color: '#7c3aed' }}>
-                          3. 🔐 內部專屬安全金鑰 (POS / 記帳 / 後台私鑰) *
-                        </label>
-                        <button
-                          type="button"
-                          onClick={() => setEditStaffToken(generateRandomStoreToken(editStoreCode || 'st'))}
-                          style={{ padding: '2px 8px', fontSize: '0.72rem', backgroundColor: 'rgba(124, 58, 237, 0.1)', color: '#7c3aed', border: '1px solid #7c3aed', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}
-                        >
-                          🎲 重新生成金鑰
-                        </button>
+            {/* Modules Grid */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '14px' }}>
+              {SYSTEM_MODULES.map(m => {
+                const isEnabled = Boolean(systemModules[m.id]);
+                return (
+                  <div
+                    key={m.id}
+                    onClick={() => {
+                      setSystemModules(prev => ({
+                        ...prev,
+                        [m.id]: !prev[m.id]
+                      }));
+                      setSelectedIndustryPreset('custom');
+                    }}
+                    style={{
+                      padding: '16px',
+                      borderRadius: '12px',
+                      border: isEnabled ? '2px solid #22c55e' : '1px solid var(--border)',
+                      backgroundColor: isEnabled ? 'rgba(34, 197, 94, 0.06)' : 'var(--bg-card)',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      gap: '14px',
+                      transition: 'all 0.15s ease',
+                      boxShadow: isEnabled ? '0 2px 8px rgba(34, 197, 94, 0.15)' : 'none',
+                      userSelect: 'none'
+                    }}
+                  >
+                    <div style={{ fontSize: '2rem', lineHeight: '1' }}>{m.icon}</div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                        <span style={{ fontSize: '0.95rem', fontWeight: 'bold', color: 'var(--text-main)' }}>
+                          {m.name}
+                        </span>
+                        <span style={{
+                          padding: '2px 8px',
+                          borderRadius: '6px',
+                          fontSize: '0.72rem',
+                          fontWeight: 'bold',
+                          backgroundColor: isEnabled ? '#22c55e' : '#64748b',
+                          color: 'white'
+                        }}>
+                          {isEnabled ? '已啟用' : '已關閉'}
+                        </span>
                       </div>
-                      <input
-                        type="text"
-                        value={editStaffToken}
-                        onChange={(e) => setEditStaffToken(e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, ''))}
-                        required
-                        style={{ padding: '9px 12px', fontSize: '0.9rem', borderRadius: '6px', border: '2px solid #7c3aed', backgroundColor: 'var(--bg-body)', color: '#7c3aed', fontFamily: 'monospace', fontWeight: 'bold' }}
-                      />
-                    </div>
-
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                      <label style={{ fontSize: '0.82rem', fontWeight: 'bold' }}>4. 管理員後台登入 PIN 碼 (4~8 位數字)</label>
-                      <input
-                        type="text"
-                        value={editAdminPin}
-                        onChange={(e) => setEditAdminPin(e.target.value.replace(/\D/g, ''))}
-                        maxLength={8}
-                        style={{ padding: '9px 12px', fontSize: '0.9rem', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-body)', color: 'var(--text-main)', letterSpacing: '2px', fontFamily: 'monospace' }}
-                      />
-                    </div>
-
-                    <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
-                      <button
-                        type="button"
-                        onClick={() => setEditingStore(null)}
-                        style={{ flex: 1, padding: '10px', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'transparent', cursor: 'pointer', fontWeight: 'bold' }}
-                      >
-                        取消
-                      </button>
-                      <button
-                        type="submit"
-                        style={{ flex: 1.5, padding: '10px', borderRadius: '6px', border: 'none', backgroundColor: '#ea580c', color: 'white', cursor: 'pointer', fontWeight: 'bold', boxShadow: '0 2px 8px rgba(234,88,12,0.3)' }}
-                      >
-                        💾 儲存修改
-                      </button>
-                    </div>
-                  </form>
-                </div>
-              </div>
-            )}
-
-            {/* Modal: Store Links Display */}
-            {createdStoreLinks && (
-              <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: '20px' }}>
-                <div style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '16px', padding: '28px', maxWidth: '520px', width: '100%', boxShadow: 'var(--shadow-lg)' }}>
-                  <div style={{ textAlign: 'center', marginBottom: '16px' }}>
-                    <span style={{ fontSize: '2.5rem' }}>🎉</span>
-                    <h3 style={{ margin: '4px 0', fontSize: '1.2rem', fontWeight: 'bold' }}>
-                      【{createdStoreLinks.name}】專屬系統網址
-                    </h3>
-                    <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                      門市代碼: <strong>{createdStoreLinks.code}</strong> ｜ 後台 PIN: <strong>{createdStoreLinks.pin}</strong>
-                    </p>
-                  </div>
-
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '0.85rem' }}>
-                    <div style={{ padding: '8px 12px', backgroundColor: 'var(--bg-body)', borderRadius: '8px', border: '1px solid var(--border)' }}>
-                      <div style={{ fontWeight: 'bold', color: '#ea580c' }}>📱 顧客線上點餐網址:</div>
-                      <a href={createdStoreLinks.customerUrl} target="_blank" rel="noreferrer" style={{ fontSize: '0.75rem', color: 'var(--primary)', wordBreak: 'break-all' }}>
-                        {createdStoreLinks.customerUrl}
-                      </a>
-                    </div>
-                    <div style={{ padding: '8px 12px', backgroundColor: 'var(--bg-body)', borderRadius: '8px', border: '1px solid var(--border)' }}>
-                      <div style={{ fontWeight: 'bold', color: '#2563eb' }}>💵 現場 POS 收銀網址:</div>
-                      <a href={createdStoreLinks.posUrl} target="_blank" rel="noreferrer" style={{ fontSize: '0.75rem', color: '#2563eb', wordBreak: 'break-all' }}>
-                        {createdStoreLinks.posUrl}
-                      </a>
-                    </div>
-                    <div style={{ padding: '8px 12px', backgroundColor: 'var(--bg-body)', borderRadius: '8px', border: '1px solid var(--border)' }}>
-                      <div style={{ fontWeight: 'bold', color: '#16a34a' }}>📊 營業記帳系統網址:</div>
-                      <a href={createdStoreLinks.bookkeepingUrl} target="_blank" rel="noreferrer" style={{ fontSize: '0.75rem', color: '#16a34a', wordBreak: 'break-all' }}>
-                        {createdStoreLinks.bookkeepingUrl}
-                      </a>
-                    </div>
-                    <div style={{ padding: '8px 12px', backgroundColor: 'var(--bg-body)', borderRadius: '8px', border: '1px solid var(--border)' }}>
-                      <div style={{ fontWeight: 'bold', color: '#7c3aed' }}>🔐 統一登入入口網址:</div>
-                      <a href={createdStoreLinks.loginUrl} target="_blank" rel="noreferrer" style={{ fontSize: '0.75rem', color: '#7c3aed', wordBreak: 'break-all' }}>
-                        {createdStoreLinks.loginUrl}
-                      </a>
+                      <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', lineHeight: '1.4' }}>
+                        {m.description}
+                      </div>
                     </div>
                   </div>
-
-                  <div style={{ display: 'flex', gap: '10px', marginTop: '18px' }}>
-                    <button
-                      type="button"
-                      onClick={() => setCreatedStoreLinks(null)}
-                      style={{ flex: 1, padding: '10px', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'transparent', cursor: 'pointer', fontWeight: 'bold' }}
-                    >
-                      關閉視窗
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const text = `【${createdStoreLinks.name}】專屬餐飲系統入口\n\n📱 顧客掃碼點餐：${createdStoreLinks.customerUrl}\n💵 現場 POS 收銀：${createdStoreLinks.posUrl}\n📊 營業記帳系統：${createdStoreLinks.bookkeepingUrl}\n🛠️ 後台管理系統：${createdStoreLinks.adminUrl}\n🔐 統一登入入口：${createdStoreLinks.loginUrl}\n\n🔑 預設後台管理 PIN 碼：${createdStoreLinks.pin}`;
-                        navigator.clipboard.writeText(text);
-                        alert("已成功複製全套連結與 PIN 碼！");
-                      }}
-                      style={{ flex: 1.5, padding: '10px', borderRadius: '6px', border: 'none', backgroundColor: '#16a34a', color: 'white', cursor: 'pointer', fontWeight: 'bold' }}
-                    >
-                      📋 一鍵複製給客戶
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-
+                );
+              })}
+            </div>
           </div>
         )}
-
 
         {activeTab === 'blacklist' && (
           <div style={{ display: 'flex', gap: '24px', alignItems: 'flex-start', textAlign: 'left' }}>

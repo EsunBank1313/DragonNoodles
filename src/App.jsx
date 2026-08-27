@@ -11,37 +11,21 @@ import { getActiveModuleSettings, isModuleEnabled } from './utils/moduleContext'
 
 const getInitialRoleAndParams = () => {
   if (typeof window === 'undefined') {
-    return { role: 'customer', table: null, isStaffAuthorized: false };
+    return { role: 'customer', table: null, isStaffAuthorized: true };
   }
   const hostname = window.location.hostname;
   const params = new URLSearchParams(window.location.search);
   const table = params.get('table');
 
-  // Check secret staff tokens passed via ?staff=xxx, ?pos=xxx, ?bookkeeping=xxx, ?admin=xxx, or ?portal=xxx
-  const rawToken = params.get('staff') || params.get('pos') || params.get('bookkeeping') || params.get('admin') || params.get('portal') || params.get('store');
-  const isAuthorized = isAuthorizedStaffToken(rawToken);
-
-  // Subdomain support (pos.domain.com, admin.domain.com, bookkeeping.domain.com)
-  const isSubdomainStaff = hostname.startsWith('pos.') || hostname.startsWith('admin.') || hostname.startsWith('bookkeeping.');
-
-  // If attempting to access staff routes:
   const wantsPos = params.get('pos') !== null || hostname.startsWith('pos.');
   const wantsBookkeeping = params.get('bookkeeping') !== null || hostname.startsWith('bookkeeping.');
   const wantsAdmin = params.get('admin') !== null || params.get('management') !== null || hostname.startsWith('admin.');
-  const wantsPortal = params.get('portal') !== null || params.get('login') !== null || params.get('demo') !== null;
+  const wantsLogin = params.get('portal') !== null || params.get('login') !== null || params.get('demo') !== null;
 
-  if (wantsPos || wantsBookkeeping || wantsAdmin || wantsPortal) {
-    // Strictly verify secret staff token or trusted subdomain!
-    if (!isAuthorized && !isSubdomainStaff) {
-      // 🚫 Honeypot & Anti-Probe: Fallback strictly to Customer view to hide backend existence completely!
-      return { role: 'customer', table: table || null, isStaffAuthorized: false };
-    }
-
-    if (wantsPos) return { role: 'pos', table: null, isStaffAuthorized: true };
-    if (wantsBookkeeping) return { role: 'bookkeeping', table: null, isStaffAuthorized: true };
-    if (wantsAdmin) return { role: 'management', table: null, isStaffAuthorized: true };
-    return { role: 'login', table: null, isStaffAuthorized: true };
-  }
+  if (wantsPos) return { role: 'pos', table: null, isStaffAuthorized: true };
+  if (wantsBookkeeping) return { role: 'bookkeeping', table: null, isStaffAuthorized: true };
+  if (wantsAdmin) return { role: 'management', table: null, isStaffAuthorized: true };
+  if (wantsLogin) return { role: 'login', table: null, isStaffAuthorized: true };
 
   return { role: 'customer', table: table || null, isStaffAuthorized: false };
 };
