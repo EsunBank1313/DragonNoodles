@@ -5,7 +5,8 @@ import { defaultUpgradeCombos, isComboApplicableToItem } from '../data/menuData'
 import ItemModal from './ItemModal';
 import ThermalPrintPortal from './ThermalPrintPortal';
 import { defaultStoreProfile, defaultReceiptConfig, printThermalReceipt, printDailyClosingReport } from '../utils/printHelpers';
-import { getActiveStoreCode, filterItemsByStore, filterOrdersByStore, prefixNameForStore, stripNameForStore, getStoreStorage, setStoreStorage, getStoreSessionStorage, setStoreSessionStorage, removeStoreSessionStorage } from '../utils/storeContext';
+import ModuleCenterModal from './ModuleCenterModal';
+import { getActiveModuleSettings, isModuleEnabled } from '../utils/moduleContext';
 
 export default function CashierView({ storeCode: propStoreCode, cashierName, sessionId: propSessionId, onLogout }) {
   const storeCode = propStoreCode || getActiveStoreCode();
@@ -47,7 +48,7 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
   useEffect(() => {
     const fetchInventory = async () => {
       try {
-        const invKey = prefixNameForStore('SYSTEM_SETTING_INVENTORY', storeCode);
+        const invKey = 'SYSTEM_SETTING_INVENTORY';
         const { data } = await supabase.from('menu_items').select('*').eq('name', invKey);
         if (data && data.length > 0) {
           const parsed = JSON.parse(data[0].description);
@@ -83,14 +84,14 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
 
   useEffect(() => {
     if (!sessionId) return;
-    const sessionKey = prefixNameForStore('SYSTEM_SETTING_ACTIVE_POS_SESSION', storeCode);
+    const sessionKey = 'SYSTEM_SETTING_ACTIVE_POS_SESSION';
     isKickedOutRef.current = false;
 
     const handleDeviceKickout = (otherUser) => {
       if (isKickedOutRef.current) return;
       isKickedOutRef.current = true;
       try {
-        sessionStorage.removeItem(`${storeCode}_pos_session_id`);
+        sessionStorage.removeItem(`pos_session_id`);
       } catch (e) {}
       setKickoutState({ isKickedOut: true, user: otherUser || '其他人員' });
     };
@@ -220,7 +221,20 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
   const [quickPresetsEditStr, setQuickPresetsEditStr] = useState('0.5, 1, 1.5, 2, 3, 5');
 
   const [showDailyOpenPromptModal, setShowDailyOpenPromptModal] = useState(false);
+  const [showModuleCenterModal, setShowModuleCenterModal] = useState(false);
+  const [activeModules, setActiveModules] = useState(() => getActiveModuleSettings());
+
+  // Barcode / SKU quick input state
+  const [quickSkuInput, setQuickSkuInput] = useState('');
   const hasPromptedDailyOpenRef = useRef(false);
+
+  useEffect(() => {
+    const onModulesChanged = (e) => {
+      if (e.detail) setActiveModules(e.detail);
+    };
+    window.addEventListener('app-modules-updated', onModulesChanged);
+    return () => window.removeEventListener('app-modules-updated', onModulesChanged);
+  }, []);
 
   useEffect(() => {
     if (storeOpenStatus !== null && !hasPromptedDailyOpenRef.current) {
@@ -265,7 +279,7 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
   const [isOnline, setIsOnline] = useState(() => (typeof navigator !== 'undefined' ? navigator.onLine : true));
   const [offlineQueue, setOfflineQueue] = useState(() => {
     try {
-      return JSON.parse(localStorage.getItem(`${storeCode}_offline_orders_queue`) || '[]');
+      return JSON.parse(localStorage.getItem(`offline_orders_queue`) || '[]');
     } catch {
       return [];
     }
@@ -508,7 +522,7 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
 
   const flushOfflineOrders = async () => {
     try {
-      const saved = JSON.parse(localStorage.getItem(`${storeCode}_offline_orders_queue`) || '[]');
+      const saved = JSON.parse(localStorage.getItem(`offline_orders_queue`) || '[]');
       if (saved && saved.length > 0) {
         for (const offlineOrder of saved) {
           const { error } = await supabase.from('orders').insert([offlineOrder]);
@@ -516,7 +530,7 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
             console.log("Uploaded offline order to Supabase:", offlineOrder.order_number);
           }
         }
-        localStorage.removeItem(`${storeCode}_offline_orders_queue`);
+        localStorage.removeItem(`offline_orders_queue`);
         setOfflineQueue([]);
         triggerChime();
         fetchOrders();
@@ -560,7 +574,7 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
 
   // Shift Handover Data & Printout Handler (X-Report)
   const getShiftHandoverData = () => {
-    const loginTimeStr = localStorage.getItem(`${storeCode}_pos_login_time`);
+    const loginTimeStr = localStorage.getItem(`pos_login_time`);
     const loginTime = loginTimeStr ? Number(loginTimeStr) : (Date.now() - 4 * 3600 * 1000);
     const todayOrders = orders.filter(o => o.status === 'completed' || o.status === 'received');
     
@@ -646,7 +660,7 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
 
   const handleShiftLogoutOnly = async () => {
     try {
-      const sessionKey = prefixNameForStore('SYSTEM_SETTING_ACTIVE_POS_SESSION', storeCode);
+      const sessionKey = 'SYSTEM_SETTING_ACTIVE_POS_SESSION';
       await supabase.from('menu_items').update({ description: JSON.stringify({ user: '', sessionId: '', lastActive: 0 }) }).eq('name', sessionKey);
     } catch (e) {}
     onLogout();
@@ -661,7 +675,7 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
 
   const fetchClosedDatesFromCloud = async () => {
     try {
-      const closedKey = prefixNameForStore('SYSTEM_SETTING_CLOSED_DATES', storeCode);
+      const closedKey = 'SYSTEM_SETTING_CLOSED_DATES';
       const { data: settingsData } = await supabase
         .from('menu_items')
         .select('description')
@@ -690,7 +704,7 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
         .order('id', { ascending: true });
       if (error) throw error;
       if (data) {
-        const storeItems = filterItemsByStore(data, storeCode);
+        const storeItems = data;
 
         const storeProfileItem = storeItems.find(item => item.name === 'SYSTEM_SETTING_STORE_PROFILE');
         if (storeProfileItem && storeProfileItem.description) {
@@ -823,7 +837,7 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
           }
           return {
             ...item,
-            name: stripNameForStore(item.name, storeCode),
+            name: item.name,
             customizations: updatedCust
           };
         });
@@ -860,7 +874,7 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
       if (error) throw error;
       if (data) {
         const todayStr = getTodayLocalDate();
-        const storeOrders = filterOrdersByStore(data, storeCode);
+        const storeOrders = data;
         const clientOrders = storeOrders.filter(o => {
           const orderDate = new Date(o.created_at).toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' });
           const itemsData = typeof o.items === 'string' ? JSON.parse(o.items) : o.items;
@@ -909,7 +923,7 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
 
   // Listen to incoming orders (Permanent Realtime Channel with Dynamic Ref Check)
   useEffect(() => {
-    const channelId = `pos_realtime_${storeCode || 'dragon'}_${Date.now()}`;
+    const channelId = `pos_realtime_${'standalone'}_${Date.now()}`;
     const ordersChannel = supabase.channel(channelId)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, (payload) => {
         fetchOrders();
@@ -1114,7 +1128,7 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
       const todayStr = getTodayLocalDate();
 
       // 1. Mark store closed in storeOpenStatus
-      const openStatusKey = prefixNameForStore('SYSTEM_SETTING_STORE_OPEN_STATUS', storeCode);
+      const openStatusKey = 'SYSTEM_SETTING_STORE_OPEN_STATUS';
       const newStatus = {
         is_open: false,
         open_date: todayStr,
@@ -1137,7 +1151,7 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
       localStorage.setItem('restaurant_closed_dates', JSON.stringify(updated));
       window.dispatchEvent(new Event('storage'));
 
-      const closedKey = prefixNameForStore('SYSTEM_SETTING_CLOSED_DATES', storeCode);
+      const closedKey = 'SYSTEM_SETTING_CLOSED_DATES';
       const { data: exist } = await supabase.from('menu_items').select('*').eq('name', closedKey);
       if (exist && exist.length > 0) {
         await supabase.from('menu_items').update({ description: JSON.stringify(updated) }).eq('name', closedKey);
@@ -1155,7 +1169,7 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
   // 🛎️ POS Store Opening / Closing Toggle (開店 / 打烊)
   const handleToggleStoreOpen = async () => {
     const todayStr = getTodayLocalDate();
-    const openStatusKey = prefixNameForStore('SYSTEM_SETTING_STORE_OPEN_STATUS', storeCode);
+    const openStatusKey = 'SYSTEM_SETTING_STORE_OPEN_STATUS';
 
     if (isStoreOpenToday) {
       if (!confirm("⚠️ 確定要【暫停/打烊】今日線上點餐嗎？\n顧客將無法繼續透過線上掃碼送出點餐。")) {
@@ -1196,7 +1210,7 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
         const updatedClosed = closedDates.filter(d => d !== todayStr);
         setClosedDates(updatedClosed);
         localStorage.setItem('restaurant_closed_dates', JSON.stringify(updatedClosed));
-        const closedKey = prefixNameForStore('SYSTEM_SETTING_CLOSED_DATES', storeCode);
+        const closedKey = 'SYSTEM_SETTING_CLOSED_DATES';
         try {
           await supabase.from('menu_items').update({ description: JSON.stringify(updatedClosed) }).eq('name', closedKey);
         } catch (e) {}
@@ -1368,7 +1382,6 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
       const orderPayload = {
         order_number: serialNum,
         items: {
-          store_code: storeCode,
           cart: cart.map(c => ({
             id: c.id,
             name: c.name,
@@ -1453,7 +1466,6 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
       const offlineOrder = {
         order_number: fallbackSerial,
         items: {
-          store_code: storeCode,
           cart: cart,
           customerName: orderType === 'dine-in' ? '內用點餐 (POS)' : (custName.trim() || '現場外帶'),
           paymentMethod: isCash ? 'cash' : selectedPaymentMethod,
@@ -1468,9 +1480,9 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
       };
 
       try {
-        const savedQueue = JSON.parse(localStorage.getItem(`${storeCode}_offline_orders_queue`) || '[]');
+        const savedQueue = JSON.parse(localStorage.getItem(`offline_orders_queue`) || '[]');
         savedQueue.push(offlineOrder);
-        localStorage.setItem(`${storeCode}_offline_orders_queue`, JSON.stringify(savedQueue));
+        localStorage.setItem(`offline_orders_queue`, JSON.stringify(savedQueue));
         setOfflineQueue(savedQueue);
       } catch (storageErr) {
         console.warn("Storage error for offline queue:", storageErr);
@@ -1558,7 +1570,7 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                   window.dispatchEvent(new Event('storage'));
 
                   try {
-                    const closedKey = prefixNameForStore('SYSTEM_SETTING_CLOSED_DATES', storeCode);
+                    const closedKey = 'SYSTEM_SETTING_CLOSED_DATES';
                     const { data: exist } = await supabase.from('menu_items').select('*').eq('name', closedKey);
                     if (exist && exist.length > 0) {
                       await supabase.from('menu_items').update({ description: JSON.stringify(updated) }).eq('name', closedKey);
@@ -1985,7 +1997,7 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
           <button 
             onClick={async () => {
               try {
-                const sessionKey = prefixNameForStore('SYSTEM_SETTING_ACTIVE_POS_SESSION', storeCode);
+                const sessionKey = 'SYSTEM_SETTING_ACTIVE_POS_SESSION';
                 await supabase.from('menu_items').update({ description: JSON.stringify({ user: '', sessionId: '', lastActive: 0 }) }).eq('name', sessionKey);
               } catch (e) {}
               onLogout();
@@ -3923,7 +3935,7 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                         setWeightConfig(updated);
                         localStorage.setItem('pos_weight_config', JSON.stringify(updated));
                         try {
-                          const key = prefixNameForStore('SYSTEM_SETTING_WEIGHT_CONFIG', storeCode);
+                          const key = 'SYSTEM_SETTING_WEIGHT_CONFIG';
                           await supabase.from('menu_items').upsert([{ id: 9991, name: key, price: 0, category: 'settings', description: JSON.stringify(updated) }]);
                         } catch (err) {}
                       }}
@@ -3964,7 +3976,7 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                           setWeightConfig(updated);
                           localStorage.setItem('pos_weight_config', JSON.stringify(updated));
                           try {
-                            const key = prefixNameForStore('SYSTEM_SETTING_WEIGHT_CONFIG', storeCode);
+                            const key = 'SYSTEM_SETTING_WEIGHT_CONFIG';
                             await supabase.from('menu_items').upsert([{ id: 9991, name: key, price: 0, category: 'settings', description: JSON.stringify(updated) }]);
                           } catch (err) {}
                           alert("✅ 快捷重量鍵已成功儲存更新！");
@@ -3994,7 +4006,7 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                             setWeightConfig(updated);
                             localStorage.setItem('pos_weight_config', JSON.stringify(updated));
                             try {
-                              const key = prefixNameForStore('SYSTEM_SETTING_WEIGHT_CONFIG', storeCode);
+                              const key = 'SYSTEM_SETTING_WEIGHT_CONFIG';
                               await supabase.from('menu_items').upsert([{ id: 9991, name: key, price: 0, category: 'settings', description: JSON.stringify(updated) }]);
                             } catch (err) {}
                             alert(`已套用【${tpl.label}】快捷重量與單位範本！`);
@@ -4029,7 +4041,7 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                         setWeightConfig(updated);
                         localStorage.setItem('pos_weight_config', JSON.stringify(updated));
                         try {
-                          const key = prefixNameForStore('SYSTEM_SETTING_WEIGHT_CONFIG', storeCode);
+                          const key = 'SYSTEM_SETTING_WEIGHT_CONFIG';
                           await supabase.from('menu_items').upsert([{ id: 9991, name: key, price: 0, category: 'settings', description: JSON.stringify(updated) }]);
                         } catch (err) {}
                       }}
@@ -4047,7 +4059,7 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                         setWeightConfig(updated);
                         localStorage.setItem('pos_weight_config', JSON.stringify(updated));
                         try {
-                          const key = prefixNameForStore('SYSTEM_SETTING_WEIGHT_CONFIG', storeCode);
+                          const key = 'SYSTEM_SETTING_WEIGHT_CONFIG';
                           await supabase.from('menu_items').upsert([{ id: 9991, name: key, price: 0, category: 'settings', description: JSON.stringify(updated) }]);
                         } catch (err) {}
                       }}
@@ -4137,7 +4149,7 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                       window.dispatchEvent(new Event('storage'));
 
                       try {
-                        const closedKey = prefixNameForStore('SYSTEM_SETTING_CLOSED_DATES', storeCode);
+                        const closedKey = 'SYSTEM_SETTING_CLOSED_DATES';
                         const { data: exist } = await supabase.from('menu_items').select('*').eq('name', closedKey);
                         if (exist && exist.length > 0) {
                           await supabase.from('menu_items').update({

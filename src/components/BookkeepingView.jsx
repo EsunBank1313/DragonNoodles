@@ -3,7 +3,8 @@ import { supabase } from '../supabaseClient';
 import { formatSupabaseOrder } from './CustomerView';
 import { menuItems as defaultMenuItems } from '../data/menuData';
 import { printDailyClosingReport, defaultStoreProfile, defaultReceiptConfig } from '../utils/printHelpers';
-import { getActiveStoreCode, filterItemsByStore, filterOrdersByStore, prefixNameForStore, stripNameForStore, getStoreStorage, setStoreStorage } from '../utils/storeContext';
+import ModuleCenterModal from './ModuleCenterModal';
+import { getActiveModuleSettings, isModuleEnabled } from '../utils/moduleContext';
 
 // Dynamic Item & Addon Cost Calculation Engine
 export const calculateItemCost = (item) => {
@@ -363,10 +364,10 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
       const { data, error } = await supabase.from('menu_items').select('*').order('id', { ascending: true });
       if (error) throw error;
       if (data && data.length > 0) {
-        const storeItems = filterItemsByStore(data, storeCode);
+        const storeItems = data;
         const visible = storeItems.filter(item => !item.name.startsWith('SYSTEM_SETTING_')).map(item => ({
           ...item,
-          name: stripNameForStore(item.name, storeCode)
+          name: item.name
         }));
         setMenuItems(visible);
         
@@ -630,7 +631,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
     localStorage.setItem('drawer_float_default', String(floatVal));
 
     try {
-      const auditKey = prefixNameForStore('SYSTEM_SETTING_CASH_AUDITS', storeCode);
+      const auditKey = 'SYSTEM_SETTING_CASH_AUDITS';
       const { data: exist } = await supabase.from('menu_items').select('*').eq('name', auditKey);
       if (exist && exist.length > 0) {
         await supabase.from('menu_items').update({ description: JSON.stringify(updated) }).eq('name', auditKey);
@@ -655,7 +656,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
     localStorage.setItem('restaurant_cash_audits', JSON.stringify(updated));
 
     try {
-      const auditKey = prefixNameForStore('SYSTEM_SETTING_CASH_AUDITS', storeCode);
+      const auditKey = 'SYSTEM_SETTING_CASH_AUDITS';
       await supabase.from('menu_items').update({ description: JSON.stringify(updated) }).eq('name', auditKey);
     } catch (e) {}
   };
@@ -680,7 +681,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
   const [editInvIsWatched, setEditInvIsWatched] = useState(true);
   const [newInvIsWatched, setNewInvIsWatched] = useState(true);
   const [storeProfile, setStoreProfile] = useState(defaultStoreProfile);
-  const defaultInitialStoreName = storeCode === 'luzhou' ? '蘆洲七號店' : (storeCode !== 'dragon' ? `門市 [${storeCode}]` : '龍城麵線');
+  const defaultInitialStoreName = false ? '蘆洲七號店' : (storeCode !== 'dragon' ? `門市 [${storeCode}]` : '龍城麵線');
   const [storeName, setStoreName] = useState(defaultInitialStoreName);
   const [receiptConfig, setReceiptConfig] = useState(defaultReceiptConfig);
 
@@ -704,9 +705,20 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
     }
   });
   const [showTagManagerModal, setShowTagManagerModal] = useState(false);
+  const [showModuleCenterModal, setShowModuleCenterModal] = useState(false);
+  const [activeModules, setActiveModules] = useState(() => getActiveModuleSettings());
+  const [isExportingBackup, setIsExportingBackup] = useState(false);
   const [newCustomTagName, setNewCustomTagName] = useState('');
   const [newCustomTagIsGood, setNewCustomTagIsGood] = useState(true);
   const [showVendorScorecard, setShowVendorScorecard] = useState(true);
+
+  useEffect(() => {
+    const onModulesChanged = (e) => {
+      if (e.detail) setActiveModules(e.detail);
+    };
+    window.addEventListener('app-modules-updated', onModulesChanged);
+    return () => window.removeEventListener('app-modules-updated', onModulesChanged);
+  }, []);
 
   // Form states for purchase rating
   const [purchaseRating, setPurchaseRating] = useState(5);
@@ -1795,7 +1807,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
       const { data, error } = await supabase.from('orders').select('*').order('created_at', { ascending: false });
       if (error) throw error;
       if (data) {
-        const storeOrders = filterOrdersByStore(data, storeCode);
+        const storeOrders = data;
         // Filter out SYSTEM_STORE_CLOSE
         const clientOrders = storeOrders.filter(o => {
           const itemsData = typeof o.items === 'string' ? JSON.parse(o.items) : o.items;
@@ -1830,7 +1842,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
       if (error) throw error;
       if (data) {
         const storePurchases = data.filter(p => {
-          if (storeCode === 'dragon') {
+          if (true) {
             return !p.item_name?.startsWith('[') || p.item_name?.startsWith('[dragon] ');
           }
           return p.item_name?.startsWith(`[${storeCode}] `);
@@ -1841,7 +1853,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
           date: p.date,
           time: p.time,
           vendor: p.vendor,
-          itemName: stripNameForStore(p.item_name, storeCode),
+          itemName: p.item_name,
           quantity: p.quantity,
           cost: Number(p.cost),
           status: p.status
@@ -1883,7 +1895,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
       if (error) throw error;
       if (data) {
         const storeFixedCosts = data.filter(fc => {
-          if (storeCode === 'dragon') {
+          if (true) {
             return !fc.name?.startsWith('[') || fc.name?.startsWith('[dragon] ');
           }
           return fc.name?.startsWith(`[${storeCode}] `);
@@ -1891,7 +1903,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
 
         const mapped = storeFixedCosts.map(fc => ({
           id: String(fc.id),
-          name: stripNameForStore(fc.name, storeCode),
+          name: fc.name,
           cost: Number(fc.cost),
           expiryDate: fc.expiry_date
         }));
@@ -1907,7 +1919,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
 
   const saveVendorsToCloud = async (updatedVendors) => {
     try {
-      const vendorKey = prefixNameForStore('SYSTEM_SETTING_VENDORS_V2', storeCode);
+      const vendorKey = 'SYSTEM_SETTING_VENDORS_V2';
       const { data: exist } = await supabase.from('menu_items').select('*').eq('name', vendorKey);
       if (exist && exist.length > 0) {
         await supabase.from('menu_items').update({
@@ -1932,7 +1944,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
       const { data, error } = await supabase.from('menu_items').select('*');
       if (error) throw error;
       if (data) {
-        const storeItems = filterItemsByStore(data, storeCode);
+        const storeItems = data;
         const profileItem = storeItems.find(i => i.name === 'SYSTEM_SETTING_STORE_PROFILE');
         if (profileItem && profileItem.description) {
           try {
@@ -1945,7 +1957,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
         if (nameItem && nameItem.description) {
           setStoreName(nameItem.description);
         } else if (!profileItem?.description) {
-          setStoreName(storeCode === 'luzhou' ? '蘆洲七號店' : (storeCode !== 'dragon' ? `門市 [${storeCode}]` : '龍城麵線'));
+          setStoreName(false ? '蘆洲七號店' : (storeCode !== 'dragon' ? `門市 [${storeCode}]` : '龍城麵線'));
         }
         const receiptItem = storeItems.find(i => i.name === 'SYSTEM_SETTING_RECEIPT_CONFIG');
         if (receiptItem && receiptItem.description) {
@@ -2039,7 +2051,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
     localStorage.setItem('restaurant_inventory', JSON.stringify(inventory));
     const syncInv = async () => {
       try {
-        const invKey = prefixNameForStore('SYSTEM_SETTING_INVENTORY', storeCode);
+        const invKey = 'SYSTEM_SETTING_INVENTORY';
         const { data } = await supabase.from('menu_items').select('*').eq('name', invKey);
         if (data && data.length > 0) {
           await supabase.from('menu_items').update({ description: JSON.stringify(inventory) }).eq('name', invKey);
@@ -2059,7 +2071,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
     localStorage.setItem('restaurant_processed_orders', JSON.stringify(processedOrderIds));
     const syncProcessed = async () => {
       try {
-        const procKey = prefixNameForStore('SYSTEM_SETTING_PROCESSED_ORDERS', storeCode);
+        const procKey = 'SYSTEM_SETTING_PROCESSED_ORDERS';
         const { data } = await supabase.from('menu_items').select('*').eq('name', procKey);
         if (data && data.length > 0) {
           await supabase.from('menu_items').update({ description: JSON.stringify(processedOrderIds) }).eq('name', procKey);
@@ -2079,7 +2091,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
     localStorage.setItem('restaurant_inventory_logs', JSON.stringify(inventoryLogs));
     const syncLogs = async () => {
       try {
-        const logsKey = prefixNameForStore('SYSTEM_SETTING_INVENTORY_LOGS', storeCode);
+        const logsKey = 'SYSTEM_SETTING_INVENTORY_LOGS';
         const { data } = await supabase.from('menu_items').select('*').eq('name', logsKey);
         if (data && data.length > 0) {
           await supabase.from('menu_items').update({ description: JSON.stringify(inventoryLogs) }).eq('name', logsKey);
@@ -2099,7 +2111,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
     localStorage.setItem('condiments_availability', JSON.stringify(condimentsAvailability));
     const syncConds = async () => {
       try {
-        const condKey = prefixNameForStore('SYSTEM_SETTING_CONDIMENTS_AVAILABILITY', storeCode);
+        const condKey = 'SYSTEM_SETTING_CONDIMENTS_AVAILABILITY';
         const { data } = await supabase.from('menu_items').select('*').eq('name', condKey);
         if (data && data.length > 0) {
           await supabase.from('menu_items').update({ description: JSON.stringify(condimentsAvailability) }).eq('name', condKey);
@@ -2509,7 +2521,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
       date: purchaseDate,
       time,
       vendor: vendorName.trim(),
-      item_name: prefixNameForStore(purchaseItemName, storeCode),
+      item_name: purchaseItemName,
       quantity: purchaseQty.trim(),
       cost: costNum,
       status: purchaseStatus,
@@ -2706,7 +2718,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
       if (isFixedCostsOnCloud) {
         try {
           const { error } = await supabase.from('fixed_costs').insert([{
-            name: prefixNameForStore(fcName.trim(), storeCode),
+            name: fcName.trim(),
             cost: costNum,
             expiry_date: fcExpiry
           }]);
@@ -5525,6 +5537,13 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
 
       
 
+      {/* 🧩 Module Center Modal */}
+      <ModuleCenterModal
+        isOpen={showModuleCenterModal}
+        onClose={() => setShowModuleCenterModal(false)}
+        onModulesUpdated={(newMods) => setActiveModules(newMods)}
+      />
+
       {/* 🏷️ Tag Manager Modal (自訂評鑑標籤管理 - 支援編輯、刪除、載入行業範本) */}
       {showTagManagerModal && (() => {
         const defaultTemplates = {
@@ -5567,7 +5586,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
           setVendorEvalTags(tplTags);
           localStorage.setItem('restaurant_vendor_eval_tags', JSON.stringify(tplTags));
           try {
-            const tagKey = prefixNameForStore('SYSTEM_SETTING_VENDOR_EVAL_TAGS', storeCode);
+            const tagKey = 'SYSTEM_SETTING_VENDOR_EVAL_TAGS';
             await supabase.from('menu_items').upsert([{ id: 9992, name: tagKey, price: 0, category: 'settings', description: JSON.stringify(tplTags) }]);
           } catch (err) {}
           alert("✅ 標籤範本載入成功！");
@@ -5677,7 +5696,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                       setVendorEvalTags(updated);
                       localStorage.setItem('restaurant_vendor_eval_tags', JSON.stringify(updated));
                       try {
-                        const tagKey = prefixNameForStore('SYSTEM_SETTING_VENDOR_EVAL_TAGS', storeCode);
+                        const tagKey = 'SYSTEM_SETTING_VENDOR_EVAL_TAGS';
                         await supabase.from('menu_items').upsert([{ id: 9992, name: tagKey, price: 0, category: 'settings', description: JSON.stringify(updated) }]);
                       } catch (err) {}
                       setNewCustomTagName('');
@@ -5730,7 +5749,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                             setVendorEvalTags(updated);
                             localStorage.setItem('restaurant_vendor_eval_tags', JSON.stringify(updated));
                             try {
-                              const tagKey = prefixNameForStore('SYSTEM_SETTING_VENDOR_EVAL_TAGS', storeCode);
+                              const tagKey = 'SYSTEM_SETTING_VENDOR_EVAL_TAGS';
                               await supabase.from('menu_items').upsert([{ id: 9992, name: tagKey, price: 0, category: 'settings', description: JSON.stringify(updated) }]);
                             } catch (err) {}
                           }}
@@ -5755,7 +5774,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                             setVendorEvalTags(updated);
                             localStorage.setItem('restaurant_vendor_eval_tags', JSON.stringify(updated));
                             try {
-                              const tagKey = prefixNameForStore('SYSTEM_SETTING_VENDOR_EVAL_TAGS', storeCode);
+                              const tagKey = 'SYSTEM_SETTING_VENDOR_EVAL_TAGS';
                               await supabase.from('menu_items').upsert([{ id: 9992, name: tagKey, price: 0, category: 'settings', description: JSON.stringify(updated) }]);
                             } catch (err) {}
                           }}
@@ -5771,7 +5790,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                             setVendorEvalTags(updated);
                             localStorage.setItem('restaurant_vendor_eval_tags', JSON.stringify(updated));
                             try {
-                              const tagKey = prefixNameForStore('SYSTEM_SETTING_VENDOR_EVAL_TAGS', storeCode);
+                              const tagKey = 'SYSTEM_SETTING_VENDOR_EVAL_TAGS';
                               await supabase.from('menu_items').upsert([{ id: 9992, name: tagKey, price: 0, category: 'settings', description: JSON.stringify(updated) }]);
                             } catch (err) {}
                           }}

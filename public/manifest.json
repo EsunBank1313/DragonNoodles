@@ -1,0 +1,16 @@
+{
+  "name": "智慧 POS 收銀與雲端記帳系統",
+  "short_name": "智慧POS",
+  "description": "多業態智慧收銀、秤重零售、進貨管理與雲端財務記帳系統",
+  "start_url": "/?portal=admin_8888",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#ff6b35",
+  "icons": [
+    {
+      "src": "/favicon.ico",
+      "sizes": "64x64 32x32 24x24 16x16",
+      "type": "image/x-icon"
+    }
+  ]
+}

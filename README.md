@@ -1,16 +1,48 @@
-# React + Vite
+# 🚀 智慧 POS 收銀與雲端財務記帳系統 (Smart POS & ERP System)
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+一套為多種實體門市（餐飲小吃、生鮮蔬果零售、手搖茶飲、烘焙甜點、一般雜貨）量身打造的 **全功能現代化智慧 POS 收銀與雲端財務記帳系統**。
 
-Currently, two official plugins are available:
+---
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## 🌟 核心特色與功能亮點
 
-## React Compiler
+### 🧩 1. 全系統 10 大功能模組自由開關（支援行業一鍵套用）
+* **🍽️ 桌號與內外帶管理**：內用/外帶一鍵切換、桌號管理、翻桌率分析。
+* **⚖️ 稱重計價與生鮮零售**：按斤/公斤/個多單位切換、秤重小鍵盤、快捷重量鍵、去皮扣籃、去尾數抹零優惠。
+* **🖨️ 智能廚房出單與列印**：支援 58mm/80mm 熱感小票、廚房製作工單、日結單 (Z-Report)、語音播報。
+* **🥡 規格客製與加料升級**：大小碗份量、配料客製勾選（香菜/大蒜）、套餐升級加價。
+* **📱 顧客線上掃碼點餐**：免安裝 App，顧客手機掃碼即點即送，即時出餐進度追蹤。
+* **💰 每日現金盤點與對帳**：實收現金輸入、面額點鈔計算機、備用金扣除、登入提醒與帳實核算。
+* **🏆 供應商進貨與星級評鑑**：多廠商進貨採購、1~5 星評分、自訂品質標籤庫、供應商績效排行榜。
+* **📦 倉儲庫存與低水位預警**：食材原料自動扣庫、安全庫存監控、POS 頂部補貨警報橫條。
+* **📊 進階財務損益與月報表**：總預估月淨利、平日/假日營收對比、單品銷量圓餅圖、完整固定成本結算、CSV/PDF 匯出。
+* **🤖 LINE 官方推播通知**：新訂單即時通知、每日營業日結自動推送。
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+---
 
-## Expanding the Oxlint configuration
+### 🛡️ 2. 四層企業級安全防護與網址完全隔離
+* **顧客端與店家後台完全隱蔽**：顧客手機點餐無任何後台入口。
+* **防猜測與防探測機制**：未帶安全金鑰者嘗試猜測 `/admin`、`?pos=true` 一律回傳 404 或強制停留在顧客點餐畫面。
+* **專屬安全金鑰路由**：店家透過 `?pos=YOUR_SECRET_TOKEN` 存取後台。
+* **PIN 碼防暴力破解**：連續錯誤 5 次自動鎖定 15 分鐘。
+* **資料庫 RLS 權限鎖定**：公開訪客無法讀取任何成本與財務機密。
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and Oxlint's TypeScript related rules in your project.
+---
+
+### 🚀 3. 首次啟動一鍵初始化精靈（Onboarding Wizard）
+全新安裝上線後，系統提供 4 大行業初始範本：
+1. 🍜 **傳統小吃餐飲模式**
+2. 🍎 **水果生鮮零售模式**
+3. ☕ **手搖茶飲烘焙模式**
+4. 🛒 **一般雜貨批發模式**
+
+---
+
+## 🛠️ 快速安裝與部署
+
+請直接參閱 📖 [DEPLOYMENT_GUIDE.md](./DEPLOYMENT_GUIDE.md) 獲取 5 分鐘完整部署教學。
+
+---
+
+## 📄 授權說明
+本軟體原始碼供購買授權之商家獨立部署與營運使用。
