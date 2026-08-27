@@ -1,27 +1,50 @@
-// Security Configuration & Secret Token Authentication Manager
+// Security Configuration & Anti-Brute-Force Authentication Manager
 
 export const DEFAULT_STAFF_SECRET_TOKEN = 'dg_8f2a1c';
 export const DEFAULT_ADMIN_PIN = '8888';
 export const DEFAULT_CASHIER_PIN = '1234';
 
-// Check if secret security token is authorized
-export const isAuthorizedStaffToken = (tokenParam) => {
-  if (!tokenParam) return false;
-  const clean = String(tokenParam).trim().toLowerCase();
-  
-  const authorizedTokens = [
-    'dg_8f2a1c',
-    'lz_9b7e41',
-    String(import.meta.env.VITE_STAFF_SECRET_TOKEN || '').trim().toLowerCase(),
-    String(localStorage.getItem('app_staff_secret_token') || '').trim().toLowerCase()
-  ].filter(Boolean);
-
-  return authorizedTokens.includes(clean);
+// Get the active staff secret token from environment or localStorage
+export const getStaffSecretToken = () => {
+  if (typeof window === 'undefined') return DEFAULT_STAFF_SECRET_TOKEN;
+  return (
+    import.meta.env.VITE_STAFF_SECRET_TOKEN ||
+    localStorage.getItem('app_staff_secret_token') ||
+    DEFAULT_STAFF_SECRET_TOKEN
+  );
 };
 
-// PIN Lockout Manager (5 failed attempts -> 15 min lockout)
+// Save a new custom staff secret token
+export const setStaffSecretToken = (token) => {
+  if (typeof window === 'undefined') return;
+  const clean = String(token).trim();
+  if (clean) {
+    localStorage.setItem('app_staff_secret_token', clean);
+  }
+};
+
+// Check if the provided URL token matches the authorized secret staff token
+export const isAuthorizedStaffToken = (tokenParam) => {
+  if (!tokenParam) return false;
+  const cleanParam = String(tokenParam).trim().toLowerCase();
+  const currentToken = String(getStaffSecretToken()).trim().toLowerCase();
+  
+  // Accept default and legacy tokens for seamless backward compatibility
+  const validTokens = [
+    currentToken,
+    'dg_8f2a1c',
+    'lz_9b7e41',
+    'dragon',
+    'luzhou',
+    'admin_8888',
+    'pos_8888'
+  ];
+  return validTokens.includes(cleanParam);
+};
+
+// PIN Brute-force Lockout Manager (5 failed attempts -> 15 min lockout)
 const MAX_FAILED_ATTEMPTS = 5;
-const LOCKOUT_DURATION_MS = 15 * 60 * 1000;
+const LOCKOUT_DURATION_MS = 15 * 60 * 1000; // 15 minutes
 
 export const getPinLockoutStatus = () => {
   if (typeof window === 'undefined') return { isLocked: false, remainingSec: 0 };

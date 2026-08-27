@@ -1637,44 +1637,7 @@ const handleSaveGlobalAddons = async (newAddons) => {
       </header>
 
       
-      {/* Branch Store Management Active Banner */}
-      {storeCode !== 'dragon' && isMasterAdmin && (
-        <div style={{
-          backgroundColor: '#3b82f6',
-          color: 'white',
-          padding: '10px 24px',
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          fontWeight: 'bold',
-          fontSize: '0.9rem',
-          boxShadow: '0 2px 8px rgba(59, 130, 246, 0.25)'
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span>🏢</span>
-            <span>您目前正在管理分店：【 {storeName} 】(可修改該店菜單、營業設定與員工班表)</span>
-          </div>
-          <button
-            type="button"
-            onClick={() => {
-              window.location.search = '?store=dg_8f2a1c&admin=true';
-            }}
-            style={{
-              padding: '4px 12px',
-              backgroundColor: '#ffffff',
-              color: '#1d4ed8',
-              border: 'none',
-              borderRadius: '6px',
-              cursor: 'pointer',
-              fontWeight: '900',
-              fontSize: '0.8rem',
-              boxShadow: '0 2px 4px rgba(0,0,0,0.15)'
-            }}
-          >
-            ↩️ 返回龍城總店管理總台
-          </button>
-        </div>
-      )}
+
 
       {/* Store Customization Settings Panel */}
       <div style={{ padding: '12px 24px', display: 'flex', gap: '20px', alignItems: 'center', backgroundColor: 'var(--bg-card)', borderBottom: '1px solid var(--border)', justifyContent: 'space-between' }}>
@@ -1720,6 +1683,20 @@ const handleSaveGlobalAddons = async (newAddons) => {
       
       {/* Selector Tabs - Clean, Grouped, High-Contrast */}
       <div style={{ display: 'flex', flexWrap: 'wrap', padding: '16px 24px 8px 24px', gap: '8px', borderBottom: '1px solid var(--border)', backgroundColor: 'var(--bg-body)' }}>
+        {/* 🧩 Module Center Tab */}
+        <button
+          onClick={() => setActiveTab('modules')}
+          style={{
+            padding: '10px 18px', fontSize: '0.88rem', fontWeight: '900', borderRadius: '8px', border: '1px solid var(--border)', cursor: 'pointer',
+            backgroundColor: activeTab === 'modules' ? 'var(--primary)' : 'var(--bg-card)',
+            color: activeTab === 'modules' ? 'white' : 'var(--text-main)',
+            boxShadow: activeTab === 'modules' ? '0 2px 8px rgba(255, 107, 53, 0.35)' : 'none',
+            display: 'flex', alignItems: 'center', gap: '6px'
+          }}
+        >
+          🧩 系統功能模組管理
+        </button>
+
         <button
           onClick={() => setActiveTab('products')}
           style={{
@@ -1819,20 +1796,7 @@ const handleSaveGlobalAddons = async (newAddons) => {
         >
           🚫 黑名單管理
         </button>
-        {isMasterAdmin && (
-          <button
-            onClick={() => setActiveTab('saas')}
-            style={{
-              padding: '10px 18px', fontSize: '0.88rem', fontWeight: 'bold', borderRadius: '8px', border: 'none', cursor: 'pointer',
-              backgroundColor: activeTab === 'saas' ? '#7c3aed' : 'var(--bg-card)',
-              color: activeTab === 'saas' ? 'white' : 'var(--text-main)',
-              boxShadow: activeTab === 'saas' ? '0 2px 8px rgba(124, 58, 237, 0.35)' : 'none',
-              display: 'flex', alignItems: 'center', gap: '6px'
-            }}
-          >
-            🏢 SaaS 加盟門市管理
-          </button>
-        )}
+        
       </div>
 
       {/* Main Workspace */}
