@@ -679,6 +679,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
   const [editingInvItem, setEditingInvItem] = useState(null);
   const [editInvUnit, setEditInvUnit] = useState('');
   const [editInvMinStock, setEditInvMinStock] = useState('');
+  const [editInvQty, setEditInvQty] = useState('');
   const [editInvIsWatched, setEditInvIsWatched] = useState(true);
   const [newInvIsWatched, setNewInvIsWatched] = useState(true);
   const [storeProfile, setStoreProfile] = useState(defaultStoreProfile);
@@ -2403,7 +2404,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
     }
   };
 
-  // Update inventory item settings (unit and minStock threshold)
+  // Update inventory item settings (unit, current quantity, and minStock threshold)
   const handleSaveInvItemSettings = (e) => {
     e.preventDefault();
     if (!editingInvItem) return;
@@ -2414,11 +2415,18 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
       return;
     }
 
+    const currentQtyVal = editInvQty !== '' ? Number(editInvQty) : editingInvItem.qty;
+    if (isNaN(currentQtyVal) || currentQtyVal < 0) {
+      alert("目前庫存數量必須是有效的數字（可為 0）！");
+      return;
+    }
+
     setInventory(prev => {
       const updated = prev.map(item => {
         if (item.name === editingInvItem.name) {
           return {
             ...item,
+            qty: Math.max(0, currentQtyVal),
             unit: editInvUnit.trim(),
             minStock: minStockVal,
             isWatched: editInvIsWatched !== false
@@ -2430,17 +2438,36 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
       return updated;
     });
 
-    alert(`物料「${editingInvItem.name}」的設定已更新！`);
+    // Add log if qty changed
+    if (currentQtyVal !== editingInvItem.qty) {
+      const newLog = {
+        id: `LOG-${Date.now()}`,
+        time: new Date().toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' }),
+        date: new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' }),
+        itemName: editingInvItem.name,
+        type: '編輯修正',
+        change: `重設為 ${currentQtyVal}`,
+        unit: editInvUnit.trim(),
+        remarks: '在物料設定中直接修改數量'
+      };
+      setInventoryLogs(prev => {
+        const updatedLogs = [newLog, ...prev].slice(0, 50);
+        localStorage.setItem('restaurant_inventory_logs', JSON.stringify(updatedLogs));
+        return updatedLogs;
+      });
+    }
+
+    alert(`物料「${editingInvItem.name}」的設定與庫存已更新！`);
     setEditingInvItem(null);
   };
 
   // Helper for manual adjustment submission
   const handleManualInventoryAdjustment = (e) => {
     e.preventDefault();
-    if (!adjItemName || !adjQty) return;
+    if (!adjItemName || adjQty === '' || adjQty === null) return;
     const qtyVal = Number(adjQty);
-    if (isNaN(qtyVal) || qtyVal <= 0) {
-      alert("請輸入有效的數量！");
+    if (isNaN(qtyVal) || (adjType === 'set' ? qtyVal < 0 : qtyVal <= 0)) {
+      alert("請輸入有效的數量！" + (adjType === 'set' ? "（重設數量可為 0 或大於 0 的數值）" : "（增減數量需大於 0）"));
       return;
     }
 
@@ -2456,8 +2483,8 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
       newQty = Math.max(0, Number((targetItem.qty - qtyVal).toFixed(2)));
       typeLabel = '損耗扣除';
     } else if (adjType === 'set') {
-      newQty = qtyVal;
-      typeLabel = '盤點修正';
+      newQty = Math.max(0, qtyVal);
+      typeLabel = '盤點修正/歸零';
     }
 
     const updatedInventory = inventory.map(item => {
@@ -2472,12 +2499,12 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
     const newLog = {
       id: `LOG-${Date.now()}`,
       time: new Date().toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' }),
-      date: new Date().toISOString().split('T')[0],
+      date: new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' }),
       itemName: adjItemName,
       type: typeLabel,
       change: adjType === 'set' ? `重設為 ${qtyVal}` : `${adjType === 'add' ? '+' : '-'}${qtyVal}`,
       unit: targetItem.unit,
-      remarks: adjRemarks.trim() || '無備註'
+      remarks: adjRemarks.trim() || (adjType === 'set' && qtyVal === 0 ? '庫存清零/耗盡' : '無備註')
     };
     const updatedLogs = [newLog, ...inventoryLogs].slice(0, 50);
     setInventoryLogs(updatedLogs);
@@ -2485,7 +2512,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
 
     setAdjQty('');
     setAdjRemarks('');
-    alert("庫存盤點調整成功！");
+    alert("庫存盤點調整成功！目前數量已更新為：" + newQty + " " + targetItem.unit);
   };
 
   // Add Purchase (Variable Cost)
@@ -4779,6 +4806,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                                   onClick={() => {
                                     setEditingInvItem(item);
                                     setEditInvUnit(item.unit || '');
+                                    setEditInvQty(String(item.qty !== undefined ? item.qty : 0));
                                     setEditInvMinStock(String(item.minStock || 0));
                                     setEditInvIsWatched(item.isWatched !== false);
                                   }}
