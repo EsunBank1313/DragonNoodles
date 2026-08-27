@@ -1,23 +1,25 @@
-// Security Configuration & Authentication Manager
+// Security Configuration & Secret Token Authentication Manager
 
-export const DEFAULT_STAFF_SECRET_TOKEN = 'admin_8888';
+export const DEFAULT_STAFF_SECRET_TOKEN = 'dg_8f2a1c';
 export const DEFAULT_ADMIN_PIN = '8888';
 export const DEFAULT_CASHIER_PIN = '1234';
 
-// Check if staff token is authorized (accepts 'true', '1', secret tokens, or legacy tokens)
+// Check if secret security token is authorized
 export const isAuthorizedStaffToken = (tokenParam) => {
-  if (tokenParam === null || tokenParam === undefined) return false;
+  if (!tokenParam) return false;
   const clean = String(tokenParam).trim().toLowerCase();
-  // Directly allow 'true', '1', 'yes', 'admin', 'pos', 'bookkeeping' or any valid string
-  if (clean === 'true' || clean === '1' || clean === 'yes' || clean === 'pos' || clean === 'bookkeeping' || clean === 'admin') {
-    return true;
-  }
-  const currentToken = String(import.meta.env.VITE_STAFF_SECRET_TOKEN || localStorage.getItem('app_staff_secret_token') || DEFAULT_STAFF_SECRET_TOKEN).trim().toLowerCase();
-  const legacyTokens = ['dg_8f2a1c', 'lz_9b7e41', 'admin_8888', 'pos_8888'];
-  return clean === currentToken || legacyTokens.includes(clean) || clean.length > 0;
+  
+  const authorizedTokens = [
+    'dg_8f2a1c',
+    'lz_9b7e41',
+    String(import.meta.env.VITE_STAFF_SECRET_TOKEN || '').trim().toLowerCase(),
+    String(localStorage.getItem('app_staff_secret_token') || '').trim().toLowerCase()
+  ].filter(Boolean);
+
+  return authorizedTokens.includes(clean);
 };
 
-// PIN Lockout Manager
+// PIN Lockout Manager (5 failed attempts -> 15 min lockout)
 const MAX_FAILED_ATTEMPTS = 5;
 const LOCKOUT_DURATION_MS = 15 * 60 * 1000;
 
