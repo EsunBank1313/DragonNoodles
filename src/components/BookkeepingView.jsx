@@ -735,7 +735,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
   const [purchaseItemName, setPurchaseItemName] = useState('滷大腸');
   const [purchaseQty, setPurchaseQty] = useState('');
   const [purchaseCost, setPurchaseCost] = useState('');
-  const [purchaseStatus, setPurchaseStatus] = useState('paid');
+  const [purchaseStatus, setPurchaseStatus] = useState('unpaid');
 
   // Inventory States
   const [isInventoryLoaded, setIsInventoryLoaded] = useState(false);
@@ -2722,6 +2722,23 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
     }
   };
 
+  // Toggle / Update Purchase Payment Status (paid <-> unpaid)
+  const handleTogglePurchaseStatus = async (id, currentStatus) => {
+    const nextStatus = currentStatus === 'paid' ? 'unpaid' : 'paid';
+    
+    try {
+      const { error } = await supabase.from('purchases').update({ status: nextStatus }).eq('id', id);
+      if (error) throw error;
+      fetchPurchases();
+    } catch (err) {
+      console.error("Failed to update purchase payment status in Supabase:", err);
+      const updated = purchases.map(p => p.id === id ? { ...p, status: nextStatus } : p);
+      setPurchases(updated);
+      localStorage.setItem(`${storeCode}_restaurant_purchases`, JSON.stringify(updated));
+      fetchPurchases();
+    }
+  };
+
   // Add or Edit Fixed Cost
   const handleAddFixedCost = async (e) => {
     e.preventDefault();
@@ -3686,8 +3703,8 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                       onChange={(e) => setPurchaseStatus(e.target.value)}
                       style={{ padding: '6px 10px', fontSize: '0.8rem', borderRadius: '4px', border: '1px solid var(--border)', height: '33px', color: 'var(--text-main)', backgroundColor: 'var(--bg-card)' }}
                     >
-                      <option value="paid">🟢 已付款</option>
-                      <option value="unpaid">🔴 賒帳/未付</option>
+                      <option value="unpaid">🔴 賒帳 / 未付款 (預設)</option>
+                      <option value="paid">🟢 已付款結清</option>
                     </select>
                   </div>
 
@@ -3989,16 +4006,28 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                               </div>
                             </td>
                             <td style={{ padding: '10px 12px' }}>
-                              <span style={{
-                                padding: '2px 8px',
-                                borderRadius: '12px',
-                                fontSize: '0.7rem',
-                                fontWeight: '600',
-                                backgroundColor: p.status === 'paid' ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)',
-                                color: p.status === 'paid' ? '#16a34a' : '#ef4444'
-                              }}>
-                                {p.status === 'paid' ? '已付款' : '未付款'}
-                              </span>
+                              <button
+                                type="button"
+                                onClick={() => handleTogglePurchaseStatus(p.id, p.status)}
+                                title="點擊可直接切換付款狀態 (未付款 ↔ 已付款)"
+                                style={{
+                                  padding: '3px 10px',
+                                  borderRadius: '16px',
+                                  fontSize: '0.72rem',
+                                  fontWeight: 'bold',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '5px',
+                                  cursor: 'pointer',
+                                  transition: 'all 0.2s ease',
+                                  border: p.status === 'paid' ? '1px solid #16a34a' : '1px solid #ef4444',
+                                  backgroundColor: p.status === 'paid' ? 'rgba(34,197,94,0.12)' : 'rgba(239,68,68,0.12)',
+                                  color: p.status === 'paid' ? '#16a34a' : '#ef4444'
+                                }}
+                              >
+                                <span>{p.status === 'paid' ? '🟢 已付款' : '🔴 未付款'}</span>
+                                <span style={{ fontSize: '0.65rem', opacity: 0.8, textDecoration: 'underline' }}>✎ 切換</span>
+                              </button>
                             </td>
                             <td style={{ padding: '10px 12px', textAlign: 'center' }}>
                               <button 
