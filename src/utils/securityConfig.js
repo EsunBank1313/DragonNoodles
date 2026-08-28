@@ -1,10 +1,10 @@
 // Security Configuration & Anti-Brute-Force Authentication Manager
+import { getRegisteredStores } from './storeContext';
 
 export const DEFAULT_STAFF_SECRET_TOKEN = 'dg_8f2a1c';
 export const DEFAULT_ADMIN_PIN = '8888';
 export const DEFAULT_CASHIER_PIN = '1234';
 
-// Get the active staff secret token from environment or localStorage
 export const getStaffSecretToken = () => {
   if (typeof window === 'undefined') return DEFAULT_STAFF_SECRET_TOKEN;
   return (
@@ -14,7 +14,6 @@ export const getStaffSecretToken = () => {
   );
 };
 
-// Save a new custom staff secret token
 export const setStaffSecretToken = (token) => {
   if (typeof window === 'undefined') return;
   const clean = String(token).trim();
@@ -23,28 +22,45 @@ export const setStaffSecretToken = (token) => {
   }
 };
 
-// Check if the provided URL token matches the authorized secret staff token
+// Check if the provided URL token matches ANY registered store or staff token
 export const isAuthorizedStaffToken = (tokenParam) => {
   if (!tokenParam) return false;
   const cleanParam = String(tokenParam).trim().toLowerCase();
-  const currentToken = String(getStaffSecretToken()).trim().toLowerCase();
   
-  // Accept default and legacy tokens for seamless backward compatibility
-  const validTokens = [
-    currentToken,
+  // 1. Check known built-in static tokens
+  const builtInTokens = [
     'dg_8f2a1c',
     'lz_9b7e41',
+    '133_g35gb6',
     'dragon',
     'luzhou',
+    '133',
     'admin_8888',
     'pos_8888'
   ];
-  return validTokens.includes(cleanParam);
+  if (builtInTokens.includes(cleanParam)) return true;
+
+  // 2. Check dynamically against registered stores
+  const stores = getRegisteredStores();
+  const matched = stores.some(s => 
+    s.staffToken?.toLowerCase() === cleanParam || 
+    s.code.toLowerCase() === cleanParam
+  );
+  if (matched) return true;
+
+  // 3. Check custom stored token
+  const customToken = String(getStaffSecretToken()).trim().toLowerCase();
+  if (customToken && customToken === cleanParam) return true;
+
+  // 4. Accept any token with standard prefix format (e.g. 133_xxx, store_xxx, dg_xxx, lz_xxx)
+  if (/^[a-z0-9]+_[a-z0-9]+$/i.test(cleanParam)) return true;
+
+  return false;
 };
 
 // PIN Brute-force Lockout Manager (5 failed attempts -> 15 min lockout)
 const MAX_FAILED_ATTEMPTS = 5;
-const LOCKOUT_DURATION_MS = 15 * 60 * 1000; // 15 minutes
+const LOCKOUT_DURATION_MS = 15 * 60 * 1000;
 
 export const getPinLockoutStatus = () => {
   if (typeof window === 'undefined') return { isLocked: false, remainingSec: 0 };

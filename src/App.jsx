@@ -7,11 +7,12 @@ import UnifiedLoginScreen from './components/UnifiedLoginScreen';
 import SetupWizardModal from './components/SetupWizardModal';
 import { supabase } from './supabaseClient';
 import { isAuthorizedStaffToken, getPinLockoutStatus, recordFailedPinAttempt, resetPinAttempts } from './utils/securityConfig';
+import { resolveStoreCode, getActiveStoreCode } from './utils/storeContext';
 import { getActiveModuleSettings, isModuleEnabled } from './utils/moduleContext';
 
 const getInitialRoleAndParams = () => {
   if (typeof window === 'undefined') {
-    return { role: 'customer', table: null, isStaffAuthorized: false };
+    return { role: 'customer', table: null, isStaffAuthorized: false, storeCode: 'dragon' };
   }
   const hostname = window.location.hostname;
   const params = new URLSearchParams(window.location.search);
@@ -20,6 +21,7 @@ const getInitialRoleAndParams = () => {
   // Check secret security token from ?store=xxx or ?staff=xxx
   const rawToken = params.get('store') || params.get('staff');
   const isAuthorized = isAuthorizedStaffToken(rawToken);
+  const storeCode = resolveStoreCode(rawToken);
 
   // Subdomain support (pos.domain.com, admin.domain.com, bookkeeping.domain.com)
   const isSubdomainStaff = hostname.startsWith('pos.') || hostname.startsWith('admin.') || hostname.startsWith('bookkeeping.');
@@ -33,21 +35,22 @@ const getInitialRoleAndParams = () => {
     // Strictly require authorized security token!
     if (!isAuthorized && !isSubdomainStaff) {
       // 🚫 No secret token provided: Strictly hide backend and show customer menu!
-      return { role: 'customer', table: table || null, isStaffAuthorized: false };
+      return { role: 'customer', table: table || null, isStaffAuthorized: false, storeCode };
     }
 
-    if (wantsPos) return { role: 'pos', table: null, isStaffAuthorized: true };
-    if (wantsBookkeeping) return { role: 'bookkeeping', table: null, isStaffAuthorized: true };
-    if (wantsAdmin) return { role: 'management', table: null, isStaffAuthorized: true };
-    if (wantsLogin) return { role: 'login', table: null, isStaffAuthorized: true };
+    if (wantsPos) return { role: 'pos', table: null, isStaffAuthorized: true, storeCode };
+    if (wantsBookkeeping) return { role: 'bookkeeping', table: null, isStaffAuthorized: true, storeCode };
+    if (wantsAdmin) return { role: 'management', table: null, isStaffAuthorized: true, storeCode };
+    if (wantsLogin) return { role: 'login', table: null, isStaffAuthorized: true, storeCode };
   }
 
-  return { role: 'customer', table: table || null, isStaffAuthorized: false };
+  return { role: 'customer', table: table || null, isStaffAuthorized: false, storeCode };
 };
 
 function App() {
   const initial = getInitialRoleAndParams();
   const [role, setRole] = useState(initial.role);
+  const [storeCode, setStoreCode] = useState(initial.storeCode || 'dragon');
   const [tableNumber, setTableNumber] = useState(initial.table);
   const [storeName, setStoreName] = useState(() => localStorage.getItem('app_store_name') || '龍城麵線');
   const [adminPin, setAdminPin] = useState(() => localStorage.getItem('app_admin_pin') || '8888');
@@ -170,6 +173,7 @@ function App() {
       {/* 📱 Customer Ordering View (Default Public Front-facing UI) */}
       {role === 'customer' && (
         <CustomerView
+          storeCode={storeCode}
           tableNumber={tableNumber}
           storeName={storeName}
           onSwitchToLogin={() => setRole('login')}
@@ -179,6 +183,7 @@ function App() {
       {/* 🔐 Unified Staff Login Portal */}
       {role === 'login' && (
         <UnifiedLoginScreen
+          storeCode={storeCode}
           storeName={storeName}
           adminPin={adminPin}
           onSuccess={(targetRole, payload) => {
@@ -206,6 +211,7 @@ function App() {
       {/* 🖥️ Cashier POS System */}
       {role === 'pos' && (
         <CashierView
+          storeCode={storeCode}
           cashierName={cashierName || '收銀員'}
           sessionId={posSessionId}
           onLogout={() => handleLogout('pos')}
@@ -215,6 +221,7 @@ function App() {
       {/* 📊 Bookkeeping & Monthly Financial System */}
       {role === 'bookkeeping' && (
         <BookkeepingView
+          storeCode={storeCode}
           onBackToDemo={() => setRole('login')}
           onLogout={() => handleLogout('bookkeeping')}
         />
@@ -223,6 +230,7 @@ function App() {
       {/* ⚙️ Management View */}
       {role === 'management' && (
         <ManagementView
+          storeCode={storeCode}
           onLogout={() => handleLogout('management')}
         />
       )}
