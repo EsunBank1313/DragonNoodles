@@ -1803,13 +1803,20 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
     window.open(url, '_blank');
   };
 
-  // Fetch orders from Supabase
+  // Fetch orders from Supabase (Filtered strictly by storeCode)
   const fetchOrders = async () => {
     try {
       const { data, error } = await supabase.from('orders').select('*').order('created_at', { ascending: false });
       if (error) throw error;
       if (data) {
-        const storeOrders = data;
+        const storeOrders = data.filter(o => {
+          const itemsData = typeof o.items === 'string' ? JSON.parse(o.items) : o.items;
+          if (storeCode === 'dragon') {
+            return !itemsData?.storeCode || itemsData?.storeCode === 'dragon';
+          }
+          return itemsData?.storeCode === storeCode;
+        });
+
         // Filter out SYSTEM_STORE_CLOSE
         const clientOrders = storeOrders.filter(o => {
           const itemsData = typeof o.items === 'string' ? JSON.parse(o.items) : o.items;
@@ -1826,10 +1833,10 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
           .map(o => new Date(o.created_at).toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' }));
           
         // Merge cloud closed dates into closedDates state
-        const local = JSON.parse(localStorage.getItem('restaurant_closed_dates') || '[]');
+        const local = JSON.parse(localStorage.getItem(`${storeCode}_restaurant_closed_dates`) || localStorage.getItem('restaurant_closed_dates') || '[]');
         const merged = Array.from(new Set([...local, ...cloudClosedDates]));
         setClosedDates(merged);
-        localStorage.setItem('restaurant_closed_dates', JSON.stringify(merged));
+        localStorage.setItem(`${storeCode}_restaurant_closed_dates`, JSON.stringify(merged));
       }
     } catch (err) {
       console.error("Failed to load orders in BookkeepingView:", err);
@@ -1872,14 +1879,15 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
 
   const updateClosedDatesOnCloud = async (newClosedDates) => {
     try {
-      const { data: existing } = await supabase.from('menu_items').select('*').eq('name', 'SYSTEM_SETTING_CLOSED_DATES');
+      const closedKey = prefixNameForStore('SYSTEM_SETTING_CLOSED_DATES', storeCode);
+      const { data: existing } = await supabase.from('menu_items').select('*').eq('name', closedKey);
       if (existing && existing.length > 0) {
         await supabase.from('menu_items').update({
           description: JSON.stringify(newClosedDates)
-        }).eq('name', 'SYSTEM_SETTING_CLOSED_DATES');
+        }).eq('name', closedKey);
       } else {
         await supabase.from('menu_items').insert([{
-          name: 'SYSTEM_SETTING_CLOSED_DATES',
+          name: closedKey,
           price: 0,
           category: 'settings',
           description: JSON.stringify(newClosedDates)
@@ -1921,7 +1929,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
 
   const saveVendorsToCloud = async (updatedVendors) => {
     try {
-      const vendorKey = 'SYSTEM_SETTING_VENDORS_V2';
+      const vendorKey = prefixNameForStore('SYSTEM_SETTING_VENDORS_V2', storeCode);
       const { data: exist } = await supabase.from('menu_items').select('*').eq('name', vendorKey);
       if (exist && exist.length > 0) {
         await supabase.from('menu_items').update({
@@ -1946,7 +1954,8 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
       const { data, error } = await supabase.from('menu_items').select('*');
       if (error) throw error;
       if (data) {
-        const storeItems = data;
+        const storeItems = filterItemsByStore(data, storeCode);
+        
         const profileItem = storeItems.find(i => i.name === 'SYSTEM_SETTING_STORE_PROFILE');
         if (profileItem && profileItem.description) {
           try {
@@ -1954,13 +1963,15 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
             setStoreProfile(parsed);
             if (parsed.storeName) setStoreName(parsed.storeName);
           } catch (e) {}
+        } else {
+          const nameItem = storeItems.find(i => i.name === 'SYSTEM_SETTING_STORE_NAME');
+          if (nameItem && nameItem.description) {
+            setStoreName(nameItem.description);
+          } else {
+            setStoreName(storeCode === 'dragon' ? '龍城麵線' : (storeCode === 'luzhou' ? '蘆洲七號麵線' : `門市 [${storeCode}]`));
+          }
         }
-        const nameItem = storeItems.find(i => i.name === 'SYSTEM_SETTING_STORE_NAME');
-        if (nameItem && nameItem.description) {
-          setStoreName(nameItem.description);
-        } else if (!profileItem?.description) {
-          setStoreName(false ? '蘆洲七號店' : (storeCode !== 'dragon' ? `門市 [${storeCode}]` : '龍城麵線'));
-        }
+
         const receiptItem = storeItems.find(i => i.name === 'SYSTEM_SETTING_RECEIPT_CONFIG');
         if (receiptItem && receiptItem.description) {
           try {
@@ -1970,49 +1981,75 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
 
         const invItem = storeItems.find(i => i.name === 'SYSTEM_SETTING_INVENTORY');
         if (invItem && invItem.description) {
-          setInventory(JSON.parse(invItem.description));
+          try {
+            setInventory(JSON.parse(invItem.description));
+          } catch (e) { setInventory([]); }
+        } else {
+          setInventory([]);
         }
+
         const logsItem = storeItems.find(i => i.name === 'SYSTEM_SETTING_INVENTORY_LOGS');
         if (logsItem && logsItem.description) {
-          setInventoryLogs(JSON.parse(logsItem.description));
+          try {
+            setInventoryLogs(JSON.parse(logsItem.description));
+          } catch (e) { setInventoryLogs([]); }
+        } else {
+          setInventoryLogs([]);
         }
+
         const processedItem = storeItems.find(i => i.name === 'SYSTEM_SETTING_PROCESSED_ORDERS');
         if (processedItem && processedItem.description) {
-          setProcessedOrderIds(JSON.parse(processedItem.description));
+          try {
+            setProcessedOrderIds(JSON.parse(processedItem.description));
+          } catch (e) { setProcessedOrderIds([]); }
+        } else {
+          setProcessedOrderIds([]);
         }
+
         const condsItem = storeItems.find(i => i.name === 'SYSTEM_SETTING_CONDIMENTS_AVAILABILITY');
         if (condsItem && condsItem.description) {
-          setCondimentsAvailability(JSON.parse(condsItem.description));
+          try {
+            setCondimentsAvailability(JSON.parse(condsItem.description));
+          } catch (e) { setCondimentsAvailability({}); }
         }
-                const cashAuditsItem = storeItems.find(i => i.name === 'SYSTEM_SETTING_CASH_AUDITS');
+
+        const cashAuditsItem = storeItems.find(i => i.name === 'SYSTEM_SETTING_CASH_AUDITS');
         if (cashAuditsItem && cashAuditsItem.description) {
           try {
             const parsed = JSON.parse(cashAuditsItem.description);
             setCashAudits(parsed);
-            localStorage.setItem('restaurant_cash_audits', JSON.stringify(parsed));
+            localStorage.setItem(`${storeCode}_restaurant_cash_audits`, JSON.stringify(parsed));
           } catch (e) {}
+        } else {
+          setCashAudits([]);
         }
+
         const closedDatesItem = storeItems.find(i => i.name === 'SYSTEM_SETTING_CLOSED_DATES');
         if (closedDatesItem && closedDatesItem.description) {
-          const cloudClosed = JSON.parse(closedDatesItem.description);
-          setClosedDates(cloudClosed);
+          try {
+            const cloudClosed = JSON.parse(closedDatesItem.description);
+            setClosedDates(cloudClosed);
+          } catch (e) { setClosedDates([]); }
+        } else {
+          setClosedDates([]);
         }
         
-                const tagsItem = storeItems.find(i => i.name === 'SYSTEM_SETTING_VENDOR_EVAL_TAGS');
+        const tagsItem = storeItems.find(i => i.name === 'SYSTEM_SETTING_VENDOR_EVAL_TAGS');
         if (tagsItem && tagsItem.description) {
           try {
             const parsed = JSON.parse(tagsItem.description);
             setVendorEvalTags(parsed);
-            localStorage.setItem('restaurant_vendor_eval_tags', JSON.stringify(parsed));
+            localStorage.setItem(`${storeCode}_restaurant_vendor_eval_tags`, JSON.stringify(parsed));
           } catch (e) {}
         }
+
         const vendorsItem = storeItems.find(i => i.name === 'SYSTEM_SETTING_VENDORS_V2');
         if (vendorsItem && vendorsItem.description) {
           try {
             const parsed = JSON.parse(vendorsItem.description);
             setVendors(parsed);
           } catch (e) {
-            console.error("Failed to parse cloud vendors:", e);
+            setVendors([]);
           }
         } else {
           setVendors([]);
@@ -2494,7 +2531,11 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
       return item;
     });
     setInventory(updatedInventory);
-    localStorage.setItem('restaurant_inventory', JSON.stringify(updatedInventory));
+    localStorage.setItem(`${storeCode}_restaurant_inventory`, JSON.stringify(updatedInventory));
+    try {
+      const invKey = prefixNameForStore('SYSTEM_SETTING_INVENTORY', storeCode);
+      supabase.from('menu_items').upsert([{ name: invKey, price: 0, category: 'settings', description: JSON.stringify(updatedInventory) }]);
+    } catch(e){}
 
     const newLog = {
       id: `LOG-${Date.now()}`,
@@ -2549,7 +2590,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
       date: purchaseDate,
       time,
       vendor: vendorName.trim(),
-      item_name: purchaseItemName,
+      item_name: prefixNameForStore(purchaseItemName, storeCode),
       quantity: purchaseQty.trim(),
       cost: costNum,
       status: purchaseStatus,
@@ -2720,7 +2761,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
       if (isFixedCostsOnCloud) {
         try {
           const { error } = await supabase.from('fixed_costs').update({
-            name: fcName.trim(),
+            name: prefixNameForStore(fcName.trim(), storeCode),
             cost: costNum,
             expiry_date: fcExpiry
           }).eq('id', editingFixedCostId);
@@ -2746,7 +2787,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
       if (isFixedCostsOnCloud) {
         try {
           const { error } = await supabase.from('fixed_costs').insert([{
-            name: fcName.trim(),
+            name: prefixNameForStore(fcName.trim(), storeCode),
             cost: costNum,
             expiry_date: fcExpiry
           }]);
@@ -2868,7 +2909,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
     }
     
     let csvContent = "\uFEFF";
-    csvContent += `龍城麵線 - 當日交易對帳明細表 (${selectedBookkeepingDate})\n`;
+    csvContent += `${storeName} - 當日交易對帳明細表 (${selectedBookkeepingDate})\n`;
     csvContent += `當日營業總額 (營業額):,NT$ ${totalRevenue},訂單總筆數:,${completedOrders.length} 筆,現金營業額:,NT$ ${cashRevenue},線上營業額:,NT$ ${onlineRevenue}\n\n`;
     csvContent += "時間,流水號,類型,顧客姓名/桌號,實收金額(NT$),付款方式,購買明細\n";
     
@@ -2890,7 +2931,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.setAttribute("href", url);
-    link.setAttribute("download", `龍城麵線_當日營業額與對帳明細_${selectedBookkeepingDate}.csv`);
+    link.setAttribute("download", `${storeName}_當日營業額與對帳明細_${selectedBookkeepingDate}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
