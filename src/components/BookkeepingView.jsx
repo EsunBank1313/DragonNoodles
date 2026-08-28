@@ -2735,19 +2735,16 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
   const handleDeletePurchase = async (id) => {
     if (!window.confirm('確定要刪除這筆變動成本支出嗎？')) return;
 
-    if (isPurchasesOnCloud) {
-      try {
-        const { error } = await supabase.from('purchases').delete().eq('id', id);
-        if (error) throw error;
-        fetchPurchases();
-      } catch (err) {
-        console.error("Failed to delete purchase in BookkeepingView:", err);
-        alert("刪除變動支出失敗！");
-      }
-    } else {
+    try {
+      const { error } = await supabase.from('purchases').delete().eq('id', id);
+      if (error) throw error;
+      fetchPurchases();
+      alert("已成功從雲端資料庫刪除該筆進貨支出！");
+    } catch (err) {
+      console.error("Failed to delete purchase in BookkeepingView:", err);
       const updated = purchases.filter(p => p.id !== id);
       setPurchases(updated);
-      localStorage.setItem('restaurant_purchases', JSON.stringify(updated));
+      localStorage.setItem(`${storeCode}_restaurant_purchases`, JSON.stringify(updated));
       fetchPurchases();
     }
   };
