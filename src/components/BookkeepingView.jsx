@@ -2595,43 +2595,18 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
       item_name: prefixNameForStore(purchaseItemName, storeCode),
       quantity: purchaseQty.trim(),
       cost: costNum,
-      status: purchaseStatus,
-      rating: purchaseRating,
-      tags: purchaseSelectedTags,
-      quality_note: purchaseQualityNote.trim()
+      status: purchaseStatus
     };
 
-    if (isPurchasesOnCloud) {
-      try {
-        const { error } = await supabase.from('purchases').insert([purchaseObj]);
-        if (error) throw error;
-        updateInventoryFromPurchase(vendorName.trim(), purchaseItemName, purchaseQty.trim(), purchaseDate, time);
-        fetchPurchases();
-        alert("新增變動進貨與供應商評鑑成功！");
-      } catch (err) {
-        console.error("Failed to add purchase in BookkeepingView:", err);
-        // Fallback to local
-        const localObj = {
-          id: purchaseObj.purchase_id,
-          date: purchaseDate,
-          time,
-          vendor: vendorName.trim(),
-          itemName: purchaseItemName,
-          quantity: purchaseQty.trim(),
-          cost: costNum,
-          status: purchaseStatus,
-          rating: purchaseRating,
-          tags: purchaseSelectedTags,
-          qualityNote: purchaseQualityNote.trim()
-        };
-        const updated = [localObj, ...purchases];
-        setPurchases(updated);
-        localStorage.setItem('restaurant_purchases', JSON.stringify(updated));
-        updateInventoryFromPurchase(vendorName.trim(), purchaseItemName, purchaseQty.trim(), purchaseDate, time);
-        fetchPurchases();
-        alert("新增變動進貨與評鑑成功（已儲存於本機）！");
-      }
-    } else {
+    try {
+      const { error } = await supabase.from('purchases').insert([purchaseObj]);
+      if (error) throw error;
+      updateInventoryFromPurchase(vendorName.trim(), purchaseItemName, purchaseQty.trim(), purchaseDate, time);
+      fetchPurchases();
+      alert("🎉 新增進貨成功，已即時同步至雲端資料庫！");
+    } catch (err) {
+      console.error("Failed to add purchase in BookkeepingView:", err);
+      // Fallback to local
       const localObj = {
         id: purchaseObj.purchase_id,
         date: purchaseDate,
@@ -2640,17 +2615,14 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
         itemName: purchaseItemName,
         quantity: purchaseQty.trim(),
         cost: costNum,
-        status: purchaseStatus,
-        rating: purchaseRating,
-        tags: purchaseSelectedTags,
-        qualityNote: purchaseQualityNote.trim()
+        status: purchaseStatus
       };
       const updated = [localObj, ...purchases];
       setPurchases(updated);
-      localStorage.setItem('restaurant_purchases', JSON.stringify(updated));
+      localStorage.setItem(`${storeCode}_restaurant_purchases`, JSON.stringify(updated));
       updateInventoryFromPurchase(vendorName.trim(), purchaseItemName, purchaseQty.trim(), purchaseDate, time);
       fetchPurchases();
-      alert("新增變動進貨與評鑑成功（已儲存於本機）！");
+      alert("同步雲端失敗（已儲存於本機）：" + err.message);
     }
 
     setPurchaseSelectedTags([]);
