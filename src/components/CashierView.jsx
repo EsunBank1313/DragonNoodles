@@ -252,7 +252,7 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
   // Orders state and printing integration
   const [orders, setOrders] = useState([]);
   const [storeProfile, setStoreProfile] = useState(defaultStoreProfile);
-  const [storeName, setStoreName] = useState('龍城麵線');
+  const [storeName, setStoreName] = useState(storeCode === 'dragon' ? '龍城麵線' : (storeCode === 'luzhou' ? '蘆洲七號麵線' : `門市 [${storeCode}]`));
   const [adminPin, setAdminPin] = useState('8888');
   const [receiptConfig, setReceiptConfig] = useState(defaultReceiptConfig);
   const [upgradeCombos, setUpgradeCombos] = useState(defaultUpgradeCombos);
@@ -696,7 +696,7 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
     }
   };
 
-  // Fetch Menu Items from Supabase
+  // Fetch Menu Items from Supabase (Filtered strictly by storeCode)
   const fetchMenuItems = async () => {
     try {
       const { data, error } = await supabase
@@ -705,7 +705,7 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
         .order('id', { ascending: true });
       if (error) throw error;
       if (data) {
-        const storeItems = data;
+        const storeItems = filterItemsByStore(data, storeCode);
 
         const storeProfileItem = storeItems.find(item => item.name === 'SYSTEM_SETTING_STORE_PROFILE');
         if (storeProfileItem && storeProfileItem.description) {
@@ -714,11 +714,13 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
             setStoreProfile(parsed);
             if (parsed.storeName) setStoreName(parsed.storeName);
           } catch (e) {}
-        }
-
-        const storeNameItem = storeItems.find(item => item.name === 'SYSTEM_SETTING_STORE_NAME');
-        if (storeNameItem && storeNameItem.description) {
-          setStoreName(storeNameItem.description);
+        } else {
+          const storeNameItem = storeItems.find(item => item.name === 'SYSTEM_SETTING_STORE_NAME');
+          if (storeNameItem && storeNameItem.description) {
+            setStoreName(storeNameItem.description);
+          } else {
+            setStoreName(storeCode === 'dragon' ? '龍城麵線' : (storeCode === 'luzhou' ? '蘆洲七號麵線' : `門市 [${storeCode}]`));
+          }
         }
 
         const posOrderTypeItem = storeItems.find(item => item.name === 'SYSTEM_SETTING_POS_DEFAULT_ORDER_TYPE');
@@ -758,6 +760,9 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
               }
             }
           } catch (e) {}
+        } else if (storeCode !== 'dragon') {
+          setCategories([{ id: 'main', name: '全商品', icon: '🍲' }]);
+          setActiveCategory('main');
         }
 
                 const weightConfigItem = storeItems.find(item => item.name === 'SYSTEM_SETTING_WEIGHT_CONFIG');
