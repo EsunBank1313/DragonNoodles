@@ -211,7 +211,13 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
 
   const [storeAddress, setStoreAddress] = useState('');
   const [storePhone, setStorePhone] = useState('');
-  const [storeOpenStatus, setStoreOpenStatus] = useState(null);
+  const [storeOpenStatus, setStoreOpenStatus] = useState(() => {
+    try {
+      const cached = localStorage.getItem(`${storeCode}_store_open_status`);
+      return cached ? JSON.parse(cached) : null;
+    } catch (e) { return null; }
+  });
+  const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [closedDates, setClosedDates] = useState([]);
   const [showOrderConfirmModal, setShowOrderConfirmModal] = useState(false);
   const [receiptConfig, setReceiptConfig] = useState({
@@ -328,7 +334,9 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
         const openStatusItem = storeItems.find(item => item.name === 'SYSTEM_SETTING_STORE_OPEN_STATUS');
         if (openStatusItem && openStatusItem.description) {
           try {
-            setStoreOpenStatus(JSON.parse(openStatusItem.description));
+            const parsed = JSON.parse(openStatusItem.description);
+            setStoreOpenStatus(parsed);
+            localStorage.setItem(`${storeCode}_store_open_status`, JSON.stringify(parsed));
           } catch (e) {}
         }
 
@@ -1025,7 +1033,7 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
   const isClosed = closedDates.includes(todayStr) || isPast10PM;
   const isStoreOpenToday = Boolean(storeOpenStatus && storeOpenStatus.is_open && storeOpenStatus.open_date === todayStr);
 
-  if (!isStoreOpenToday && !closedDates.includes(todayStr) && !isPast10PM) {
+  if (!isInitialLoading && !isStoreOpenToday && !closedDates.includes(todayStr) && !isPast10PM) {
     return (
       <div style={{
         display: 'flex',

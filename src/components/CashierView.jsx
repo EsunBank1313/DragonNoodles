@@ -85,14 +85,14 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
 
   useEffect(() => {
     if (!sessionId) return;
-    const sessionKey = 'SYSTEM_SETTING_ACTIVE_POS_SESSION';
+    const sessionKey = prefixNameForStore('SYSTEM_SETTING_ACTIVE_POS_SESSION', storeCode);
     isKickedOutRef.current = false;
 
     const handleDeviceKickout = (otherUser) => {
       if (isKickedOutRef.current) return;
       isKickedOutRef.current = true;
       try {
-        sessionStorage.removeItem(`pos_session_id`);
+        removeStoreSessionStorage('pos_session_id', storeCode);
       } catch (e) {}
       setKickoutState({ isKickedOut: true, user: otherUser || '其他人員' });
     };
@@ -661,7 +661,7 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
 
   const handleShiftLogoutOnly = async () => {
     try {
-      const sessionKey = 'SYSTEM_SETTING_ACTIVE_POS_SESSION';
+      const sessionKey = prefixNameForStore('SYSTEM_SETTING_ACTIVE_POS_SESSION', storeCode);
       await supabase.from('menu_items').update({ description: JSON.stringify({ user: '', sessionId: '', lastActive: 0 }) }).eq('name', sessionKey);
     } catch (e) {}
     onLogout();
@@ -2005,7 +2005,7 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
           <button 
             onClick={async () => {
               try {
-                const sessionKey = 'SYSTEM_SETTING_ACTIVE_POS_SESSION';
+                const sessionKey = prefixNameForStore('SYSTEM_SETTING_ACTIVE_POS_SESSION', storeCode);
                 await supabase.from('menu_items').update({ description: JSON.stringify({ user: '', sessionId: '', lastActive: 0 }) }).eq('name', sessionKey);
               } catch (e) {}
               onLogout();
