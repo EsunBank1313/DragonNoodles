@@ -365,7 +365,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
       const { data, error } = await supabase.from('menu_items').select('*').order('id', { ascending: true });
       if (error) throw error;
       if (data && data.length > 0) {
-        const storeItems = data;
+        const storeItems = filterItemsByStore(data, storeCode);
         const visible = storeItems.filter(item => !item.name.startsWith('SYSTEM_SETTING_')).map(item => ({
           ...item,
           name: item.name
@@ -381,6 +381,8 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
           } catch (e) {
             setManualRevenues({});
           }
+        } else {
+          setManualRevenues({});
         }
       } else {
         setMenuItems([]);
@@ -2073,7 +2075,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
   // Sync closedDates across storage updates (e.g. from cashier closing shop)
   useEffect(() => {
     const handleStorageChange = () => {
-      setClosedDates(JSON.parse(localStorage.getItem('restaurant_closed_dates') || '[]'));
+      setClosedDates(JSON.parse(localStorage.getItem(`${storeCode}_restaurant_closed_dates`) || (storeCode === 'dragon' ? localStorage.getItem('restaurant_closed_dates') : null) || '[]'));
     };
     window.addEventListener('storage', handleStorageChange);
     return () => window.removeEventListener('storage', handleStorageChange);
@@ -2150,7 +2152,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
     localStorage.setItem('condiments_availability', JSON.stringify(condimentsAvailability));
     const syncConds = async () => {
       try {
-        const condKey = 'SYSTEM_SETTING_CONDIMENTS_AVAILABILITY';
+        const condKey = prefixNameForStore('SYSTEM_SETTING_CONDIMENTS_AVAILABILITY', storeCode);
         const { data } = await supabase.from('menu_items').select('*').eq('name', condKey);
         if (data && data.length > 0) {
           await supabase.from('menu_items').update({ description: JSON.stringify(condimentsAvailability) }).eq('name', condKey);

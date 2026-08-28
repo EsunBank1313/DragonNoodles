@@ -794,24 +794,24 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
         }
 
         const addonsItem = storeItems.find(item => item.name === 'SYSTEM_SETTING_GLOBAL_ADDONS');
-        let currentAddons = [
+        let currentAddons = storeCode === 'dragon' ? [
           { label: '大腸', priceChange: 15 },
           { label: '豬肚', priceChange: 15 },
           { label: '肉羹', priceChange: 15 },
           { label: '花枝羹', priceChange: 15 },
           { label: '貢丸', priceChange: 15 }
-        ];
+        ] : [];
         if (addonsItem && addonsItem.description) {
           try { currentAddons = JSON.parse(addonsItem.description); } catch (e) {}
         }
 
         const condimentsItem = storeItems.find(item => item.name === 'SYSTEM_SETTING_GLOBAL_CONDIMENTS');
-        let currentCondiments = [
+        let currentCondiments = storeCode === 'dragon' ? [
           { name: '香菜', choices: ['正常', '多一點', '不要香菜'], default: '正常' },
           { name: '蒜末', choices: ['正常', '多一點', '不要蒜頭'], default: '正常' },
           { name: '烏醋', choices: ['正常', '多一點', '不要烏醋'], default: '正常' },
           { name: '辣醬', choices: ['不辣', '微辣', '中辣', '大辣'], default: '不辣' }
-        ];
+        ] : [];
         if (condimentsItem && condimentsItem.description) {
           try { currentCondiments = JSON.parse(condimentsItem.description); } catch (e) {}
         }
@@ -858,8 +858,10 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
     } catch (err) {
       console.error("Failed to load menu items in CashierView:", err);
       // Fallback from localStorage or default
-      const saved = localStorage.getItem('restaurant_menu_items');
+      const saved = localStorage.getItem(`${storeCode}_restaurant_menu_items`);
       if (saved) setMenuItems(JSON.parse(saved));
+      else if (storeCode === 'dragon') setMenuItems(defaultMenuItems);
+      else setMenuItems([]);
     }
   };
 
