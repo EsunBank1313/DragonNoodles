@@ -982,9 +982,10 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
     });
     setInventory(updated);
     localStorage.setItem('restaurant_inventory', JSON.stringify(updated));
-    supabase.from('menu_items').select('*').eq('name', 'SYSTEM_SETTING_INVENTORY').then(({ data }) => {
+    const invKey = prefixNameForStore('SYSTEM_SETTING_INVENTORY', storeCode);
+    supabase.from('menu_items').select('*').eq('name', invKey).then(({ data }) => {
       if (data && data.length > 0) {
-        supabase.from('menu_items').update({ description: JSON.stringify(updated) }).eq('name', 'SYSTEM_SETTING_INVENTORY');
+        supabase.from('menu_items').update({ description: JSON.stringify(updated) }).eq('name', invKey);
       }
     });
   };
@@ -2089,10 +2090,10 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
   // Save inventory to local storage & cloud on changes
   useEffect(() => {
     if (!isInventoryLoaded) return;
-    localStorage.setItem('restaurant_inventory', JSON.stringify(inventory));
+    localStorage.setItem(`${storeCode}_restaurant_inventory`, JSON.stringify(inventory));
     const syncInv = async () => {
       try {
-        const invKey = 'SYSTEM_SETTING_INVENTORY';
+        const invKey = prefixNameForStore('SYSTEM_SETTING_INVENTORY', storeCode);
         const { data } = await supabase.from('menu_items').select('*').eq('name', invKey);
         if (data && data.length > 0) {
           await supabase.from('menu_items').update({ description: JSON.stringify(inventory) }).eq('name', invKey);
@@ -2104,15 +2105,15 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
       }
     };
     syncInv();
-  }, [inventory, isInventoryLoaded]);
+  }, [inventory, isInventoryLoaded, storeCode]);
 
   // Save processed order IDs to local storage & cloud on changes
   useEffect(() => {
     if (!isInventoryLoaded) return;
-    localStorage.setItem('restaurant_processed_orders', JSON.stringify(processedOrderIds));
+    localStorage.setItem(`${storeCode}_restaurant_processed_orders`, JSON.stringify(processedOrderIds));
     const syncProcessed = async () => {
       try {
-        const procKey = 'SYSTEM_SETTING_PROCESSED_ORDERS';
+        const procKey = prefixNameForStore('SYSTEM_SETTING_PROCESSED_ORDERS', storeCode);
         const { data } = await supabase.from('menu_items').select('*').eq('name', procKey);
         if (data && data.length > 0) {
           await supabase.from('menu_items').update({ description: JSON.stringify(processedOrderIds) }).eq('name', procKey);
@@ -2124,15 +2125,15 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
       }
     };
     syncProcessed();
-  }, [processedOrderIds, isInventoryLoaded]);
+  }, [processedOrderIds, isInventoryLoaded, storeCode]);
 
   // Save inventory logs to local storage & cloud on changes
   useEffect(() => {
     if (!isInventoryLoaded) return;
-    localStorage.setItem('restaurant_inventory_logs', JSON.stringify(inventoryLogs));
+    localStorage.setItem(`${storeCode}_restaurant_inventory_logs`, JSON.stringify(inventoryLogs));
     const syncLogs = async () => {
       try {
-        const logsKey = 'SYSTEM_SETTING_INVENTORY_LOGS';
+        const logsKey = prefixNameForStore('SYSTEM_SETTING_INVENTORY_LOGS', storeCode);
         const { data } = await supabase.from('menu_items').select('*').eq('name', logsKey);
         if (data && data.length > 0) {
           await supabase.from('menu_items').update({ description: JSON.stringify(inventoryLogs) }).eq('name', logsKey);
@@ -2144,7 +2145,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
       }
     };
     syncLogs();
-  }, [inventoryLogs, isInventoryLoaded]);
+  }, [inventoryLogs, isInventoryLoaded, storeCode]);
 
   // Save condiments availability to local storage & cloud on changes
   useEffect(() => {
