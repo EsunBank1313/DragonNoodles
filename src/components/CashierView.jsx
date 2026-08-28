@@ -676,7 +676,7 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
 
   const fetchClosedDatesFromCloud = async () => {
     try {
-      const closedKey = 'SYSTEM_SETTING_CLOSED_DATES';
+      const closedKey = prefixNameForStore('SYSTEM_SETTING_CLOSED_DATES', storeCode);
       const { data: settingsData } = await supabase
         .from('menu_items')
         .select('description')
@@ -1136,7 +1136,7 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
       const todayStr = getTodayLocalDate();
 
       // 1. Mark store closed in storeOpenStatus
-      const openStatusKey = 'SYSTEM_SETTING_STORE_OPEN_STATUS';
+      const openStatusKey = prefixNameForStore('SYSTEM_SETTING_STORE_OPEN_STATUS', storeCode);
       const newStatus = {
         is_open: false,
         open_date: todayStr,
@@ -1156,10 +1156,10 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
       // 2. Add today to closedDates and sync
       const updated = Array.from(new Set([...closedDates, todayStr]));
       setClosedDates(updated);
-      localStorage.setItem('restaurant_closed_dates', JSON.stringify(updated));
+      localStorage.setItem(`${storeCode}_restaurant_closed_dates`, JSON.stringify(updated));
       window.dispatchEvent(new Event('storage'));
 
-      const closedKey = 'SYSTEM_SETTING_CLOSED_DATES';
+      const closedKey = prefixNameForStore('SYSTEM_SETTING_CLOSED_DATES', storeCode);
       const { data: exist } = await supabase.from('menu_items').select('*').eq('name', closedKey);
       if (exist && exist.length > 0) {
         await supabase.from('menu_items').update({ description: JSON.stringify(updated) }).eq('name', closedKey);
@@ -1177,7 +1177,7 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
   // 🛎️ POS Store Opening / Closing Toggle (開店 / 打烊)
   const handleToggleStoreOpen = async () => {
     const todayStr = getTodayLocalDate();
-    const openStatusKey = 'SYSTEM_SETTING_STORE_OPEN_STATUS';
+    const openStatusKey = prefixNameForStore('SYSTEM_SETTING_STORE_OPEN_STATUS', storeCode);
 
     if (isStoreOpenToday) {
       if (!confirm("⚠️ 確定要【暫停/打烊】今日線上點餐嗎？\n顧客將無法繼續透過線上掃碼送出點餐。")) {
@@ -1217,8 +1217,8 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
       if (closedDates.includes(todayStr)) {
         const updatedClosed = closedDates.filter(d => d !== todayStr);
         setClosedDates(updatedClosed);
-        localStorage.setItem('restaurant_closed_dates', JSON.stringify(updatedClosed));
-        const closedKey = 'SYSTEM_SETTING_CLOSED_DATES';
+        localStorage.setItem(`${storeCode}_restaurant_closed_dates`, JSON.stringify(updatedClosed));
+        const closedKey = prefixNameForStore('SYSTEM_SETTING_CLOSED_DATES', storeCode);
         try {
           await supabase.from('menu_items').update({ description: JSON.stringify(updatedClosed) }).eq('name', closedKey);
         } catch (e) {}
