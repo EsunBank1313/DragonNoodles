@@ -23,15 +23,33 @@ export const formatSupabaseOrder = (dbOrder) => {
       itemsData = {};
     }
   }
+
+  // Determine Type accurately:
+  // If order_number starts with 'O-', it is takeout (外帶)
+  // If order_number starts with 'I-', it is dine-in (內用)
+  const orderNumStr = String(dbOrder.order_number || '');
+  let finalType = dbOrder.type === 'dine-in' ? 'dine-in' : 'takeout';
+  if (orderNumStr.startsWith('O-') || orderNumStr.startsWith('O')) {
+    finalType = 'takeout';
+  } else if (orderNumStr.startsWith('I-') || orderNumStr.startsWith('I')) {
+    finalType = 'dine-in';
+  }
+
+  const tableName = dbOrder.table_number || itemsData.table_number || null;
+  let customerName = itemsData.customerName || '';
+  if (!customerName) {
+    customerName = finalType === 'dine-in' ? (tableName ? `內用 ${tableName} 號桌` : '內用點餐') : '現場外帶';
+  }
+
   return {
     id: String(dbOrder.id),
-    serialNum: dbOrder.order_number,
+    serialNum: dbOrder.order_number || String(dbOrder.id).slice(-6),
     time: new Date(dbOrder.created_at).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' }),
     timestamp: new Date(dbOrder.created_at).getTime(),
     status: dbOrder.status,
-    type: dbOrder.type === 'dine-in' ? 'dine-in' : 'takeout',
-    tableName: dbOrder.table_number,
-    customerName: itemsData.customerName || (dbOrder.type === 'dine-in' ? `內用 ${dbOrder.table_number} 號桌` : ''),
+    type: finalType,
+    tableName: tableName,
+    customerName: customerName,
     customerPhone: itemsData.customerPhone || '',
     phoneVerified: true,
     pickupTime: itemsData.pickupTime || '',
@@ -40,7 +58,8 @@ export const formatSupabaseOrder = (dbOrder) => {
     remarks: itemsData.remarks || '',
     items: itemsData.cart || [],
     total: Number(dbOrder.total),
-    cashier: itemsData.cashier || ''
+    cashier: itemsData.cashier || '',
+    source: itemsData.source || (itemsData.cashier ? 'pos' : 'customer')
   };
 };
 

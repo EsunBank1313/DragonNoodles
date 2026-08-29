@@ -2566,7 +2566,17 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                   whiteSpace: 'nowrap'
                 }}
               >
-                📋 雲端接單與紀錄 ({orders.filter(o => o.status === 'received').length})
+                {(() => {
+                  const pendingCustomerOrders = orders.filter(o => {
+                    const isCust = Boolean(!o.cashier || o.isOnline || (o.customerPhone && o.customerPhone.length > 0) || o.pickupTime || o.source === 'customer');
+                    return isCust && o.status !== 'completed' && o.status !== 'deleted';
+                  });
+                  return (
+                    <span>
+                      📋 雲端接單與紀錄 ({orders.length}{pendingCustomerOrders.length > 0 ? ` · 🔔 ${pendingCustomerOrders.length} 待出餐` : ''})
+                    </span>
+                  );
+                })()}
               </button>
             </div>
 
