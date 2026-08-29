@@ -515,10 +515,10 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
   const [newInvUnit, setNewInvUnit] = useState('斤');
   const [newInvMin, setNewInvMin] = useState('');
   
-  // 💰 Dual Cash Audit (雙軌開店零錢與收店現金盤點) States
+  // 💰 Cash Audit (現金盤點) States
   const [cashAudits, setCashAudits] = useState(() => {
     try {
-      const saved = localStorage.getItem(`${storeCode}_restaurant_cash_audits`) || localStorage.getItem('restaurant_cash_audits');
+      const saved = localStorage.getItem('restaurant_cash_audits');
       return saved ? JSON.parse(saved) : [];
     } catch (e) {
       return [];
@@ -527,27 +527,15 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
   const [showCashAuditModal, setShowCashAuditModal] = useState(false);
   const [showCashAuditPromptModal, setShowCashAuditPromptModal] = useState(false);
   const [auditDate, setAuditDate] = useState(getTodayLocalDate());
-  const [auditModalTab, setAuditModalTab] = useState('open'); // 'open' | 'close'
+  const [auditDrawerFloat, setAuditDrawerFloat] = useState(() => localStorage.getItem('drawer_float_default') || '3000');
+  const [auditCountedCash, setAuditCountedCash] = useState('');
+  const [auditDenominations, setAuditDenominations] = useState({
+    d1000: '', d500: '', d200: '', d100: '', d50: '', d10: '', d5: '', d1: ''
+  });
+  const [showDenomCalc, setShowDenomCalc] = useState(false);
+  const [auditAuditor, setAuditAuditor] = useState('店長');
+  const [auditRemarks, setAuditRemarks] = useState('');
   const [editingAuditId, setEditingAuditId] = useState(null);
-  const [expandedAuditRows, setExpandedAuditRows] = useState({});
-
-  // Opening Float States (🌅 開店零錢準備金)
-  const [openTime, setOpenTime] = useState('09:00');
-  const [openAuditor, setOpenAuditor] = useState('早班店長');
-  const [openDrawerFloat, setOpenDrawerFloat] = useState(() => localStorage.getItem(`${storeCode}_drawer_float_default`) || '3000');
-  const [openDenominations, setOpenDenominations] = useState({
-    d1000: '', d500: '', d200: '', d100: '', d50: '', d20: '', d10: '', d5: '', d1: ''
-  });
-  const [openRemarks, setOpenRemarks] = useState('');
-
-  // Closing Cash States (🌙 收店現金總盤點)
-  const [closeTime, setCloseTime] = useState('21:30');
-  const [closeAuditor, setCloseAuditor] = useState('晚班店長');
-  const [closeCountedCash, setCloseCountedCash] = useState('');
-  const [closeDenominations, setCloseDenominations] = useState({
-    d1000: '', d500: '', d200: '', d100: '', d50: '', d20: '', d10: '', d5: '', d1: ''
-  });
-  const [closeRemarks, setCloseRemarks] = useState('');
 
   // Daily prompt check for cash audit on load
   useEffect(() => {
@@ -562,96 +550,51 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
     }
   }, [cashAudits]);
 
-  // Calculate sum of denomination counts
-  const calcDenomSum = (denoms) => {
-    if (!denoms) return 0;
-    return (
-      (Number(denoms.d1000 || 0) * 1000) +
-      (Number(denoms.d500 || 0) * 500) +
-      (Number(denoms.d200 || 0) * 200) +
-      (Number(denoms.d100 || 0) * 100) +
-      (Number(denoms.d50 || 0) * 50) +
-      (Number(denoms.d20 || 0) * 20) +
-      (Number(denoms.d10 || 0) * 10) +
-      (Number(denoms.d5 || 0) * 5) +
-      (Number(denoms.d1 || 0) * 1)
-    );
+  // Recalculate counted cash from denominations
+  const updateDenomAndSum = (field, val) => {
+    const newDenom = { ...auditDenominations, [field]: val };
+    setAuditDenominations(newDenom);
+    const sum = (Number(newDenom.d1000 || 0) * 1000) +
+                (Number(newDenom.d500 || 0) * 500) +
+                (Number(newDenom.d200 || 0) * 200) +
+                (Number(newDenom.d100 || 0) * 100) +
+                (Number(newDenom.d50 || 0) * 50) +
+                (Number(newDenom.d10 || 0) * 10) +
+                (Number(newDenom.d5 || 0) * 5) +
+                (Number(newDenom.d1 || 0) * 1);
+    setAuditCountedCash(String(sum));
   };
 
-  // Update opening denomination and auto-calculate openDrawerFloat
-  const updateOpenDenomAndSum = (field, val) => {
-    const newDenom = { ...openDenominations, [field]: val };
-    setOpenDenominations(newDenom);
-    const sum = calcDenomSum(newDenom);
-    if (sum > 0) {
-      setOpenDrawerFloat(String(sum));
-    }
-  };
-
-  // Update closing denomination and auto-calculate closeCountedCash
-  const updateCloseDenomAndSum = (field, val) => {
-    const newDenom = { ...closeDenominations, [field]: val };
-    setCloseDenominations(newDenom);
-    const sum = calcDenomSum(newDenom);
-    if (sum > 0) {
-      setCloseCountedCash(String(sum));
-    }
-  };
-
-  // Open modal for a specific date with target tab ('open' or 'close')
-  const handleOpenCashAuditModal = (targetDate = getTodayLocalDate(), initialTab = 'open') => {
+  // Open modal for a specific date (or today)
+  const handleOpenCashAuditModal = (targetDate = getTodayLocalDate()) => {
     const existing = cashAudits.find(a => a.date === targetDate);
     setAuditDate(targetDate);
-    setAuditModalTab(initialTab);
-
-    const nowTimeStr = new Date().toTimeString().slice(0, 5);
-
     if (existing) {
       setEditingAuditId(existing.id);
-
-      // Opening Float
-      setOpenTime(existing.openTime || '09:00');
-      setOpenAuditor(existing.openAuditor || existing.auditor || '早班店長');
-      setOpenDrawerFloat(String(existing.openDrawerFloat ?? existing.drawerFloat ?? 3000));
-      setOpenDenominations(existing.openDenominations || { d1000: '', d500: '', d200: '', d100: '', d50: '', d20: '', d10: '', d5: '', d1: '' });
-      setOpenRemarks(existing.openRemarks || '');
-
-      // Closing Cash
-      setCloseTime(existing.closeTime || nowTimeStr);
-      setCloseAuditor(existing.closeAuditor || existing.auditor || '晚班店長');
-      setCloseCountedCash(existing.closeCountedCash !== undefined ? String(existing.closeCountedCash) : (existing.countedCash !== undefined ? String(existing.countedCash) : ''));
-      setCloseDenominations(existing.closeDenominations || existing.denominations || { d1000: '', d500: '', d200: '', d100: '', d50: '', d20: '', d10: '', d5: '', d1: '' });
-      setCloseRemarks(existing.closeRemarks || existing.remarks || '');
+      setAuditDrawerFloat(String(existing.drawerFloat ?? 3000));
+      setAuditCountedCash(String(existing.countedCash ?? ''));
+      setAuditDenominations(existing.denominations || { d1000: '', d500: '', d200: '', d100: '', d50: '', d10: '', d5: '', d1: '' });
+      setAuditAuditor(existing.auditor || '店長');
+      setAuditRemarks(existing.remarks || '');
     } else {
       setEditingAuditId(null);
-
-      // Opening Float Defaults
-      setOpenTime('09:00');
-      setOpenAuditor('早班店長');
-      const defFloat = localStorage.getItem(`${storeCode}_drawer_float_default`) || '3000';
-      setOpenDrawerFloat(defFloat);
-      setOpenDenominations({ d1000: '', d500: '', d200: '', d100: '', d50: '', d20: '', d10: '', d5: '', d1: '' });
-      setOpenRemarks('');
-
-      // Closing Cash Defaults
-      setCloseTime(nowTimeStr);
-      setCloseAuditor('晚班店長');
-      setCloseCountedCash('');
-      setCloseDenominations({ d1000: '', d500: '', d200: '', d100: '', d50: '', d20: '', d10: '', d5: '', d1: '' });
-      setCloseRemarks('');
+      setAuditCountedCash('');
+      setAuditDenominations({ d1000: '', d500: '', d200: '', d100: '', d50: '', d10: '', d5: '', d1: '' });
+      setAuditRemarks('');
     }
     setShowCashAuditModal(true);
   };
 
-  // Save cash audit record (dual opening & closing support)
+  // Save cash audit record
   const handleSaveCashAudit = async () => {
     if (!auditDate) {
       alert("請選擇盤點日期！");
       return;
     }
-
-    const openSum = calcDenomSum(openDenominations) || Number(openDrawerFloat || 0);
-    const closeSum = calcDenomSum(closeDenominations) || (closeCountedCash !== '' ? Number(closeCountedCash) : null);
+    if (!auditCountedCash && auditCountedCash !== 0) {
+      alert("請輸入實收現金總金額！");
+      return;
+    }
 
     // Get system orders on auditDate
     const dateOrders = orders.filter(o => {
@@ -663,56 +606,35 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
     const dateCashRev = dateOrders.filter(o => !o.paymentMethod || o.paymentMethod === 'cash').reduce((sum, o) => sum + (Number(o.total) || 0), 0) + manualForDate;
     const dateOnlineRev = dateOrders.filter(o => o.paymentMethod && o.paymentMethod !== 'cash').reduce((sum, o) => sum + (Number(o.total) || 0), 0);
 
-    let netActual = null;
-    let diff = null;
-
-    if (closeSum !== null && closeSum !== undefined) {
-      netActual = closeSum - openSum;
-      diff = netActual - dateCashRev;
-    }
+    const counted = Number(auditCountedCash || 0);
+    const floatVal = Number(auditDrawerFloat || 0);
+    const netActual = counted - floatVal;
+    const diff = netActual - dateCashRev;
 
     const auditObj = {
       id: editingAuditId || `audit_${auditDate}_${Date.now()}`,
       date: auditDate,
       timestamp: Date.now(),
-
-      // Opening Float
-      openTime: openTime || '09:00',
-      openAuditor: openAuditor || '早班店長',
-      openDrawerFloat: openSum,
-      openDenominations: { ...openDenominations },
-      openRemarks: openRemarks || '',
-
-      // Closing Cash
-      closeTime: closeTime || '21:30',
-      closeAuditor: closeAuditor || '晚班店長',
-      closeCountedCash: closeSum,
-      closeDenominations: { ...closeDenominations },
-      closeRemarks: closeRemarks || '',
-
-      // Legacy fallback fields
-      drawerFloat: openSum,
-      countedCash: closeSum !== null ? closeSum : 0,
-      netActualCash: netActual !== null ? netActual : 0,
-      difference: diff !== null ? diff : 0,
-      denominations: { ...closeDenominations },
-      auditor: closeAuditor || openAuditor || '店長',
-      remarks: closeRemarks || openRemarks || '',
-
-      // System Accounting Reference
       systemTotalRevenue: dateTotalRev,
       systemCashRevenue: dateCashRev,
       systemOnlineRevenue: dateOnlineRev,
-      orderCount: dateOrders.length
+      orderCount: dateOrders.length,
+      drawerFloat: floatVal,
+      countedCash: counted,
+      netActualCash: netActual,
+      difference: diff,
+      denominations: { ...auditDenominations },
+      auditor: auditAuditor || '店長',
+      remarks: auditRemarks || ''
     };
 
     const updated = cashAudits.filter(a => a.date !== auditDate).concat(auditObj).sort((a, b) => b.date.localeCompare(a.date));
     setCashAudits(updated);
-    localStorage.setItem(`${storeCode}_restaurant_cash_audits`, JSON.stringify(updated));
-    localStorage.setItem(`${storeCode}_drawer_float_default`, String(openSum));
+    localStorage.setItem('restaurant_cash_audits', JSON.stringify(updated));
+    localStorage.setItem('drawer_float_default', String(floatVal));
 
     try {
-      const auditKey = prefixNameForStore('SYSTEM_SETTING_CASH_AUDITS', storeCode);
+      const auditKey = 'SYSTEM_SETTING_CASH_AUDITS';
       const { data: exist } = await supabase.from('menu_items').select('*').eq('name', auditKey);
       if (exist && exist.length > 0) {
         await supabase.from('menu_items').update({ description: JSON.stringify(updated) }).eq('name', auditKey);
@@ -723,12 +645,8 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
       console.error("Failed to sync cash audits to Supabase:", e);
     }
 
-    let alertMsg = `🎉 ${auditDate} 現金盤點資料已成功儲存！\n\n🌅 開店零錢準備金：NT$ ${openSum.toLocaleString()} (${openTime})`;
-    if (closeSum !== null) {
-      const diffStatus = diff === 0 ? '✅ 帳實相符' : (diff > 0 ? `📈 溢收 +NT$ ${diff.toLocaleString()}` : `📉 短少 -NT$ ${Math.abs(diff).toLocaleString()}`);
-      alertMsg += `\n🌙 收店抽屜總現金：NT$ ${closeSum.toLocaleString()} (${closeTime})\n💵 實收營業現金：NT$ ${netActual.toLocaleString()}\n📊 系統現金營收：NT$ ${dateCashRev.toLocaleString()}\n⚖️ 差額核算結果：${diffStatus}`;
-    }
-    alert(alertMsg);
+    const diffStatus = diff === 0 ? '✅ 帳實相符' : (diff > 0 ? `📈 溢收 +NT$ ${diff.toLocaleString()}` : `📉 短少 -NT$ ${Math.abs(diff).toLocaleString()}`);
+    alert(`🎉 ${auditDate} 現金盤點已儲存！\n實收營業現金：NT$ ${netActual.toLocaleString()}\n系統現金營收：NT$ ${dateCashRev.toLocaleString()}\n差額核算結果：${diffStatus}`);
     setShowCashAuditModal(false);
     setEditingAuditId(null);
   };
@@ -738,48 +656,12 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
     if (!confirm(`確定要刪除 ${dateToDelete} 的現金盤點紀錄嗎？`)) return;
     const updated = cashAudits.filter(a => a.date !== dateToDelete);
     setCashAudits(updated);
-    localStorage.setItem(`${storeCode}_restaurant_cash_audits`, JSON.stringify(updated));
+    localStorage.setItem('restaurant_cash_audits', JSON.stringify(updated));
 
     try {
-      const auditKey = prefixNameForStore('SYSTEM_SETTING_CASH_AUDITS', storeCode);
+      const auditKey = 'SYSTEM_SETTING_CASH_AUDITS';
       await supabase.from('menu_items').update({ description: JSON.stringify(updated) }).eq('name', auditKey);
     } catch (e) {}
-  };
-
-  // Helper to render compact chip badges for denominations
-  const renderDenomChips = (denoms) => {
-    if (!denoms) return <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>無詳細面額紀錄</span>;
-    const list = [
-      { label: '千元', mult: 1000, count: Number(denoms.d1000 || 0) },
-      { label: '500元', mult: 500, count: Number(denoms.d500 || 0) },
-      { label: '200元', mult: 200, count: Number(denoms.d200 || 0) },
-      { label: '100元', mult: 100, count: Number(denoms.d100 || 0) },
-      { label: '50元', mult: 50, count: Number(denoms.d50 || 0) },
-      { label: '20元', mult: 20, count: Number(denoms.d20 || 0) },
-      { label: '10元', mult: 10, count: Number(denoms.d10 || 0) },
-      { label: '5元', mult: 5, count: Number(denoms.d5 || 0) },
-      { label: '1元', mult: 1, count: Number(denoms.d1 || 0) },
-    ].filter(d => d.count > 0);
-
-    if (list.length === 0) return <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>無各面額詳細明細</span>;
-
-    return (
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '4px' }}>
-        {list.map((d, idx) => (
-          <span key={idx} style={{
-            fontSize: '0.72rem',
-            padding: '2px 6px',
-            borderRadius: '4px',
-            backgroundColor: 'var(--bg-body)',
-            border: '1px solid var(--border)',
-            color: 'var(--text-main)',
-            fontWeight: '600'
-          }}>
-            {d.label} × <strong>{d.count}</strong> (=NT${(d.mult * d.count).toLocaleString()})
-          </span>
-        ))}
-      </div>
-    );
   };
 
   // Edit Vendor index state
@@ -3499,118 +3381,64 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
             {/* 1. SALES TAB */}
             {activeTab === 'sales' && (
               <div>
-                {/* 💰 Dual Cash Audit (Opening Float & Closing Cash) Quick Status Card */}
+                {/* Daily Cash Audit Quick Status Card */}
                 {(() => {
                   const selectedAudit = cashAudits.find(a => a.date === selectedBookkeepingDate);
-                  const hasOpen = selectedAudit && (selectedAudit.openDrawerFloat !== undefined || selectedAudit.drawerFloat !== undefined);
-                  const hasClose = selectedAudit && (selectedAudit.closeCountedCash !== undefined && selectedAudit.closeCountedCash !== null || (selectedAudit.countedCash && selectedAudit.countedCash > 0));
-                  const openVal = hasOpen ? (selectedAudit.openDrawerFloat ?? selectedAudit.drawerFloat ?? 0) : null;
-                  const closeVal = hasClose ? (selectedAudit.closeCountedCash ?? selectedAudit.countedCash ?? 0) : null;
-                  const netVal = (closeVal !== null && openVal !== null) ? (closeVal - openVal) : (selectedAudit?.netActualCash ?? null);
-                  const diffVal = selectedAudit?.difference ?? (netVal !== null ? netVal - (selectedAudit?.systemCashRevenue ?? 0) : null);
-
                   return (
                     <div style={{
-                      padding: '14px 18px',
-                      borderRadius: '10px',
-                      backgroundColor: 'var(--bg-card)',
-                      border: '1px solid var(--border)',
-                      boxShadow: 'var(--shadow-sm)',
-                      marginBottom: '18px',
+                      padding: '12px 16px',
+                      borderRadius: '8px',
+                      backgroundColor: selectedAudit ? (selectedAudit.difference === 0 ? 'rgba(16, 185, 129, 0.08)' : (selectedAudit.difference > 0 ? 'rgba(59, 130, 246, 0.08)' : 'rgba(239, 68, 68, 0.08)')) : 'rgba(234, 88, 12, 0.08)',
+                      border: selectedAudit ? (selectedAudit.difference === 0 ? '1px solid #10b981' : (selectedAudit.difference > 0 ? '1px solid #3b82f6' : '1px solid #ef4444')) : '1px dashed #ea580c',
+                      marginBottom: '16px',
                       display: 'flex',
-                      flexDirection: 'column',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      flexWrap: 'wrap',
                       gap: '10px'
                     }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <span style={{ fontSize: '1.2rem' }}>💰</span>
-                          <strong style={{ fontSize: '0.95rem', color: 'var(--text-main)' }}>當日現金盤點與零錢對帳 ({selectedBookkeepingDate})</strong>
-                        </div>
-                        <div style={{ display: 'flex', gap: '8px' }}>
-                          <button
-                            type="button"
-                            onClick={() => handleOpenCashAuditModal(selectedBookkeepingDate, 'open')}
-                            style={{
-                              padding: '5px 12px',
-                              fontSize: '0.78rem',
-                              borderRadius: '6px',
-                              border: '1px solid rgba(234, 88, 12, 0.4)',
-                              backgroundColor: 'rgba(234, 88, 12, 0.08)',
-                              color: '#ea580c',
-                              cursor: 'pointer',
-                              fontWeight: 'bold'
-                            }}
-                          >
-                            🌅 {hasOpen ? '✏️ 修改開店零錢' : '＋ 盤點開店零錢'}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleOpenCashAuditModal(selectedBookkeepingDate, 'close')}
-                            style={{
-                              padding: '5px 12px',
-                              fontSize: '0.78rem',
-                              borderRadius: '6px',
-                              border: '1px solid #10b981',
-                              backgroundColor: '#10b981',
-                              color: 'white',
-                              cursor: 'pointer',
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem' }}>
+                        <span>💰</span>
+                        <strong style={{ color: 'var(--text-main)' }}>當日實收現金盤點：</strong>
+                        {selectedAudit ? (
+                          <span>
+                            實收 <strong style={{ color: '#059669' }}>NT$ {selectedAudit.netActualCash.toLocaleString()}</strong> / 系統現金 NT$ {selectedAudit.systemCashRevenue.toLocaleString()}
+                            <span style={{
+                              marginLeft: '8px',
+                              padding: '2px 6px',
+                              borderRadius: '4px',
                               fontWeight: 'bold',
-                              boxShadow: '0 2px 4px rgba(16, 185, 129, 0.3)'
-                            }}
-                          >
-                            🌙 {hasClose ? '✏️ 修改收店現金' : '💵 立即收店現金盤點'}
-                          </button>
-                        </div>
+                              fontSize: '0.75rem',
+                              backgroundColor: selectedAudit.difference === 0 ? '#10b981' : (selectedAudit.difference > 0 ? '#2563eb' : '#ef4444'),
+                              color: 'white'
+                            }}>
+                              {selectedAudit.difference === 0 ? '✓ 帳實相符' : (selectedAudit.difference > 0 ? `+NT$ ${selectedAudit.difference.toLocaleString()} (溢收)` : `-NT$ ${Math.abs(selectedAudit.difference).toLocaleString()} (短少)`)}
+                            </span>
+                          </span>
+                        ) : (
+                          <span style={{ color: '#ea580c', fontWeight: 'bold' }}>
+                            ⚠️ 該日尚未輸入實收現金盤點
+                          </span>
+                        )}
                       </div>
 
-                      {/* Cash Metrics Row */}
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '10px', paddingTop: '8px', borderTop: '1px dashed var(--border)' }}>
-                        <div style={{ padding: '8px 12px', borderRadius: '6px', backgroundColor: 'var(--bg-body)', border: '1px solid var(--border)' }}>
-                          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 'bold' }}>🌅 開店零錢準備金</div>
-                          <div style={{ fontSize: '1rem', fontWeight: 'bold', color: openVal !== null ? '#ea580c' : 'var(--text-muted)', marginTop: '2px' }}>
-                            {openVal !== null ? `NT$ ${openVal.toLocaleString()}` : '⚠️ 尚未盤點'}
-                          </div>
-                          {selectedAudit?.openTime && (
-                            <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: '2px' }}>
-                              {selectedAudit.openTime} ({selectedAudit.openAuditor || '店長'})
-                            </div>
-                          )}
-                        </div>
-
-                        <div style={{ padding: '8px 12px', borderRadius: '6px', backgroundColor: 'var(--bg-body)', border: '1px solid var(--border)' }}>
-                          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 'bold' }}>🌙 收店抽屜總現金</div>
-                          <div style={{ fontSize: '1rem', fontWeight: 'bold', color: closeVal !== null ? '#2563eb' : 'var(--text-muted)', marginTop: '2px' }}>
-                            {closeVal !== null ? `NT$ ${closeVal.toLocaleString()}` : '⚠️ 尚未盤點'}
-                          </div>
-                          {selectedAudit?.closeTime && (
-                            <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: '2px' }}>
-                              {selectedAudit.closeTime} ({selectedAudit.closeAuditor || '店長'})
-                            </div>
-                          )}
-                        </div>
-
-                        <div style={{ padding: '8px 12px', borderRadius: '6px', backgroundColor: 'var(--bg-body)', border: '1px solid var(--border)' }}>
-                          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 'bold' }}>💵 實收營業現金 (收 - 開)</div>
-                          <div style={{ fontSize: '1.05rem', fontWeight: '900', color: '#059669', marginTop: '2px' }}>
-                            {netVal !== null ? `NT$ ${netVal.toLocaleString()}` : '-'}
-                          </div>
-                          <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: '2px' }}>
-                            系統營收: NT$ {(selectedAudit?.systemCashRevenue || 0).toLocaleString()}
-                          </div>
-                        </div>
-
-                        <div style={{ padding: '8px 12px', borderRadius: '6px', backgroundColor: diffVal === 0 ? 'rgba(16, 185, 129, 0.08)' : (diffVal > 0 ? 'rgba(59, 130, 246, 0.08)' : (diffVal < 0 ? 'rgba(239, 68, 68, 0.08)' : 'var(--bg-body)')), border: '1px solid var(--border)' }}>
-                          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 'bold' }}>⚖️ 短溢差額核算</div>
-                          <div style={{
-                            fontSize: '1rem',
-                            fontWeight: '900',
-                            marginTop: '2px',
-                            color: diffVal === 0 ? '#10b981' : (diffVal > 0 ? '#2563eb' : (diffVal < 0 ? '#ef4444' : 'var(--text-muted)'))
-                          }}>
-                            {diffVal === null ? '待收店盤點' : (diffVal === 0 ? '✅ 帳實相符 ($0)' : (diffVal > 0 ? `📈 溢收 +NT$ ${diffVal.toLocaleString()}` : `📉 短少 -NT$ ${Math.abs(diffVal).toLocaleString()}`))}
-                          </div>
-                        </div>
-                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleOpenCashAuditModal(selectedBookkeepingDate)}
+                        style={{
+                          padding: '5px 12px',
+                          fontSize: '0.78rem',
+                          borderRadius: '6px',
+                          border: selectedAudit ? '1px solid var(--border)' : 'none',
+                          backgroundColor: selectedAudit ? 'var(--bg-card)' : '#10b981',
+                          color: selectedAudit ? 'var(--text-main)' : 'white',
+                          boxShadow: selectedAudit ? 'none' : '0 2px 4px rgba(16, 185, 129, 0.3)',
+                          cursor: 'pointer',
+                          fontWeight: 'bold'
+                        }}
+                      >
+                        {selectedAudit ? '✏️ 重新盤點' : '💵 立即盤點該日現金'}
+                      </button>
                     </div>
                   );
                 })()}
@@ -3746,169 +3574,6 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                     </tbody>
 
                   </table>
-                </div>
-
-                {/* 💰 Dual Cash Audit History & Denominations Table */}
-                <div style={{ marginTop: '28px', backgroundColor: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '10px', padding: '16px', boxShadow: 'var(--shadow-sm)' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '8px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <span style={{ fontSize: '1.2rem' }}>📋</span>
-                      <h4 style={{ fontSize: '0.95rem', fontWeight: 'bold', margin: 0, color: 'var(--text-main)' }}>
-                        每日雙軌現金盤點與零錢面額明細表 (共 {cashAudits.length} 筆歷史紀錄)
-                      </h4>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => handleOpenCashAuditModal(selectedBookkeepingDate, 'open')}
-                      style={{
-                        padding: '6px 14px',
-                        fontSize: '0.8rem',
-                        fontWeight: 'bold',
-                        borderRadius: '6px',
-                        backgroundColor: '#10b981',
-                        color: 'white',
-                        border: 'none',
-                        cursor: 'pointer',
-                        boxShadow: '0 2px 6px rgba(16, 185, 129, 0.3)'
-                      }}
-                    >
-                      ＋ 立即盤點 {selectedBookkeepingDate} 現金
-                    </button>
-                  </div>
-
-                  <div style={{ overflowX: 'auto' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem', textAlign: 'left' }}>
-                      <thead>
-                        <tr style={{ backgroundColor: 'var(--bg-input)', borderBottom: '1px solid var(--border)', color: 'var(--text-muted)' }}>
-                          <th style={{ padding: '8px 10px' }}>日期</th>
-                          <th style={{ padding: '8px 10px' }}>🌅 開店零錢準備金 (各面額數量)</th>
-                          <th style={{ padding: '8px 10px' }}>🌙 收店抽屜現金 (各面額數量)</th>
-                          <th style={{ padding: '8px 10px' }}>💵 實收營業額</th>
-                          <th style={{ padding: '8px 10px' }}>📊 系統營收</th>
-                          <th style={{ padding: '8px 10px' }}>⚖️ 帳實差額</th>
-                          <th style={{ padding: '8px 10px' }}>備註</th>
-                          <th style={{ padding: '8px 10px', textAlign: 'center' }}>操作</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {cashAudits.length === 0 ? (
-                          <tr>
-                            <td colSpan="8" style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)' }}>
-                              尚未有任何每日現金盤點與零錢紀錄，點擊上方按鈕開始建立！
-                            </td>
-                          </tr>
-                        ) : (
-                          cashAudits.map(audit => {
-                            const hasOpen = audit.openDrawerFloat !== undefined || audit.drawerFloat !== undefined;
-                            const hasClose = (audit.closeCountedCash !== undefined && audit.closeCountedCash !== null) || (audit.countedCash && audit.countedCash > 0);
-                            const openVal = hasOpen ? (audit.openDrawerFloat ?? audit.drawerFloat ?? 0) : null;
-                            const closeVal = hasClose ? (audit.closeCountedCash ?? audit.countedCash ?? 0) : null;
-                            const netVal = (closeVal !== null && openVal !== null) ? (closeVal - openVal) : (audit.netActualCash ?? null);
-                            const diffVal = audit.difference ?? (netVal !== null ? netVal - (audit.systemCashRevenue ?? 0) : null);
-
-                            return (
-                              <tr key={audit.id || audit.date} style={{ borderBottom: '1px solid var(--border)' }}>
-                                <td style={{ padding: '8px 10px', fontWeight: 'bold', color: 'var(--primary)' }}>
-                                  {audit.date}
-                                </td>
-
-                                {/* Opening Cash Column */}
-                                <td style={{ padding: '8px 10px', maxWidth: '240px' }}>
-                                  {openVal !== null ? (
-                                    <div>
-                                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                        <strong style={{ color: '#ea580c', fontSize: '0.85rem' }}>
-                                          NT$ {openVal.toLocaleString()}
-                                        </strong>
-                                        <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>
-                                          ({audit.openTime || '09:00'} · {audit.openAuditor || audit.auditor || '店長'})
-                                        </span>
-                                      </div>
-                                      {renderDenomChips(audit.openDenominations)}
-                                    </div>
-                                  ) : (
-                                    <span style={{ color: 'var(--text-muted)' }}>-</span>
-                                  )}
-                                </td>
-
-                                {/* Closing Cash Column */}
-                                <td style={{ padding: '8px 10px', maxWidth: '240px' }}>
-                                  {closeVal !== null ? (
-                                    <div>
-                                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                        <strong style={{ color: '#2563eb', fontSize: '0.85rem' }}>
-                                          NT$ {closeVal.toLocaleString()}
-                                        </strong>
-                                        <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>
-                                          ({audit.closeTime || '21:30'} · {audit.closeAuditor || audit.auditor || '店長'})
-                                        </span>
-                                      </div>
-                                      {renderDenomChips(audit.closeDenominations || audit.denominations)}
-                                    </div>
-                                  ) : (
-                                    <span style={{ color: 'var(--text-muted)' }}>待收店盤點</span>
-                                  )}
-                                </td>
-
-                                {/* Net Actual Cash */}
-                                <td style={{ padding: '8px 10px', fontWeight: 'bold', color: '#059669', fontSize: '0.85rem' }}>
-                                  {netVal !== null ? `NT$ ${netVal.toLocaleString()}` : '-'}
-                                </td>
-
-                                {/* System Cash Revenue */}
-                                <td style={{ padding: '8px 10px', color: 'var(--text-muted)' }}>
-                                  NT$ {(audit.systemCashRevenue || 0).toLocaleString()}
-                                </td>
-
-                                {/* Difference Status */}
-                                <td style={{ padding: '8px 10px' }}>
-                                  {diffVal === null ? (
-                                    <span style={{ color: 'var(--text-muted)', fontSize: '0.72rem' }}>待收店核算</span>
-                                  ) : (
-                                    <span style={{
-                                      padding: '2px 6px',
-                                      borderRadius: '4px',
-                                      fontSize: '0.72rem',
-                                      fontWeight: 'bold',
-                                      backgroundColor: diffVal === 0 ? '#10b981' : (diffVal > 0 ? '#2563eb' : '#ef4444'),
-                                      color: 'white'
-                                    }}>
-                                      {diffVal === 0 ? '✓ 帳實相符' : (diffVal > 0 ? `+NT$ ${diffVal.toLocaleString()} (溢收)` : `-NT$ ${Math.abs(diffVal).toLocaleString()} (短少)`)}
-                                    </span>
-                                  )}
-                                </td>
-
-                                {/* Remarks */}
-                                <td style={{ padding: '8px 10px', fontSize: '0.72rem', color: 'var(--text-muted)', maxWidth: '140px' }}>
-                                  {audit.closeRemarks || audit.openRemarks || audit.remarks || '-'}
-                                </td>
-
-                                {/* Actions */}
-                                <td style={{ padding: '8px 10px', textAlign: 'center' }}>
-                                  <div style={{ display: 'flex', gap: '4px', justifyContent: 'center' }}>
-                                    <button
-                                      type="button"
-                                      onClick={() => handleOpenCashAuditModal(audit.date, 'open')}
-                                      style={{ padding: '3px 8px', fontSize: '0.7rem', border: '1px solid var(--border)', backgroundColor: 'var(--bg-body)', color: 'var(--text-main)', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}
-                                    >
-                                      ✏️ 編輯
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => handleDeleteCashAudit(audit.date)}
-                                      style={{ padding: '3px 8px', fontSize: '0.7rem', border: '1px solid #ef4444', backgroundColor: 'transparent', color: '#ef4444', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}
-                                    >
-                                      🗑️
-                                    </button>
-                                  </div>
-                                </td>
-                              </tr>
-                            );
-                          })
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
                 </div>
               </div>
             )}
@@ -6331,7 +5996,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
         </div>
       )}
 
-      {/* 💵 Dual Cash Audit Modal (Opening Float & Closing Cash) */}
+      {/* 💵 Cash Audit Entry & Calculation Modal */}
       {showCashAuditModal && (() => {
         const targetOrders = orders.filter(o => {
           const d = o.timestamp ? new Date(o.timestamp).toLocaleDateString('en-CA') : (o.time ? o.time.slice(0, 10) : '');
@@ -6342,10 +6007,10 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
         const sysCashRev = targetOrders.filter(o => !o.paymentMethod || o.paymentMethod === 'cash').reduce((sum, o) => sum + (Number(o.total) || 0), 0) + manualForTarget;
         const sysOnlineRev = targetOrders.filter(o => o.paymentMethod && o.paymentMethod !== 'cash').reduce((sum, o) => sum + (Number(o.total) || 0), 0);
 
-        const openSum = calcDenomSum(openDenominations) || Number(openDrawerFloat || 0);
-        const closeSum = calcDenomSum(closeDenominations) || (closeCountedCash !== '' ? Number(closeCountedCash) : null);
-        const netActual = closeSum !== null ? (closeSum - openSum) : null;
-        const diff = netActual !== null ? (netActual - sysCashRev) : null;
+        const counted = Number(auditCountedCash || 0);
+        const floatVal = Number(auditDrawerFloat || 0);
+        const netActual = counted - floatVal;
+        const diff = netActual - sysCashRev;
 
         return (
           <div style={{
@@ -6362,30 +6027,21 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
             <div style={{
               backgroundColor: 'var(--bg-card)',
               borderRadius: '16px',
-              padding: '26px',
-              maxWidth: '680px',
+              padding: '28px',
+              maxWidth: '560px',
               width: '100%',
-              maxHeight: '92vh',
+              maxHeight: '90vh',
               overflowY: 'auto',
               boxShadow: 'var(--shadow-xl)',
               border: '2px solid var(--primary)',
-              animation: 'fadeIn 0.2s ease',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '16px'
+              animation: 'fadeIn 0.2s ease'
             }}>
-              {/* Modal Header */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border)', paddingBottom: '12px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', borderBottom: '1px solid var(--border)', paddingBottom: '12px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span style={{ fontSize: '1.6rem' }}>💰</span>
-                  <div>
-                    <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: '900', color: 'var(--text-main)' }}>
-                      {editingAuditId ? '✏️ 編輯每日現金盤點紀錄' : '💰 每日雙軌現金盤點與對帳'}
-                    </h3>
-                    <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-                      紀錄每次開店零錢準備金與收店現金總額，自動比對 POS 營收計算短溢
-                    </div>
-                  </div>
+                  <span style={{ fontSize: '1.6rem' }}>💵</span>
+                  <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: '900', color: 'var(--text-main)' }}>
+                    {editingAuditId ? '✏️ 編輯現金盤點紀錄' : '💰 每日實收現金盤點與對帳'}
+                  </h3>
                 </div>
                 <button
                   type="button"
@@ -6396,361 +6052,279 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                 </button>
               </div>
 
-              {/* Date & Mode Selector */}
-              <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
-                <div style={{ flex: '1 1 200px' }}>
-                  <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 'bold', color: 'var(--text-muted)', marginBottom: '4px' }}>
-                    📅 盤點日期
+              {/* Date Selector */}
+              <div style={{ marginBottom: '16px' }}>
+                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 'bold', color: 'var(--text-muted)', marginBottom: '6px' }}>
+                  📅 盤點日期
+                </label>
+                <input
+                  type="date"
+                  value={auditDate}
+                  onChange={(e) => setAuditDate(e.target.value)}
+                  style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-input)', color: 'var(--text-main)', fontSize: '0.95rem' }}
+                />
+              </div>
+
+              {/* System Revenue Reference Card */}
+              <div style={{
+                backgroundColor: 'rgba(234, 88, 12, 0.08)',
+                border: '1px solid rgba(234, 88, 12, 0.3)',
+                borderRadius: '10px',
+                padding: '14px 16px',
+                marginBottom: '18px'
+              }}>
+                <div style={{ fontSize: '0.8rem', color: 'var(--primary)', fontWeight: 'bold', marginBottom: '6px' }}>
+                  📊 系統當日帳目記錄 (自動核算)
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.9rem' }}>
+                  <span>系統總營業額：<strong>NT$ {sysTotalRev.toLocaleString()}</strong> ({targetOrders.length} 筆)</span>
+                  <span>系統現金營收：<strong style={{ color: 'var(--primary)', fontSize: '1.05rem' }}>NT$ {sysCashRev.toLocaleString()}</strong></span>
+                </div>
+                {sysOnlineRev > 0 && (
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+                    * 線上/非現金支付：NT$ {sysOnlineRev.toLocaleString()}
+                  </div>
+                )}
+              </div>
+
+              {/* Float & Counted Cash Inputs */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '16px' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 'bold', color: 'var(--text-muted)', marginBottom: '6px' }}>
+                    🪙 抽屜零錢備用金 (NT$)
                   </label>
                   <input
-                    type="date"
-                    value={auditDate}
-                    onChange={(e) => setAuditDate(e.target.value)}
-                    style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-body)', color: 'var(--text-main)', fontSize: '0.9rem', fontWeight: 'bold' }}
+                    type="number"
+                    value={auditDrawerFloat}
+                    onChange={(e) => setAuditDrawerFloat(e.target.value)}
+                    placeholder="例: 3000"
+                    style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-input)', color: 'var(--text-main)', fontSize: '0.95rem' }}
                   />
+                  <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>開班時抽屜內的固定底層零錢</span>
                 </div>
 
-                {/* Tabs */}
-                <div style={{ flex: '2 1 300px', display: 'flex', gap: '6px' }}>
-                  <button
-                    type="button"
-                    onClick={() => setAuditModalTab('open')}
-                    style={{
-                      flex: 1,
-                      padding: '10px 8px',
-                      borderRadius: '8px',
-                      border: auditModalTab === 'open' ? '2px solid #ea580c' : '1px solid var(--border)',
-                      backgroundColor: auditModalTab === 'open' ? 'rgba(234, 88, 12, 0.12)' : 'var(--bg-body)',
-                      color: auditModalTab === 'open' ? '#ea580c' : 'var(--text-muted)',
-                      fontWeight: 'bold',
-                      fontSize: '0.85rem',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: '4px'
-                    }}
-                  >
-                    🌅 1. 開店零錢準備金
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setAuditModalTab('close')}
-                    style={{
-                      flex: 1,
-                      padding: '10px 8px',
-                      borderRadius: '8px',
-                      border: auditModalTab === 'close' ? '2px solid #10b981' : '1px solid var(--border)',
-                      backgroundColor: auditModalTab === 'close' ? 'rgba(16, 185, 129, 0.12)' : 'var(--bg-body)',
-                      color: auditModalTab === 'close' ? '#10b981' : 'var(--text-muted)',
-                      fontWeight: 'bold',
-                      fontSize: '0.85rem',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: '4px'
-                    }}
-                  >
-                    🌙 2. 收店打烊現金總盤點
-                  </button>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 'bold', color: 'var(--text-main)', marginBottom: '6px' }}>
+                    💵 抽屜盤點總現金 (NT$) *
+                  </label>
+                  <input
+                    type="number"
+                    value={auditCountedCash}
+                    onChange={(e) => setAuditCountedCash(e.target.value)}
+                    placeholder="例: 17200"
+                    style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '2px solid #10b981', backgroundColor: 'var(--bg-input)', color: 'var(--text-main)', fontSize: '1.1rem', fontWeight: 'bold' }}
+                  />
+                  <span style={{ fontSize: '0.72rem', color: '#10b981' }}>抽屜內所有鈔票與硬幣加總</span>
                 </div>
               </div>
 
-              {/* TAB 1: OPENING FLOAT */}
-              {auditModalTab === 'open' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'rgba(234, 88, 12, 0.08)', padding: '10px 14px', borderRadius: '8px', border: '1px solid rgba(234, 88, 12, 0.3)' }}>
-                    <div>
-                      <strong style={{ color: '#ea580c', fontSize: '0.9rem' }}>🌅 開店零錢準備金盤點</strong>
-                      <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>開班時抽屜內預先備妥的找零底層零錢</div>
-                    </div>
-                    <div style={{ textAlign: 'right' }}>
-                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>開店準備金總額：</span>
-                      <strong style={{ fontSize: '1.25rem', color: '#ea580c', display: 'block' }}>NT$ {openSum.toLocaleString()}</strong>
-                    </div>
-                  </div>
-
-                  {/* Denominations Grid for Opening */}
-                  <div style={{
-                    padding: '14px',
-                    backgroundColor: 'var(--bg-body)',
-                    borderRadius: '10px',
+              {/* Denominations Counter Toggle */}
+              <div style={{ marginBottom: '18px' }}>
+                <button
+                  type="button"
+                  onClick={() => setShowDenomCalc(!showDenomCalc)}
+                  style={{
+                    padding: '6px 12px',
+                    fontSize: '0.8rem',
+                    borderRadius: '6px',
                     border: '1px solid var(--border)',
+                    backgroundColor: showDenomCalc ? 'rgba(16, 185, 129, 0.1)' : 'var(--bg-body)',
+                    color: showDenomCalc ? '#10b981' : 'var(--text-muted)',
+                    cursor: 'pointer',
+                    fontWeight: 'bold',
                     display: 'flex',
-                    flexDirection: 'column',
-                    gap: '10px'
-                  }}>
-                    <div style={{ fontSize: '0.8rem', fontWeight: 'bold', color: 'var(--text-main)' }}>
-                      🪙 點數各面額紙鈔與硬幣數量（輸入張數/枚數）：
-                    </div>
-                    <div style={{
-                      display: 'grid',
-                      gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
-                      gap: '10px'
-                    }}>
-                      {[
-                        { key: 'd1000', label: '1000元', mult: 1000, color: '#3b82f6' },
-                        { key: 'd500', label: '500元', mult: 500, color: '#ec4899' },
-                        { key: 'd200', label: '200元', mult: 200, color: '#10b981' },
-                        { key: 'd100', label: '100元', mult: 100, color: '#ef4444' },
-                        { key: 'd50', label: '50元硬幣', mult: 50, color: '#f59e0b' },
-                        { key: 'd20', label: '20元硬幣', mult: 20, color: '#6366f1' },
-                        { key: 'd10', label: '10元硬幣', mult: 10, color: '#8b5cf6' },
-                        { key: 'd5', label: '5元硬幣', mult: 5, color: '#14b8a6' },
-                        { key: 'd1', label: '1元硬幣', mult: 1, color: '#64748b' }
-                      ].map(d => {
-                        const countVal = openDenominations[d.key];
-                        const subtotal = Number(countVal || 0) * d.mult;
-                        return (
-                          <div key={d.key} style={{ padding: '8px', borderRadius: '6px', backgroundColor: 'var(--bg-card)', border: '1px solid var(--border)' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem', color: 'var(--text-muted)', marginBottom: '4px' }}>
-                              <strong style={{ color: d.color }}>{d.label}</strong>
-                              <span>{subtotal > 0 ? `NT$ ${subtotal.toLocaleString()}` : '$0'}</span>
-                            </div>
-                            <input
-                              type="number"
-                              min="0"
-                              value={countVal}
-                              onChange={(e) => updateOpenDenomAndSum(d.key, e.target.value)}
-                              placeholder="張/枚數"
-                              style={{ width: '100%', padding: '6px 8px', borderRadius: '4px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-body)', color: 'var(--text-main)', fontSize: '0.85rem', fontWeight: 'bold' }}
-                            />
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  {/* Details Row */}
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 2fr', gap: '10px' }}>
-                    <div>
-                      <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 'bold', color: 'var(--text-muted)', marginBottom: '4px' }}>
-                        ⏰ 開店時間
-                      </label>
-                      <input
-                        type="time"
-                        value={openTime}
-                        onChange={(e) => setOpenTime(e.target.value)}
-                        style={{ width: '100%', padding: '6px 8px', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-body)', color: 'var(--text-main)', fontSize: '0.85rem' }}
-                      />
-                    </div>
-                    <div>
-                      <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 'bold', color: 'var(--text-muted)', marginBottom: '4px' }}>
-                        👤 開店人員
-                      </label>
-                      <input
-                        type="text"
-                        value={openAuditor}
-                        onChange={(e) => setOpenAuditor(e.target.value)}
-                        placeholder="例: 早班店長"
-                        style={{ width: '100%', padding: '6px 8px', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-body)', color: 'var(--text-main)', fontSize: '0.85rem' }}
-                      />
-                    </div>
-                    <div>
-                      <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 'bold', color: 'var(--text-muted)', marginBottom: '4px' }}>
-                        📝 開店備註
-                      </label>
-                      <input
-                        type="text"
-                        value={openRemarks}
-                        onChange={(e) => setOpenRemarks(e.target.value)}
-                        placeholder="例: 換百鈔2000元"
-                        style={{ width: '100%', padding: '6px 8px', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-body)', color: 'var(--text-main)', fontSize: '0.85rem' }}
-                      />
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* TAB 2: CLOSING CASH */}
-              {auditModalTab === 'close' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                  {/* System Revenue Reference */}
-                  <div style={{
-                    backgroundColor: 'rgba(59, 130, 246, 0.08)',
-                    border: '1px solid rgba(59, 130, 246, 0.3)',
-                    borderRadius: '8px',
-                    padding: '10px 14px',
-                    display: 'flex',
-                    justifyContent: 'space-between',
                     alignItems: 'center',
-                    flexWrap: 'wrap',
-                    gap: '6px'
-                  }}>
-                    <div>
-                      <div style={{ fontSize: '0.75rem', color: '#2563eb', fontWeight: 'bold' }}>📊 POS 系統本日營業額</div>
-                      <div style={{ fontSize: '0.85rem', color: 'var(--text-main)' }}>
-                        總營業額: <strong>NT$ {sysTotalRev.toLocaleString()}</strong> ({targetOrders.length} 筆)
-                      </div>
-                    </div>
-                    <div>
-                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>系統現金營收：</span>
-                      <strong style={{ fontSize: '1.2rem', color: '#2563eb' }}>NT$ {sysCashRev.toLocaleString()}</strong>
-                    </div>
-                  </div>
+                    gap: '4px'
+                  }}
+                >
+                  🧮 {showDenomCalc ? '收起紙鈔硬幣面額計算機' : '展開紙鈔硬幣面額計算機 (快速點鈔加總)'}
+                </button>
 
-                  {/* Denominations Grid for Closing */}
+                {showDenomCalc && (
                   <div style={{
+                    marginTop: '10px',
                     padding: '14px',
                     backgroundColor: 'var(--bg-body)',
                     borderRadius: '10px',
                     border: '1px solid var(--border)',
-                    display: 'flex',
-                    flexDirection: 'column',
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(4, 1fr)',
                     gap: '10px'
                   }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontSize: '0.8rem', fontWeight: 'bold', color: 'var(--text-main)' }}>
-                        💵 點數收店抽屜全部紙鈔與硬幣（輸入張數/枚數）：
-                      </span>
-                      <span style={{ fontSize: '0.85rem', fontWeight: 'bold', color: '#10b981' }}>
-                        抽屜總現金：NT$ {closeSum !== null ? closeSum.toLocaleString() : '0'}
-                      </span>
-                    </div>
-
-                    <div style={{
-                      display: 'grid',
-                      gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
-                      gap: '10px'
-                    }}>
-                      {[
-                        { key: 'd1000', label: '1000元', mult: 1000, color: '#3b82f6' },
-                        { key: 'd500', label: '500元', mult: 500, color: '#ec4899' },
-                        { key: 'd200', label: '200元', mult: 200, color: '#10b981' },
-                        { key: 'd100', label: '100元', mult: 100, color: '#ef4444' },
-                        { key: 'd50', label: '50元硬幣', mult: 50, color: '#f59e0b' },
-                        { key: 'd20', label: '20元硬幣', mult: 20, color: '#6366f1' },
-                        { key: 'd10', label: '10元硬幣', mult: 10, color: '#8b5cf6' },
-                        { key: 'd5', label: '5元硬幣', mult: 5, color: '#14b8a6' },
-                        { key: 'd1', label: '1元硬幣', mult: 1, color: '#64748b' }
-                      ].map(d => {
-                        const countVal = closeDenominations[d.key];
-                        const subtotal = Number(countVal || 0) * d.mult;
-                        return (
-                          <div key={d.key} style={{ padding: '8px', borderRadius: '6px', backgroundColor: 'var(--bg-card)', border: '1px solid var(--border)' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem', color: 'var(--text-muted)', marginBottom: '4px' }}>
-                              <strong style={{ color: d.color }}>{d.label}</strong>
-                              <span>{subtotal > 0 ? `NT$ ${subtotal.toLocaleString()}` : '$0'}</span>
-                            </div>
-                            <input
-                              type="number"
-                              min="0"
-                              value={countVal}
-                              onChange={(e) => updateCloseDenomAndSum(d.key, e.target.value)}
-                              placeholder="張/枚數"
-                              style={{ width: '100%', padding: '6px 8px', borderRadius: '4px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-body)', color: 'var(--text-main)', fontSize: '0.85rem', fontWeight: 'bold' }}
-                            />
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  {/* Real-time Reconciliation Card */}
-                  <div style={{
-                    padding: '14px 16px',
-                    borderRadius: '10px',
-                    backgroundColor: diff === 0 ? 'rgba(16, 185, 129, 0.08)' : (diff > 0 ? 'rgba(59, 130, 246, 0.08)' : (diff < 0 ? 'rgba(239, 68, 68, 0.08)' : 'var(--bg-body)')),
-                    border: diff === 0 ? '2px solid #10b981' : (diff > 0 ? '2px solid #3b82f6' : (diff < 0 ? '2px solid #ef4444' : '1px solid var(--border)')),
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '8px'
-                  }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem' }}>
-                      <span>🌙 抽屜盤點總現金：<strong>NT$ {closeSum !== null ? closeSum.toLocaleString() : '0'}</strong></span>
-                      <span>🪙 扣除開店準備金：<strong>-NT$ {openSum.toLocaleString()}</strong></span>
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.95rem', borderTop: '1px dashed var(--border)', paddingTop: '6px' }}>
-                      <span style={{ fontWeight: 'bold' }}>💵 當日實收營業現金：</span>
-                      <strong style={{ color: '#059669', fontSize: '1.1rem' }}>NT$ {netActual !== null ? netActual.toLocaleString() : '0'}</strong>
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--border)', paddingTop: '6px' }}>
-                      <span style={{ fontWeight: 'bold' }}>⚖️ 帳實差額核算 (實收 - 系統)：</span>
-                      <strong style={{
-                        fontSize: '1.2rem',
-                        fontWeight: '900',
-                        color: diff === 0 ? '#10b981' : (diff > 0 ? '#2563eb' : (diff < 0 ? '#ef4444' : 'var(--text-muted)'))
-                      }}>
-                        {diff === null ? '尚未輸入收店金額' : (diff === 0 ? '✅ 帳實相符 ($0)' : (diff > 0 ? `📈 溢收 +NT$ ${diff.toLocaleString()}` : `📉 短少 -NT$ ${Math.abs(diff).toLocaleString()}`))}
-                      </strong>
-                    </div>
-                  </div>
-
-                  {/* Details Row */}
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 2fr', gap: '10px' }}>
                     <div>
-                      <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 'bold', color: 'var(--text-muted)', marginBottom: '4px' }}>
-                        ⏰ 收店時間
-                      </label>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>千元 (1000)</span>
                       <input
-                        type="time"
-                        value={closeTime}
-                        onChange={(e) => setCloseTime(e.target.value)}
-                        style={{ width: '100%', padding: '6px 8px', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-body)', color: 'var(--text-main)', fontSize: '0.85rem' }}
+                        type="number"
+                        value={auditDenominations.d1000}
+                        onChange={(e) => updateDenomAndSum('d1000', e.target.value)}
+                        placeholder="張數"
+                        style={{ width: '100%', padding: '6px', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-card)', color: 'var(--text-main)', fontSize: '0.85rem' }}
                       />
                     </div>
                     <div>
-                      <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 'bold', color: 'var(--text-muted)', marginBottom: '4px' }}>
-                        👤 收店人員
-                      </label>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>五百 (500)</span>
                       <input
-                        type="text"
-                        value={closeAuditor}
-                        onChange={(e) => setCloseAuditor(e.target.value)}
-                        placeholder="例: 晚班店長"
-                        style={{ width: '100%', padding: '6px 8px', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-body)', color: 'var(--text-main)', fontSize: '0.85rem' }}
+                        type="number"
+                        value={auditDenominations.d500}
+                        onChange={(e) => updateDenomAndSum('d500', e.target.value)}
+                        placeholder="張數"
+                        style={{ width: '100%', padding: '6px', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-card)', color: 'var(--text-main)', fontSize: '0.85rem' }}
                       />
                     </div>
                     <div>
-                      <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 'bold', color: 'var(--text-muted)', marginBottom: '4px' }}>
-                        📝 收店備註說明
-                      </label>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>二百 (200)</span>
                       <input
-                        type="text"
-                        value={closeRemarks}
-                        onChange={(e) => setCloseRemarks(e.target.value)}
-                        placeholder="例: 找錯錢50元、無溢短"
-                        style={{ width: '100%', padding: '6px 8px', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-body)', color: 'var(--text-main)', fontSize: '0.85rem' }}
+                        type="number"
+                        value={auditDenominations.d200}
+                        onChange={(e) => updateDenomAndSum('d200', e.target.value)}
+                        placeholder="張數"
+                        style={{ width: '100%', padding: '6px', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-card)', color: 'var(--text-main)', fontSize: '0.85rem' }}
+                      />
+                    </div>
+                    <div>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>百元 (100)</span>
+                      <input
+                        type="number"
+                        value={auditDenominations.d100}
+                        onChange={(e) => updateDenomAndSum('d100', e.target.value)}
+                        placeholder="張數"
+                        style={{ width: '100%', padding: '6px', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-card)', color: 'var(--text-main)', fontSize: '0.85rem' }}
+                      />
+                    </div>
+                    <div>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>五十元 (50)</span>
+                      <input
+                        type="number"
+                        value={auditDenominations.d50}
+                        onChange={(e) => updateDenomAndSum('d50', e.target.value)}
+                        placeholder="個數"
+                        style={{ width: '100%', padding: '6px', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-card)', color: 'var(--text-main)', fontSize: '0.85rem' }}
+                      />
+                    </div>
+                    <div>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>十元 (10)</span>
+                      <input
+                        type="number"
+                        value={auditDenominations.d10}
+                        onChange={(e) => updateDenomAndSum('d10', e.target.value)}
+                        placeholder="個數"
+                        style={{ width: '100%', padding: '6px', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-card)', color: 'var(--text-main)', fontSize: '0.85rem' }}
+                      />
+                    </div>
+                    <div>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>五元 (5)</span>
+                      <input
+                        type="number"
+                        value={auditDenominations.d5}
+                        onChange={(e) => updateDenomAndSum('d5', e.target.value)}
+                        placeholder="個數"
+                        style={{ width: '100%', padding: '6px', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-card)', color: 'var(--text-main)', fontSize: '0.85rem' }}
+                      />
+                    </div>
+                    <div>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>一元 (1)</span>
+                      <input
+                        type="number"
+                        value={auditDenominations.d1}
+                        onChange={(e) => updateDenomAndSum('d1', e.target.value)}
+                        placeholder="個數"
+                        style={{ width: '100%', padding: '6px', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-card)', color: 'var(--text-main)', fontSize: '0.85rem' }}
                       />
                     </div>
                   </div>
+                )}
+              </div>
+
+              {/* Real-time Discrepancy Preview Card */}
+              <div style={{
+                padding: '16px',
+                borderRadius: '12px',
+                backgroundColor: diff === 0 ? 'rgba(16, 185, 129, 0.1)' : (diff > 0 ? 'rgba(59, 130, 246, 0.1)' : 'rgba(239, 68, 68, 0.1)'),
+                border: diff === 0 ? '2px solid #10b981' : (diff > 0 ? '2px solid #3b82f6' : '2px solid #ef4444'),
+                marginBottom: '18px'
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                  <span style={{ fontSize: '0.9rem', fontWeight: 'bold', color: 'var(--text-main)' }}>
+                    扣除備用金後實收現金：
+                  </span>
+                  <strong style={{ fontSize: '1.15rem', color: '#059669' }}>
+                    NT$ {netActual.toLocaleString()}
+                  </strong>
                 </div>
-              )}
 
-              {/* Action Buttons */}
-              <div style={{ display: 'flex', gap: '10px', marginTop: '6px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px dashed var(--border)', paddingTop: '8px' }}>
+                  <span style={{ fontSize: '0.95rem', fontWeight: 'bold', color: 'var(--text-main)' }}>
+                    核算差額 (實收 - 系統)：
+                  </span>
+                  <strong style={{
+                    fontSize: '1.3rem',
+                    fontWeight: '900',
+                    color: diff === 0 ? '#10b981' : (diff > 0 ? '#2563eb' : '#ef4444')
+                  }}>
+                    {diff === 0 ? '✅ 帳實相符 ($0)' : (diff > 0 ? `📈 溢收 +NT$ ${diff.toLocaleString()}` : `📉 短少 -NT$ ${Math.abs(diff).toLocaleString()}`)}
+                  </strong>
+                </div>
+              </div>
+
+              {/* Auditor & Remarks */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '12px', marginBottom: '20px' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 'bold', color: 'var(--text-muted)', marginBottom: '4px' }}>
+                    👤 盤點人員
+                  </label>
+                  <input
+                    type="text"
+                    value={auditAuditor}
+                    onChange={(e) => setAuditAuditor(e.target.value)}
+                    style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-input)', color: 'var(--text-main)', fontSize: '0.85rem' }}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 'bold', color: 'var(--text-muted)', marginBottom: '4px' }}>
+                    📝 備註說明 (選填)
+                  </label>
+                  <input
+                    type="text"
+                    value={auditRemarks}
+                    onChange={(e) => setAuditRemarks(e.target.value)}
+                    placeholder="例: 找錯50元、備用金增補等"
+                    style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-input)', color: 'var(--text-main)', fontSize: '0.85rem' }}
+                  />
+                </div>
+              </div>
+
+              {/* Submit Buttons */}
+              <div style={{ display: 'flex', gap: '12px' }}>
                 <button
                   type="button"
                   onClick={handleSaveCashAudit}
                   style={{
                     flex: 2,
-                    padding: '12px',
-                    fontSize: '1rem',
-                    fontWeight: 'bold',
+                    padding: '14px',
+                    fontSize: '1.05rem',
+                    fontWeight: '900',
                     backgroundColor: '#10b981',
                     color: 'white',
                     border: 'none',
-                    borderRadius: '8px',
+                    borderRadius: '10px',
                     cursor: 'pointer',
-                    boxShadow: '0 4px 12px rgba(16, 185, 129, 0.3)'
+                    boxShadow: '0 4px 12px rgba(16, 185, 129, 0.4)'
                   }}
                 >
-                  ✓ 儲存此現金盤點紀錄
+                  ✓ 儲存現金盤點紀錄
                 </button>
                 <button
                   type="button"
                   onClick={() => setShowCashAuditModal(false)}
                   style={{
                     flex: 1,
-                    padding: '12px',
-                    fontSize: '0.9rem',
+                    padding: '14px',
+                    fontSize: '0.95rem',
                     fontWeight: 'bold',
                     backgroundColor: 'var(--bg-body)',
                     color: 'var(--text-muted)',
                     border: '1px solid var(--border)',
-                    borderRadius: '8px',
+                    borderRadius: '10px',
                     cursor: 'pointer'
                   }}
                 >

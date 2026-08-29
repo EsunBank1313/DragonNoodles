@@ -1482,12 +1482,12 @@ const handleSaveGlobalAddons = async (newAddons) => {
     });
 
     // Handle Multi-Group Specifications (e.g. Size, Noodle type, Spiciness, etc.)
-    if (hasSizeVariants && prodSpecGroups.length > 0) {
+    if (hasSizeVariants && prodSpecGroups && prodSpecGroups.length > 0) {
       prodSpecGroups.forEach((grp, gIdx) => {
         const validOpts = (grp.options || [])
-          .filter(s => s.label && s.label.trim())
+          .filter(s => s && s.label && String(s.label).trim())
           .map(s => ({
-            label: s.label.trim(),
+            label: String(s.label).trim(),
             priceChange: Number(s.priceChange) || 0
           }));
 
@@ -1495,7 +1495,7 @@ const handleSaveGlobalAddons = async (newAddons) => {
           const groupKey = grp.id || (gIdx === 0 && grp.title === '份量大小' ? 'size' : `spec_${Date.now()}_${gIdx}`);
           existingCust[groupKey] = {
             type: 'radio',
-            name: grp.title ? grp.title.trim() : '規格選項',
+            name: grp.title ? String(grp.title).trim() : '規格選項',
             default: validOpts[0].label,
             options: validOpts
           };
@@ -2251,9 +2251,15 @@ const handleSaveGlobalAddons = async (newAddons) => {
                       setProdAvailable(true);
                       setProdPublished(true);
                       setHasSizeVariants(false);
-                      setProdSizes([
-                        { label: '小碗', priceChange: 0 },
-                        { label: '大碗', priceChange: 15 }
+                      setProdSpecGroups([
+                        {
+                          id: 'size',
+                          title: '份量大小',
+                          options: [
+                            { label: '小碗', priceChange: 0 },
+                            { label: '大碗', priceChange: 15 }
+                          ]
+                        }
                       ]);
                     }}
                     style={{
@@ -2632,105 +2638,226 @@ const handleSaveGlobalAddons = async (newAddons) => {
                     </span>
                   </div>
 
-                  {/* ⚙️ Full-Featured Size Variants & Price Editor (Add & Edit) */}
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', border: '1px solid var(--border)', padding: '14px', borderRadius: '10px', backgroundColor: 'var(--bg-body)', marginTop: '6px' }}>
+                                    {/* ⚙️ Multi-Group Specifications & Custom Variants Editor (e.g. Size + Noodle + Spiciness) */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', border: '1px solid var(--border)', padding: '16px', borderRadius: '10px', backgroundColor: 'var(--bg-body)', marginTop: '6px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.88rem', fontWeight: 'bold', cursor: 'pointer', color: 'var(--text-main)' }}>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.9rem', fontWeight: 'bold', cursor: 'pointer', color: 'var(--text-main)' }}>
                         <input 
-                          type="checkbox"
-                          checked={hasSizeVariants}
-                          onChange={(e) => setHasSizeVariants(e.target.checked)}
-                          style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+                          type="checkbox" 
+                          checked={hasSizeVariants} 
+                          onChange={(e) => setHasSizeVariants(e.target.checked)} 
+                          style={{ width: '18px', height: '18px', cursor: 'pointer' }}
                         />
-                        啟用「規格 / 份量大小加價」選項
+                        ⚙️ 啟用「商品規格 / 多重客製群組」（如: 大小碗、麵條種類、辣度等）
                       </label>
                       <span style={{ fontSize: '0.75rem', color: hasSizeVariants ? '#10b981' : 'var(--text-muted)', fontWeight: 'bold' }}>
-                        {hasSizeVariants ? '🟢 已開啟份量規格' : '⚪ 未開啟 (單一規格)'}
+                        {hasSizeVariants ? `🟢 已開啟 (${(prodSpecGroups || []).length} 組規格)` : '⚪ 未開啟 (單一規格)'}
                       </span>
                     </div>
 
                     {hasSizeVariants && (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', paddingTop: '8px', borderTop: '1px dashed var(--border)' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 'bold' }}>規格名稱 (如: 小碗/大碗)</span>
-                          <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 'bold' }}>加價金額 (NT$)</span>
-                        </div>
-
-                        {prodSizes.map((sizeOpt, sIdx) => (
-                          <div key={sIdx} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <input 
-                              type="text"
-                              placeholder="例如: 小碗、大碗、特大"
-                              value={sizeOpt.label}
-                              onChange={(e) => {
-                                const next = [...prodSizes];
-                                next[sIdx].label = e.target.value;
-                                setProdSizes(next);
-                              }}
-                              style={{ flex: 2, padding: '8px 10px', fontSize: '0.85rem', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-card)', color: 'var(--text-main)' }}
-                            />
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flex: 1.5 }}>
-                              <span style={{ fontSize: '0.8rem', fontWeight: 'bold', color: 'var(--text-muted)' }}>+NT$</span>
-                              <input 
-                                type="number"
-                                min="0"
-                                placeholder="0"
-                                value={sizeOpt.priceChange}
-                                onChange={(e) => {
-                                  const next = [...prodSizes];
-                                  next[sIdx].priceChange = Number(e.target.value) || 0;
-                                  setProdSizes(next);
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', paddingTop: '10px', borderTop: '1px dashed var(--border)' }}>
+                        {(prodSpecGroups || []).map((grp, gIdx) => (
+                          <div key={gIdx} style={{
+                            backgroundColor: 'var(--bg-card)',
+                            border: '1px solid var(--border)',
+                            borderRadius: '8px',
+                            padding: '12px 14px',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '10px'
+                          }}>
+                            {/* Group Header */}
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flex: 1 }}>
+                                <span style={{ fontSize: '0.85rem', fontWeight: 'bold', color: 'var(--primary)' }}>
+                                  群組 {gIdx + 1} 名稱：
+                                </span>
+                                <input
+                                  type="text"
+                                  placeholder="例: 份量大小 或 麵條種類 或 辣度"
+                                  value={grp.title || ''}
+                                  onChange={(e) => {
+                                    const next = [...prodSpecGroups];
+                                    next[gIdx].title = e.target.value;
+                                    setProdSpecGroups(next);
+                                  }}
+                                  style={{
+                                    flex: 1,
+                                    padding: '6px 10px',
+                                    fontSize: '0.85rem',
+                                    fontWeight: 'bold',
+                                    borderRadius: '6px',
+                                    border: '1px solid var(--border)',
+                                    backgroundColor: 'var(--bg-body)',
+                                    color: 'var(--text-main)'
+                                  }}
+                                />
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (prodSpecGroups.length <= 1) {
+                                    if (confirm("這是最後一組規格群組，確定要刪除並關閉多規格功能嗎？")) {
+                                      setHasSizeVariants(false);
+                                    }
+                                    return;
+                                  }
+                                  setProdSpecGroups(prodSpecGroups.filter((_, i) => i !== gIdx));
                                 }}
-                                style={{ width: '100%', padding: '8px 10px', fontSize: '0.85rem', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-card)', color: 'var(--text-main)', fontWeight: 'bold' }}
-                              />
+                                style={{
+                                  padding: '4px 8px',
+                                  fontSize: '0.72rem',
+                                  border: '1px solid #ef4444',
+                                  backgroundColor: 'rgba(239, 68, 68, 0.08)',
+                                  color: '#ef4444',
+                                  borderRadius: '4px',
+                                  cursor: 'pointer',
+                                  fontWeight: 'bold'
+                                }}
+                              >
+                                🗑️ 刪除群組
+                              </button>
                             </div>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                if (prodSizes.length <= 1) return alert("至少須保留一個規格選項！若不需要請直接取消勾選上方開關。");
-                                setProdSizes(prodSizes.filter((_, i) => i !== sIdx));
-                              }}
-                              style={{ width: '32px', height: '32px', border: '1px solid var(--border)', backgroundColor: 'transparent', color: '#ef4444', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                              title="刪除此規格"
-                            >
-                              ✕
-                            </button>
+
+                            {/* Options List in this Group */}
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 'bold' }}>
+                                <span style={{ flex: 2 }}>選項標籤 (如: 小碗/大碗 或 細麵/粗麵)</span>
+                                <span style={{ flex: 1.5 }}>加價金額 (NT$)</span>
+                                <span style={{ width: '28px' }}></span>
+                              </div>
+
+                              {(grp.options || []).map((opt, oIdx) => (
+                                <div key={oIdx} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                  <input 
+                                    type="text" 
+                                    placeholder="選項名稱 (如: 刀削麵)" 
+                                    value={opt.label || ''} 
+                                    onChange={(e) => {
+                                      const next = [...prodSpecGroups];
+                                      next[gIdx].options[oIdx].label = e.target.value;
+                                      setProdSpecGroups(next);
+                                    }}
+                                    style={{ flex: 2, padding: '6px 8px', fontSize: '0.82rem', borderRadius: '4px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-body)', color: 'var(--text-main)' }}
+                                  />
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flex: 1.5 }}>
+                                    <span style={{ fontSize: '0.75rem', fontWeight: 'bold', color: 'var(--text-muted)' }}>+NT$</span>
+                                    <input 
+                                      type="number" 
+                                      min="0"
+                                      placeholder="0" 
+                                      value={opt.priceChange || 0} 
+                                      onChange={(e) => {
+                                        const next = [...prodSpecGroups];
+                                        next[gIdx].options[oIdx].priceChange = Number(e.target.value) || 0;
+                                        setProdSpecGroups(next);
+                                      }}
+                                      style={{ width: '100%', padding: '6px 8px', fontSize: '0.82rem', borderRadius: '4px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-body)', color: 'var(--text-main)', fontWeight: 'bold' }}
+                                    />
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      if ((grp.options || []).length <= 1) return alert("每個群組至少需保留一個選項！");
+                                      const next = [...prodSpecGroups];
+                                      next[gIdx].options = next[gIdx].options.filter((_, i) => i !== oIdx);
+                                      setProdSpecGroups(next);
+                                    }}
+                                    style={{ width: '28px', height: '28px', border: '1px solid var(--border)', backgroundColor: 'transparent', color: '#ef4444', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                                    title="刪除此選項"
+                                  >
+                                    ✕
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+
+                            {/* Add Option inside this Group */}
+                            <div>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const next = [...prodSpecGroups];
+                                  next[gIdx].options.push({ label: '', priceChange: 0 });
+                                  setProdSpecGroups(next);
+                                }}
+                                style={{ padding: '4px 10px', fontSize: '0.75rem', backgroundColor: 'rgba(59, 130, 246, 0.1)', color: '#2563eb', border: '1px solid rgba(59, 130, 246, 0.3)', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}
+                              >
+                                ➕ 新增此群組的選項
+                              </button>
+                            </div>
                           </div>
                         ))}
 
-                        <div style={{ display: 'flex', gap: '8px', marginTop: '4px', flexWrap: 'wrap' }}>
+                        {/* Presets & Add New Spec Group Buttons */}
+                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '4px' }}>
                           <button
                             type="button"
                             onClick={() => {
-                              setProdSizes([...prodSizes, { label: '', priceChange: 0 }]);
+                              setProdSpecGroups([
+                                ...(prodSpecGroups || []),
+                                {
+                                  id: `group_${Date.now()}`,
+                                  title: '自訂規格',
+                                  options: [
+                                    { label: '選項一', priceChange: 0 },
+                                    { label: '選項二', priceChange: 0 }
+                                  ]
+                                }
+                              ]);
                             }}
-                            style={{ padding: '6px 12px', fontSize: '0.8rem', backgroundColor: 'rgba(59, 130, 246, 0.1)', color: '#3b82f6', border: '1px solid rgba(59, 130, 246, 0.3)', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}
+                            style={{ padding: '8px 14px', fontSize: '0.82rem', backgroundColor: '#10b981', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', boxShadow: '0 2px 4px rgba(16, 185, 129, 0.3)' }}
                           >
-                            ➕ 新增一個規格選項
+                            ➕ 新增一組規格群組 (自訂)
                           </button>
+
                           <button
                             type="button"
                             onClick={() => {
-                              setProdSizes([
-                                { label: '小碗', priceChange: 0 },
-                                { label: '大碗', priceChange: 15 }
+                              const hasNoodle = (prodSpecGroups || []).some(g => g.title && g.title.includes('麵條'));
+                              if (hasNoodle) return alert("已存在麵條規格群組！");
+                              setProdSpecGroups([
+                                ...(prodSpecGroups || []),
+                                {
+                                  id: 'noodle_type',
+                                  title: '麵條種類',
+                                  options: [
+                                    { label: '細麵', priceChange: 0 },
+                                    { label: '粗麵', priceChange: 0 },
+                                    { label: '刀削麵', priceChange: 10 },
+                                    { label: '冬粉', priceChange: 0 }
+                                  ]
+                                }
                               ]);
                             }}
                             style={{ padding: '6px 10px', fontSize: '0.75rem', backgroundColor: 'var(--bg-card)', color: 'var(--text-muted)', border: '1px solid var(--border)', borderRadius: '6px', cursor: 'pointer' }}
                           >
-                            🍜 套用「小碗 / 大碗(+15)」
+                            🥢 快速加入「麵條種類」群組
                           </button>
+
                           <button
                             type="button"
                             onClick={() => {
-                              setProdSizes([
-                                { label: '小份', priceChange: 0 },
-                                { label: '大份', priceChange: 20 }
+                              const hasSpicy = (prodSpecGroups || []).some(g => g.title && (g.title.includes('辣度') || g.title.includes('口味')));
+                              if (hasSpicy) return alert("已存在辣度/口味規格群組！");
+                              setProdSpecGroups([
+                                ...(prodSpecGroups || []),
+                                {
+                                  id: 'spiciness',
+                                  title: '辣度選擇',
+                                  options: [
+                                    { label: '不辣', priceChange: 0 },
+                                    { label: '微辣', priceChange: 0 },
+                                    { label: '小辣', priceChange: 0 },
+                                    { label: '大辣', priceChange: 0 }
+                                  ]
+                                }
                               ]);
                             }}
                             style={{ padding: '6px 10px', fontSize: '0.75rem', backgroundColor: 'var(--bg-card)', color: 'var(--text-muted)', border: '1px solid var(--border)', borderRadius: '6px', cursor: 'pointer' }}
                           >
-                            🍢 套用「小份 / 大份(+20)」
+                            🌶️ 快速加入「辣度選擇」群組
                           </button>
                         </div>
                       </div>
