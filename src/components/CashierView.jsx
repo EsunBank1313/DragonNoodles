@@ -1390,6 +1390,7 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
       const orderPayload = {
         order_number: serialNum,
         items: {
+          source: 'pos',
           cart: cart.map(c => ({
             id: c.id,
             name: c.name,
@@ -1398,7 +1399,7 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
             totalPrice: c.totalPrice,
             specs: c.specs
           })),
-          customerName: orderType === 'dine-in' ? '內用點餐 (POS)' : (custName.trim() || '現場外帶'),
+          customerName: orderType === 'dine-in' ? (tableNumber ? `內用 ${tableNumber} 號桌 (POS)` : '內用點餐 (POS)') : (custName.trim() || '現場外帶 (POS)'),
           customerPhone: '',
           pickupTime: '',
           paymentMethod: isCash ? 'cash' : selectedPaymentMethod,
@@ -1408,7 +1409,7 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
         total: finalTotal,
         type: orderType,
         table_number: orderType === 'dine-in' ? tableNumber : null,
-        status: 'received',
+        status: 'completed',
         payment_status: 'paid'
       };
 
@@ -2582,20 +2583,18 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                     <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem', padding: '20px', textAlign: 'center' }}>暫無訂單記錄</div>
                   ) : (
                     orders.map(order => {
-                      const isPending = order.status === 'received';
-                      const isReady = order.status === 'ready';
-                      const isCompleted = order.status === 'completed';
-                      const isOnlineOrder = Boolean(!order.cashier || order.isOnline || (order.customerPhone && order.customerPhone.length > 0) || order.pickupTime);
+                      const isCustomerOrder = Boolean(!order.cashier || order.isOnline || (order.customerPhone && order.customerPhone.length > 0) || order.pickupTime || order.source === 'customer');
+                      const isCustomerUnfinished = isCustomerOrder && order.status !== 'completed' && order.status !== 'deleted';
 
                       return (
                         <div 
                           key={order.id} 
                           style={{ 
                             padding: '14px', 
-                            border: isOnlineOrder ? '2px solid #8b5cf6' : '1px solid var(--border)', 
+                            border: isCustomerOrder ? (isCustomerUnfinished ? '2px solid #8b5cf6' : '1px solid var(--border)') : '1px solid var(--border)', 
                             borderRadius: '10px', 
-                            backgroundColor: isOnlineOrder ? (isReady ? '#f0fdf4' : 'rgba(139, 92, 246, 0.04)') : 'var(--bg-card)',
-                            boxShadow: isOnlineOrder ? '0 4px 12px rgba(139, 92, 246, 0.12)' : 'none',
+                            backgroundColor: isCustomerOrder ? (isCustomerUnfinished ? 'rgba(139, 92, 246, 0.05)' : 'var(--bg-card)') : 'var(--bg-card)',
+                            boxShadow: isCustomerUnfinished ? '0 4px 14px rgba(139, 92, 246, 0.15)' : 'none',
                             position: 'relative',
                             transition: 'all 0.2s ease'
                           }}
@@ -2603,7 +2602,7 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                           {/* Order Header */}
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.85rem', fontWeight: 'bold', borderBottom: '1px solid var(--border)', paddingBottom: '6px', marginBottom: '8px' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                              {isOnlineOrder ? (
+                              {isCustomerOrder ? (
                                 <span style={{
                                   background: 'linear-gradient(135deg, #7c3aed, #a855f7)',
                                   color: 'white',
@@ -2613,7 +2612,7 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                                   fontWeight: '900',
                                   letterSpacing: '0.5px'
                                 }}>
-                                  📱 顧客線上點餐
+                                  📱 顧客點餐單
                                 </span>
                               ) : (
                                 <span style={{
@@ -2628,7 +2627,7 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                                 </span>
                               )}
 
-                              <span style={{ fontSize: '1.05rem', fontWeight: '900', color: isOnlineOrder ? '#7c3aed' : 'var(--text-main)' }}>
+                              <span style={{ fontSize: '1.05rem', fontWeight: '900', color: isCustomerOrder ? '#7c3aed' : 'var(--text-main)' }}>
                                 單號: {order.serialNum}
                               </span>
 
@@ -2644,20 +2643,29 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                               </span>
 
                               {/* Status Tag */}
-                              <span style={{
-                                padding: '3px 8px',
-                                borderRadius: '6px',
-                                fontSize: '0.75rem',
-                                fontWeight: 'bold',
-                                backgroundColor: isPending 
-                                  ? 'rgba(234, 88, 12, 0.12)' 
-                                  : (isReady ? '#10b981' : 'rgba(22, 163, 74, 0.12)'),
-                                color: isPending 
-                                  ? 'var(--primary)' 
-                                  : (isReady ? '#ffffff' : '#16a34a')
-                              }}>
-                                {isPending ? '⏳ 待製作 (處理中)' : (isReady ? '🍜 製作完成 (待取餐)' : '✔ 已完成')}
-                              </span>
+                              {isCustomerOrder ? (
+                                <span style={{
+                                  padding: '3px 8px',
+                                  borderRadius: '6px',
+                                  fontSize: '0.75rem',
+                                  fontWeight: 'bold',
+                                  backgroundColor: isCustomerUnfinished ? 'rgba(234, 88, 12, 0.12)' : 'rgba(22, 163, 74, 0.12)',
+                                  color: isCustomerUnfinished ? 'var(--primary)' : '#16a34a'
+                                }}>
+                                  {isCustomerUnfinished ? '⏳ 處理中 (待出餐)' : '✔ 已完成'}
+                                </span>
+                              ) : (
+                                <span style={{
+                                  padding: '2px 6px',
+                                  borderRadius: '4px',
+                                  fontSize: '0.72rem',
+                                  fontWeight: 'bold',
+                                  backgroundColor: 'rgba(22, 163, 74, 0.12)',
+                                  color: '#16a34a'
+                                }}>
+                                  ✔ 已完成
+                                </span>
+                              )}
                             </div>
 
                             <span style={{ fontSize: '1.05rem', fontWeight: '900', color: 'var(--primary)' }}>
@@ -2666,7 +2674,7 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                           </div>
 
                           {/* Customer Details for Online Orders */}
-                          {isOnlineOrder && (
+                          {isCustomerOrder && (
                             <div style={{
                               backgroundColor: 'rgba(139, 92, 246, 0.08)',
                               borderRadius: '6px',
@@ -2707,90 +2715,32 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '10px', paddingTop: '8px', borderTop: '1px dashed var(--border)' }}>
                             <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
                               下單時間: {order.time || new Date(order.timestamp).toLocaleTimeString('zh-TW', { hour12: false })}
-                              {!isOnlineOrder && order.customerName ? ` (${order.customerName})` : ''}
+                              {!isCustomerOrder && order.customerName ? ` (${order.customerName})` : ''}
                             </div>
 
                             <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                              {/* 🍜 製作完成 Button (Prominent for Online / Pending Orders) */}
-                              {isPending && (
-                                <>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleUpdateOrderStatus(order.id, 'ready')}
-                                    style={{
-                                      padding: '6px 14px',
-                                      fontSize: '0.82rem',
-                                      backgroundColor: '#10b981',
-                                      color: 'white',
-                                      border: 'none',
-                                      borderRadius: '6px',
-                                      cursor: 'pointer',
-                                      fontWeight: '900',
-                                      boxShadow: '0 2px 6px rgba(16, 185, 129, 0.4)',
-                                      display: 'flex',
-                                      alignItems: 'center',
-                                      gap: '4px'
-                                    }}
-                                    title="標記餐點已製作完成，顧客手機端將即時同步顯示取餐通知"
-                                  >
-                                    🍜 製作完成
-                                  </button>
-
-                                  <button
-                                    type="button"
-                                    onClick={() => handleUpdateOrderStatus(order.id, 'completed')}
-                                    style={{
-                                      padding: '6px 10px',
-                                      fontSize: '0.78rem',
-                                      backgroundColor: 'var(--bg-body)',
-                                      color: 'var(--text-main)',
-                                      border: '1px solid var(--border)',
-                                      borderRadius: '6px',
-                                      cursor: 'pointer',
-                                      fontWeight: 'bold'
-                                    }}
-                                    title="直接標記為已完成"
-                                  >
-                                    ✔ 直接完成
-                                  </button>
-                                </>
-                              )}
-
-                              {isReady && (
+                              {/* ONLY Customer Orders show the 【✔ 完成】 button */}
+                              {isCustomerUnfinished && (
                                 <button
                                   type="button"
                                   onClick={() => handleUpdateOrderStatus(order.id, 'completed')}
                                   style={{
-                                    padding: '6px 14px',
-                                    fontSize: '0.82rem',
-                                    backgroundColor: '#2563eb',
+                                    padding: '7px 18px',
+                                    fontSize: '0.88rem',
+                                    backgroundColor: '#10b981',
                                     color: 'white',
                                     border: 'none',
                                     borderRadius: '6px',
                                     cursor: 'pointer',
                                     fontWeight: '900',
-                                    boxShadow: '0 2px 6px rgba(37, 99, 235, 0.3)',
+                                    boxShadow: '0 2px 8px rgba(16, 185, 129, 0.4)',
                                     display: 'flex',
                                     alignItems: 'center',
                                     gap: '4px'
                                   }}
-                                  title="顧客已領取餐點，結案完成訂單"
+                                  title="標記餐點製作完成，顧客手機端將即時同步顯示已完成通知"
                                 >
-                                  ✔ 顧客已取餐 (完成)
-                                </button>
-                              )}
-
-                              {isCompleted && (
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    if (confirm("確定要將此訂單標記為退貨嗎？")) {
-                                      handleUpdateOrderStatus(order.id, 'deleted');
-                                    }
-                                  }}
-                                  style={{ padding: '4px 8px', fontSize: '0.72rem', backgroundColor: 'transparent', color: '#ef4444', border: '1px solid #ef4444', borderRadius: '4px', cursor: 'pointer' }}
-                                >
-                                  退貨
+                                  ✔ 完成
                                 </button>
                               )}
 
@@ -2798,7 +2748,7 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                                 type="button"
                                 onClick={() => handleOpenEditPosOrderModal(order)}
                                 style={{ padding: '5px 10px', fontSize: '0.75rem', backgroundColor: 'rgba(234, 88, 12, 0.08)', color: 'var(--primary)', border: '1px solid var(--primary)', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}
-                                title="編輯已送出訂單內容"
+                                title="編輯訂單內容"
                               >
                                 ✏️ 編輯
                               </button>

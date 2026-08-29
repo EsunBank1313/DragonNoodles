@@ -3,9 +3,9 @@ import React, { useEffect } from 'react';
 export default function OrderTracker({ order, onBackToMenu }) {
   if (!order) return null;
 
-  // Sound and vibration notification when order is ready
+  // Sound and vibration notification when order is completed or ready
   useEffect(() => {
-    if (order.status === 'ready') {
+    if (order.status === 'ready' || order.status === 'completed') {
       try {
         if ('vibrate' in navigator) {
           navigator.vibrate([200, 100, 200, 100, 400]);
@@ -47,10 +47,12 @@ export default function OrderTracker({ order, onBackToMenu }) {
         };
       case 'completed':
         return {
-          title: '✔ 訂單已完成',
-          desc: '感謝您的光臨，祝您用餐愉快！歡迎再次點餐。',
+          title: '🎉 餐點製作完成！',
+          desc: order.type === 'dine-in' 
+            ? '您的餐點已熱騰騰製作完成，服務人員即將為您送上桌！' 
+            : '您的餐點已熱騰騰製作完成！請至櫃檯出示此畫面取餐。',
           step: 3,
-          color: '#16a34a'
+          color: '#10b981'
         };
       case 'received':
       default:
@@ -64,7 +66,7 @@ export default function OrderTracker({ order, onBackToMenu }) {
   };
 
   const statusDetails = getStatusDetails(order.status);
-  const isReady = order.status === 'ready';
+  const isReady = order.status === 'ready' || order.status === 'completed';
 
   return (
     <div className="order-tracker-card" style={{ maxWidth: '460px', margin: '0 auto' }}>

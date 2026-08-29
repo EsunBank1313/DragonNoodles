@@ -608,12 +608,6 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
         const formatted = formatSupabaseOrder(payload.new);
         if (formatted) {
           setAllOrders([formatted]);
-          if (formatted.status === 'completed') {
-            // Clear tracking state once order is completed
-            localStorage.removeItem('active_customer_order_id');
-            setActiveOrderId(null);
-            setViewState('menu');
-          }
         }
       })
       .subscribe();
@@ -621,6 +615,23 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
     return () => {
       supabase.removeChannel(orderChannel);
     };
+  }, [activeOrderId]);
+
+  // Polling fallback to ensure customer screen always syncs status in background
+  useEffect(() => {
+    if (!activeOrderId) return;
+    const interval = setInterval(async () => {
+      try {
+        const { data, error } = await supabase.from('orders').select('*').eq('id', activeOrderId);
+        if (!error && data && data.length > 0) {
+          const formatted = formatSupabaseOrder(data[0]);
+          if (formatted) {
+            setAllOrders([formatted]);
+          }
+        }
+      } catch (e) {}
+    }, 3000);
+    return () => clearInterval(interval);
   }, [activeOrderId]);
 
   // Listen to local storage changes for local variables
@@ -953,6 +964,7 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
       const orderPayload = {
         order_number: serialNum,
         items: {
+          source: 'customer',
           store_code: storeCode,
           cart: cart,
           customerName: tableNumber ? `內用 ${tableNumber} 號桌` : custName,
