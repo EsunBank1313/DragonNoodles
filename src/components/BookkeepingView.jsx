@@ -596,15 +596,15 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
       return;
     }
 
-    // Get system orders on auditDate
+    // Get completed orders on auditDate (Identical to top summary calculation)
     const dateOrders = orders.filter(o => {
-      const d = o.timestamp ? new Date(o.timestamp).toLocaleDateString('en-CA') : (o.time ? o.time.slice(0, 10) : '');
-      return d === auditDate;
+      const orderDate = new Date(o.timestamp).toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' });
+      return (o.status === 'completed' || o.status === 'received') && orderDate === auditDate;
     });
     const manualForDate = Number(manualRevenues[auditDate] || 0);
     const dateTotalRev = dateOrders.reduce((sum, o) => sum + (Number(o.total) || 0), 0) + manualForDate;
-    const dateCashRev = dateOrders.filter(o => !o.paymentMethod || o.paymentMethod === 'cash').reduce((sum, o) => sum + (Number(o.total) || 0), 0) + manualForDate;
-    const dateOnlineRev = dateOrders.filter(o => o.paymentMethod && o.paymentMethod !== 'cash').reduce((sum, o) => sum + (Number(o.total) || 0), 0);
+    const dateOnlineRev = dateOrders.filter(o => o.paymentMethod === 'online').reduce((sum, o) => sum + (Number(o.total) || 0), 0);
+    const dateCashRev = dateTotalRev - dateOnlineRev;
 
     const counted = Number(auditCountedCash || 0);
     const floatVal = Number(auditDrawerFloat || 0);
@@ -3384,12 +3384,16 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                 {/* Daily Cash Audit Quick Status Card */}
                 {(() => {
                   const selectedAudit = cashAudits.find(a => a.date === selectedBookkeepingDate);
+                  // Live difference calculation against live cashRevenue to ensure 100% match with top cards
+                  const liveSysCash = cashRevenue;
+                  const liveDiff = selectedAudit ? (selectedAudit.netActualCash - liveSysCash) : null;
+
                   return (
                     <div style={{
                       padding: '12px 16px',
                       borderRadius: '8px',
-                      backgroundColor: selectedAudit ? (selectedAudit.difference === 0 ? 'rgba(16, 185, 129, 0.08)' : (selectedAudit.difference > 0 ? 'rgba(59, 130, 246, 0.08)' : 'rgba(239, 68, 68, 0.08)')) : 'rgba(234, 88, 12, 0.08)',
-                      border: selectedAudit ? (selectedAudit.difference === 0 ? '1px solid #10b981' : (selectedAudit.difference > 0 ? '1px solid #3b82f6' : '1px solid #ef4444')) : '1px dashed #ea580c',
+                      backgroundColor: selectedAudit ? (liveDiff === 0 ? 'rgba(16, 185, 129, 0.08)' : (liveDiff > 0 ? 'rgba(59, 130, 246, 0.08)' : 'rgba(239, 68, 68, 0.08)')) : 'rgba(234, 88, 12, 0.08)',
+                      border: selectedAudit ? (liveDiff === 0 ? '1px solid #10b981' : (liveDiff > 0 ? '1px solid #3b82f6' : '1px solid #ef4444')) : '1px dashed #ea580c',
                       marginBottom: '16px',
                       display: 'flex',
                       justifyContent: 'space-between',
@@ -3402,22 +3406,22 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                         <strong style={{ color: 'var(--text-main)' }}>當日實收現金盤點：</strong>
                         {selectedAudit ? (
                           <span>
-                            實收 <strong style={{ color: '#059669' }}>NT$ {selectedAudit.netActualCash.toLocaleString()}</strong> / 系統現金 NT$ {selectedAudit.systemCashRevenue.toLocaleString()}
+                            實收 <strong style={{ color: '#059669' }}>NT$ {selectedAudit.netActualCash.toLocaleString()}</strong> / 系統現金 <strong style={{ color: 'var(--primary)' }}>NT$ {liveSysCash.toLocaleString()}</strong>
                             <span style={{
                               marginLeft: '8px',
                               padding: '2px 6px',
                               borderRadius: '4px',
                               fontWeight: 'bold',
                               fontSize: '0.75rem',
-                              backgroundColor: selectedAudit.difference === 0 ? '#10b981' : (selectedAudit.difference > 0 ? '#2563eb' : '#ef4444'),
+                              backgroundColor: liveDiff === 0 ? '#10b981' : (liveDiff > 0 ? '#2563eb' : '#ef4444'),
                               color: 'white'
                             }}>
-                              {selectedAudit.difference === 0 ? '✓ 帳實相符' : (selectedAudit.difference > 0 ? `+NT$ ${selectedAudit.difference.toLocaleString()} (溢收)` : `-NT$ ${Math.abs(selectedAudit.difference).toLocaleString()} (短少)`)}
+                              {liveDiff === 0 ? '✓ 帳實相符' : (liveDiff > 0 ? `+NT$ ${liveDiff.toLocaleString()} (溢收)` : `-NT$ ${Math.abs(liveDiff).toLocaleString()} (短少)`)}
                             </span>
                           </span>
                         ) : (
                           <span style={{ color: '#ea580c', fontWeight: 'bold' }}>
-                            ⚠️ 該日尚未輸入實收現金盤點
+                            ⚠️ 該日尚未輸入實收現金盤點 (系統現金營收: NT$ {liveSysCash.toLocaleString()})
                           </span>
                         )}
                       </div>
@@ -5999,13 +6003,13 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
       {/* 💵 Cash Audit Entry & Calculation Modal */}
       {showCashAuditModal && (() => {
         const targetOrders = orders.filter(o => {
-          const d = o.timestamp ? new Date(o.timestamp).toLocaleDateString('en-CA') : (o.time ? o.time.slice(0, 10) : '');
-          return d === auditDate;
+          const orderDate = new Date(o.timestamp).toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' });
+          return (o.status === 'completed' || o.status === 'received') && orderDate === auditDate;
         });
         const manualForTarget = Number(manualRevenues[auditDate] || 0);
         const sysTotalRev = targetOrders.reduce((sum, o) => sum + (Number(o.total) || 0), 0) + manualForTarget;
-        const sysCashRev = targetOrders.filter(o => !o.paymentMethod || o.paymentMethod === 'cash').reduce((sum, o) => sum + (Number(o.total) || 0), 0) + manualForTarget;
-        const sysOnlineRev = targetOrders.filter(o => o.paymentMethod && o.paymentMethod !== 'cash').reduce((sum, o) => sum + (Number(o.total) || 0), 0);
+        const sysOnlineRev = targetOrders.filter(o => o.paymentMethod === 'online').reduce((sum, o) => sum + (Number(o.total) || 0), 0);
+        const sysCashRev = sysTotalRev - sysOnlineRev;
 
         const counted = Number(auditCountedCash || 0);
         const floatVal = Number(auditDrawerFloat || 0);

@@ -1450,6 +1450,41 @@ const handleSaveGlobalAddons = async (newAddons) => {
     }
   };
 
+  // Mobile & Desktop Image Compressor (Fast & lightweight JPEG under 80KB)
+  const processImageFile = (file) => {
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      alert("請選擇圖片檔案 (JPG, PNG, WebP等)！");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let w = img.width;
+        let h = img.height;
+        const max = 640;
+        if (w > h) {
+          if (w > max) { h = Math.round(h * (max / w)); w = max; }
+        } else {
+          if (h > max) { w = Math.round(w * (max / h)); h = max; }
+        }
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, w, h);
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+        setProdImage(dataUrl);
+      };
+      img.onerror = () => {
+        alert("讀取圖片失敗，請重試或選擇其他圖片！");
+      };
+      img.src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+  };
+
   // Save product details to Supabase
   const handleSaveProduct = async (e) => {
     e.preventDefault();
@@ -2477,121 +2512,160 @@ const handleSaveGlobalAddons = async (newAddons) => {
                     </div>
                   </div>
                   
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                    <label style={{ fontSize: '0.75rem', fontWeight: 'bold' }}>商品圖片</label>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <label style={{ fontSize: '0.8rem', fontWeight: 'bold', color: 'var(--text-main)' }}>
+                      🖼️ 商品照片 (支援手機相簿 / 拍照 / 電腦上傳)
+                    </label>
+
                     <div 
                       onDragOver={(e) => e.preventDefault()}
                       onDrop={(e) => {
                         e.preventDefault();
                         const file = e.dataTransfer.files?.[0];
-                        if (file) {
-                          const reader = new FileReader();
-                          reader.onload = (ev) => {
-                            const img = new Image();
-                            img.onload = () => {
-                              const canvas = document.createElement('canvas');
-                              let w = img.width;
-                              let h = img.height;
-                              const max = 320;
-                              if (w > h) {
-                                if (w > max) { h *= max / w; w = max; }
-                              } else {
-                                if (h > max) { w *= max / h; h = max; }
-                              }
-                              canvas.width = w;
-                              canvas.height = h;
-                              const ctx = canvas.getContext('2d');
-                              ctx.drawImage(img, 0, 0, w, h);
-                              setProdImage(canvas.toDataURL('image/jpeg', 0.85));
-                            };
-                            img.src = ev.target.result;
-                          };
-                          reader.readAsDataURL(file);
-                        }
+                        if (file) processImageFile(file);
                       }}
                       style={{
                         border: '2px dashed var(--border)',
-                        borderRadius: '8px',
+                        borderRadius: '10px',
                         padding: '16px',
                         textAlign: 'center',
                         backgroundColor: 'var(--bg-body)',
-                        cursor: 'pointer',
                         display: 'flex',
                         flexDirection: 'column',
                         alignItems: 'center',
-                        gap: '8px'
+                        gap: '12px'
                       }}
                     >
+                      {/* Image Preview or Placeholder */}
                       {prodImage ? (
-                        <div style={{ position: 'relative' }}>
-                          <img src={prodImage} alt="Preview" style={{ width: '80px', height: '80px', objectFit: 'cover', borderRadius: '6px' }} />
+                        <div style={{ position: 'relative', display: 'inline-block' }}>
+                          <img 
+                            src={prodImage} 
+                            alt="商品照片預覽" 
+                            style={{ 
+                              width: '120px', 
+                              height: '120px', 
+                              objectFit: 'cover', 
+                              borderRadius: '10px',
+                              border: '2px solid var(--primary)',
+                              boxShadow: 'var(--shadow-md)'
+                            }} 
+                          />
                           <button 
                             type="button" 
                             onClick={() => setProdImage('')}
+                            title="刪除/重新選取"
                             style={{
-                              position: 'absolute', top: '-6px', right: '-6px', backgroundColor: '#ef4444', color: 'white',
-                              border: 'none', borderRadius: '50%', width: '18px', height: '18px', display: 'flex',
-                              alignItems: 'center', justifyContent: 'center', fontSize: '10px', cursor: 'pointer'
+                              position: 'absolute', 
+                              top: '-8px', 
+                              right: '-8px', 
+                              backgroundColor: '#ef4444', 
+                              color: 'white',
+                              border: '2px solid white', 
+                              borderRadius: '50%', 
+                              width: '24px', 
+                              height: '24px', 
+                              display: 'flex',
+                              alignItems: 'center', 
+                              justifyContent: 'center', 
+                              fontSize: '12px', 
+                              cursor: 'pointer',
+                              fontWeight: 'bold',
+                              boxShadow: '0 2px 4px rgba(0,0,0,0.3)'
                             }}
                           >
-                            &times;
+                            ✕
                           </button>
                         </div>
                       ) : (
-                        <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>拖曳圖片至此處 (Drag & Drop)</span>
+                        <div style={{ padding: '8px 0', color: 'var(--text-muted)', fontSize: '0.82rem' }}>
+                          📸 尚未設定商品照片，請點選下方按鈕從手機相簿選取或拍照
+                        </div>
                       )}
-                      
-                      <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginTop: '4px' }}>
+
+                      {/* Mobile & Desktop Action Buttons */}
+                      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'center', width: '100%' }}>
+                        {/* Native Album Picker (Mobile & Desktop) */}
                         <label 
                           style={{
-                            padding: '6px 12px', fontSize: '0.75rem', backgroundColor: 'var(--primary)', color: 'white',
-                            borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold'
+                            padding: '8px 14px',
+                            fontSize: '0.82rem',
+                            backgroundColor: 'var(--primary)',
+                            color: 'white',
+                            borderRadius: '8px',
+                            cursor: 'pointer',
+                            fontWeight: 'bold',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            boxShadow: '0 2px 6px rgba(234, 88, 12, 0.25)'
                           }}
                         >
-                          📁 瀏覽電腦檔案
+                          📱 選擇手機相簿 / 照片
                           <input 
                             type="file" 
                             accept="image/*" 
                             onChange={(e) => {
                               const file = e.target.files?.[0];
-                              if (file) {
-                                const reader = new FileReader();
-                                reader.onload = (ev) => {
-                                  const img = new Image();
-                                  img.onload = () => {
-                                    const canvas = document.createElement('canvas');
-                                    let w = img.width;
-                                    let h = img.height;
-                                    const max = 320;
-                                    if (w > h) {
-                                      if (w > max) { h *= max / w; w = max; }
-                                    } else {
-                                      if (h > max) { w *= max / h; h = max; }
-                                    }
-                                    canvas.width = w;
-                                    canvas.height = h;
-                                    const ctx = canvas.getContext('2d');
-                                    ctx.drawImage(img, 0, 0, w, h);
-                                    setProdImage(canvas.toDataURL('image/jpeg', 0.85));
-                                  };
-                                  img.src = ev.target.result;
-                                };
-                                reader.readAsDataURL(file);
-                              }
+                              if (file) processImageFile(file);
+                              e.target.value = '';
                             }} 
                             style={{ display: 'none' }} 
                           />
                         </label>
-                        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>或直接輸入圖片網址：</span>
+
+                        {/* Direct Camera Capture (Mobile) */}
+                        <label 
+                          style={{
+                            padding: '8px 14px',
+                            fontSize: '0.82rem',
+                            backgroundColor: '#10b981',
+                            color: 'white',
+                            borderRadius: '8px',
+                            cursor: 'pointer',
+                            fontWeight: 'bold',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            boxShadow: '0 2px 6px rgba(16, 185, 129, 0.25)'
+                          }}
+                        >
+                          📷 手機直接拍照
+                          <input 
+                            type="file" 
+                            accept="image/*" 
+                            capture="environment"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) processImageFile(file);
+                              e.target.value = '';
+                            }} 
+                            style={{ display: 'none' }} 
+                          />
+                        </label>
                       </div>
-                      
-                      <input 
-                        type="text" 
-                        placeholder="可貼上圖片連結網址..."
-                        value={prodImage.startsWith('data:') ? '(已選擇上傳本地檔案)' : prodImage} 
-                        onChange={(e) => setProdImage(e.target.value)} 
-                        style={{ padding: '6px 10px', fontSize: '0.8rem', borderRadius: '4px', border: '1px solid var(--border)', width: '100%', color: 'var(--text-main)', backgroundColor: 'var(--bg-card)' }} 
-                      />
+
+                      {/* Web URL / Custom Link Input */}
+                      <div style={{ width: '100%', marginTop: '2px', borderTop: '1px dashed var(--border)', paddingTop: '10px' }}>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '4px', textAlign: 'left' }}>
+                          🔗 或貼上網路圖片網址 (URL)：
+                        </div>
+                        <input 
+                          type="text" 
+                          placeholder="例如: https://images.unsplash.com/..."
+                          value={prodImage.startsWith('data:') ? '(已選取手機/本機照片)' : prodImage} 
+                          onChange={(e) => setProdImage(e.target.value)} 
+                          style={{ 
+                            padding: '8px 10px', 
+                            fontSize: '0.82rem', 
+                            borderRadius: '6px', 
+                            border: '1px solid var(--border)', 
+                            width: '100%', 
+                            color: 'var(--text-main)', 
+                            backgroundColor: 'var(--bg-card)' 
+                          }} 
+                        />
+                      </div>
                     </div>
                   </div>
 
