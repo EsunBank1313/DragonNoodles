@@ -426,9 +426,15 @@ const [closedDates, setClosedDates] = useState(() => {
   const [prodDescription, setProdDescription] = useState('');
   const [prodAvailable, setProdAvailable] = useState(true);
   const [hasSizeVariants, setHasSizeVariants] = useState(false);
-  const [prodSizes, setProdSizes] = useState([
-    { label: '小碗', priceChange: 0 },
-    { label: '大碗', priceChange: 15 }
+  const [prodSpecGroups, setProdSpecGroups] = useState([
+    {
+      id: 'size',
+      title: '份量大小',
+      options: [
+        { label: '小碗', priceChange: 0 },
+        { label: '大碗', priceChange: 15 }
+      ]
+    }
   ]);
   // Staff list states (點名 / roster)
   const [staffList, setStaffList] = useState([]);
@@ -1468,27 +1474,33 @@ const handleSaveGlobalAddons = async (newAddons) => {
     existingCust.is_available = prodAvailable;
     existingCust.is_published = prodPublished;
 
-    // Handle Size Variants
-    if (hasSizeVariants && prodSizes.length > 0) {
-      const validSizes = prodSizes
-        .filter(s => s.label.trim())
-        .map(s => ({
-          label: s.label.trim(),
-          priceChange: Number(s.priceChange) || 0
-        }));
-
-      if (validSizes.length > 0) {
-        existingCust.size = {
-          type: 'radio',
-          name: '份量大小',
-          default: validSizes[0].label,
-          options: validSizes
-        };
-      } else {
-        delete existingCust.size;
+    // Clean up old radio custom groups
+    Object.keys(existingCust).forEach(k => {
+      if (existingCust[k] && existingCust[k].type === 'radio') {
+        delete existingCust[k];
       }
-    } else {
-      delete existingCust.size;
+    });
+
+    // Handle Multi-Group Specifications (e.g. Size, Noodle type, Spiciness, etc.)
+    if (hasSizeVariants && prodSpecGroups.length > 0) {
+      prodSpecGroups.forEach((grp, gIdx) => {
+        const validOpts = (grp.options || [])
+          .filter(s => s.label && s.label.trim())
+          .map(s => ({
+            label: s.label.trim(),
+            priceChange: Number(s.priceChange) || 0
+          }));
+
+        if (validOpts.length > 0) {
+          const groupKey = grp.id || (gIdx === 0 && grp.title === '份量大小' ? 'size' : `spec_${Date.now()}_${gIdx}`);
+          existingCust[groupKey] = {
+            type: 'radio',
+            name: grp.title ? grp.title.trim() : '規格選項',
+            default: validOpts[0].label,
+            options: validOpts
+          };
+        }
+      });
     }
 
     // Attach global addons & condiments if category is mee-sua or food
@@ -2376,17 +2388,36 @@ const handleSaveGlobalAddons = async (newAddons) => {
                               setProdPublished(item.customizations?.is_published !== false);
                               setCanUpgradeCombo(item.customizations?.can_upgrade_combo !== false);
 
-                              if (item.customizations?.size?.options && Array.isArray(item.customizations.size.options) && item.customizations.size.options.length > 0) {
+                              const specGroups = [];
+                              if (item.customizations) {
+                                Object.entries(item.customizations).forEach(([key, val]) => {
+                                  if (val && val.type === 'radio' && Array.isArray(val.options)) {
+                                    specGroups.push({
+                                      id: key,
+                                      title: val.name || val.title || (key === 'size' ? '份量大小' : '自訂規格'),
+                                      options: val.options.map(opt => ({
+                                        label: opt.label || opt.name || '',
+                                        priceChange: Number(opt.priceChange) || 0
+                                      }))
+                                    });
+                                  }
+                                });
+                              }
+
+                              if (specGroups.length > 0) {
                                 setHasSizeVariants(true);
-                                setProdSizes(item.customizations.size.options.map(opt => ({
-                                  label: opt.label || '',
-                                  priceChange: Number(opt.priceChange) || 0
-                                })));
+                                setProdSpecGroups(specGroups);
                               } else {
                                 setHasSizeVariants(false);
-                                setProdSizes([
-                                  { label: '小碗', priceChange: 0 },
-                                  { label: '大碗', priceChange: 15 }
+                                setProdSpecGroups([
+                                  {
+                                    id: 'size',
+                                    title: '份量大小',
+                                    options: [
+                                      { label: '小碗', priceChange: 0 },
+                                      { label: '大碗', priceChange: 15 }
+                                    ]
+                                  }
                                 ]);
                               }
                             }}

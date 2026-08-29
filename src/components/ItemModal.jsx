@@ -201,15 +201,18 @@ export default function ItemModal({
 
     const specs = [];
 
-    // 1. Radio specs (Size / Temperature)
+    // 1. Radio specs (Size / Noodle / Temperature / Custom Options)
     if (item.customizations) {
       Object.entries(item.customizations).forEach(([key, customGroup]) => {
         if (customGroup && customGroup.type === 'radio') {
           const groupTitle = customGroup.title || customGroup.name || customGroup.label || '';
-          if (groupTitle && groupTitle !== '份量' && groupTitle !== '份量大小' && groupTitle !== '規格' && groupTitle !== '尺寸') {
-            specs.push(`${groupTitle}: ${selectedRadioOptions[key]}`);
-          } else {
-            specs.push(`${selectedRadioOptions[key]}`);
+          const chosen = selectedRadioOptions[key] || customGroup.default || (customGroup.options && customGroup.options[0]?.label) || '';
+          if (chosen) {
+            if (groupTitle && groupTitle !== '份量' && groupTitle !== '份量大小' && groupTitle !== '規格' && groupTitle !== '尺寸') {
+              specs.push(`${groupTitle}: ${chosen}`);
+            } else {
+              specs.push(`${chosen}`);
+            }
           }
         } else if (customGroup && customGroup.type === 'selects') {
           if (isPos) return;
