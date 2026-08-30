@@ -142,6 +142,7 @@ const plainMeeSuaCustomizations = {
     ],
     default: '小碗'
   },
+  addons: standardMeeSuaCustomizations.addons,
   condiments: standardMeeSuaCustomizations.condiments
 };
 
