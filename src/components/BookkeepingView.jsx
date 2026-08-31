@@ -1615,7 +1615,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
           <tbody>
             ${(() => {
               const activeReportMonths = Array.from(new Set(targetReports.map(r => r.month.slice(0, 7))));
-              return batchYieldTemplates.map(tmpl => {
+              return (batchYieldTemplates || []).map(tmpl => {
                 let bigBowl = 0;
                 let smallBowl = 0;
                 let tmplRev = 0;
@@ -2868,6 +2868,105 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
       alert(`${date} 的手動登錄人工營業額已成功清除！`);
     } catch (err) {
       alert("同步雲端失敗（已於本機清除）：" + err.message);
+    }
+  };
+
+  // 🍲 Batch Yield Helper Functions
+  const saveBatchTemplatesToCloud = async (templates) => {
+    try {
+      const tmplKey = prefixNameForStore('SYSTEM_SETTING_BATCH_YIELD_TEMPLATES', storeCode);
+      const { data: exist } = await supabase.from('menu_items').select('*').eq('name', tmplKey);
+      if (exist && exist.length > 0) {
+        await supabase.from('menu_items').update({ description: JSON.stringify(templates) }).eq('name', tmplKey);
+      } else {
+        await supabase.from('menu_items').insert([{ name: tmplKey, price: 0, category: 'settings', description: JSON.stringify(templates) }]);
+      }
+    } catch (e) {
+      console.error("Failed to save batch templates to cloud:", e);
+    }
+  };
+
+  const saveMonthlyBatchLogsToCloud = async (logs) => {
+    try {
+      const logsKey = prefixNameForStore('SYSTEM_SETTING_MONTHLY_BATCH_LOGS', storeCode);
+      const { data: exist } = await supabase.from('menu_items').select('*').eq('name', logsKey);
+      if (exist && exist.length > 0) {
+        await supabase.from('menu_items').update({ description: JSON.stringify(logs) }).eq('name', logsKey);
+      } else {
+        await supabase.from('menu_items').insert([{ name: logsKey, price: 0, category: 'settings', description: JSON.stringify(logs) }]);
+      }
+    } catch (e) {
+      console.error("Failed to save monthly batch logs to cloud:", e);
+    }
+  };
+
+  const handleSaveBatchLog = (e) => {
+    e.preventDefault();
+    const count = Number(batchLogCount) || 0;
+    if (count <= 0) {
+      alert("請輸入有效的製作數量（大於 0 的鍋數/桶數）！");
+      return;
+    }
+    const currentLogs = monthlyBatchLogs || {};
+    const updated = {
+      ...currentLogs,
+      [batchLogMonth]: {
+        ...(currentLogs[batchLogMonth] || {}),
+        [batchLogTemplateId]: count,
+        [`${batchLogTemplateId}_cost`]: Number(batchLogCost) || 0,
+        [`${batchLogTemplateId}_notes`]: (batchLogNotes || '').trim()
+      }
+    };
+    setMonthlyBatchLogs(updated);
+    localStorage.setItem(`${storeCode}_restaurant_monthly_batch_logs`, JSON.stringify(updated));
+    saveMonthlyBatchLogsToCloud(updated);
+    setShowBatchLogModal(false);
+    alert(`🎉 成功儲存 ${batchLogMonth} 月份製作量：${count} 鍋/桶！`);
+  };
+
+  const handleSaveBatchTemplate = (e) => {
+    e.preventDefault();
+    if (!tmplName || !tmplName.trim()) {
+      alert("請輸入物料名稱！");
+      return;
+    }
+    const newTmpl = {
+      id: editingBatchTemplate ? editingBatchTemplate.id : ('tmpl_' + Date.now()),
+      name: tmplName.trim(),
+      batchUnit: (tmplUnit || '').trim() || '大鍋',
+      category: (tmplCat || '').trim() || 'mee-sua',
+      portionSpecs: [
+        { label: (tmplSmallLabel || '').trim() || '小碗', weight: 1.0, isBase: true },
+        { label: (tmplBigLabel || '').trim() || '大碗', weight: Number(tmplBigWeight) || 1.35, isBase: false }
+      ],
+      expectedPortions: Number(tmplExpectedPortions) || 40,
+      batchCost: Number(tmplCost) || 0,
+      note: (tmplNote || '').trim()
+    };
+
+    const currentTmpls = batchYieldTemplates || [];
+    let updated = [];
+    if (editingBatchTemplate) {
+      updated = currentTmpls.map(t => t.id === editingBatchTemplate.id ? newTmpl : t);
+    } else {
+      updated = [...currentTmpls, newTmpl];
+    }
+
+    setBatchYieldTemplates(updated);
+    localStorage.setItem(`${storeCode}_restaurant_batch_templates`, JSON.stringify(updated));
+    saveBatchTemplatesToCloud(updated);
+    setShowBatchTemplateModal(false);
+    setEditingBatchTemplate(null);
+    alert("🎉 大單位物料模板儲存成功！");
+  };
+
+  const handleDeleteBatchTemplate = (id, name) => {
+    if (window.confirm(`確定要刪除大單位模板「${name}」嗎？`)) {
+      const currentTmpls = batchYieldTemplates || [];
+      const updated = currentTmpls.filter(t => t.id !== id);
+      setBatchYieldTemplates(updated);
+      localStorage.setItem(`${storeCode}_restaurant_batch_templates`, JSON.stringify(updated));
+      saveBatchTemplatesToCloud(updated);
     }
   };
 
@@ -4673,12 +4772,12 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                           onClick={() => {
                             const currentYM = reportRangeType === 'thisMonth' ? getTodayLocalDate().slice(0, 7) : (targetReports.length > 0 ? targetReports[0].month.slice(0, 7) : getTodayLocalDate().slice(0, 7));
                             setBatchLogMonth(currentYM);
-                            setBatchLogTemplateId(batchYieldTemplates[0]?.id || 'mee-sua');
-                            const existingCount = monthlyBatchLogs[currentYM]?.[batchYieldTemplates[0]?.id || 'mee-sua'] || '';
-                            const existingCost = monthlyBatchLogs[currentYM]?.[(batchYieldTemplates[0]?.id || 'mee-sua') + '_cost'] || batchYieldTemplates[0]?.batchCost || '350';
+                            setBatchLogTemplateId((batchYieldTemplates && batchYieldTemplates[0] ? batchYieldTemplates[0].id : "mee-sua") || 'mee-sua');
+                            const existingCount = monthlyBatchLogs[currentYM]?.[(batchYieldTemplates && batchYieldTemplates[0] ? batchYieldTemplates[0].id : "mee-sua") || 'mee-sua'] || '';
+                            const existingCost = monthlyBatchLogs[currentYM]?.[((batchYieldTemplates && batchYieldTemplates[0] ? batchYieldTemplates[0].id : "mee-sua") || 'mee-sua') + '_cost'] || batchYieldTemplates[0]?.batchCost || '350';
                             setBatchLogCount(existingCount ? String(existingCount) : '');
                             setBatchLogCost(String(existingCost));
-                            setBatchLogNotes(monthlyBatchLogs[currentYM]?.[(batchYieldTemplates[0]?.id || 'mee-sua') + '_notes'] || '');
+                            setBatchLogNotes(monthlyBatchLogs[currentYM]?.[((batchYieldTemplates && batchYieldTemplates[0] ? batchYieldTemplates[0].id : "mee-sua") || 'mee-sua') + '_notes'] || '');
                             setShowBatchLogModal(true);
                           }}
                           style={{
@@ -4734,7 +4833,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                     </div>
 
                     {/* Template Analytics List */}
-                    {batchYieldTemplates.map(tmpl => {
+                    {(batchYieldTemplates || []).map(tmpl => {
                       // 1. Gather all sales of this template category within the target date range
                       const periodOrders = orders.filter(o => {
                         if (o.status !== 'completed' && o.status !== 'received') return false;
@@ -6092,12 +6191,12 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                     setBatchLogTemplateId(tid);
                     const existing = monthlyBatchLogs[batchLogMonth]?.[tid] || '';
                     setBatchLogCount(existing ? String(existing) : '');
-                    const matched = batchYieldTemplates.find(t => t.id === tid);
+                    const matched = (batchYieldTemplates || []).find(t => t.id === tid);
                     if (matched) setBatchLogCost(String(matched.batchCost || 350));
                   }}
                   style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-input)', color: 'var(--text-main)', fontSize: '0.9rem' }}
                 >
-                  {batchYieldTemplates.map(t => (
+                  {(batchYieldTemplates || []).map(t => (
                     <option key={t.id} value={t.id}>{t.name} (單位: {t.batchUnit})</option>
                   ))}
                 </select>
@@ -6119,7 +6218,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                     style={{ flex: 1, padding: '10px 12px', borderRadius: '8px', border: '2px solid var(--primary)', backgroundColor: 'var(--bg-input)', color: 'var(--text-main)', fontSize: '1.1rem', fontWeight: 'bold' }}
                   />
                   <span style={{ fontSize: '1rem', fontWeight: 'bold', color: 'var(--text-main)' }}>
-                    {batchYieldTemplates.find(t => t.id === batchLogTemplateId)?.batchUnit || '大鍋'}
+                    {(batchYieldTemplates || []).find(t => t.id === batchLogTemplateId)?.batchUnit || '大鍋'}
                   </span>
                 </div>
               </div>
