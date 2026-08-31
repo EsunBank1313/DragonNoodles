@@ -1,0 +1,90 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 520" width="100%" height="100%" style="background:#0f172a; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+  <defs>
+    <linearGradient id="cloudGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1e293b"/>
+      <stop offset="100%" stop-color="#0f172a"/>
+    </linearGradient>
+    <linearGradient id="supaGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#10b981"/>
+      <stop offset="100%" stop-color="#059669"/>
+    </linearGradient>
+    <linearGradient id="vercelGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#3b82f6"/>
+      <stop offset="100%" stop-color="#1d4ed8"/>
+    </linearGradient>
+    <filter id="shadow" x="-5%" y="-5%" width="110%" height="115%">
+      <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#000" flood-opacity="0.4"/>
+    </filter>
+  </defs>
+
+  <!-- Title -->
+  <text x="450" y="45" fill="#f8fafc" font-size="24" font-weight="900" text-anchor="middle" letter-spacing="1">🗺️ 智慧餐飲 POS 與雲端 ERP 系統整體架構圖</text>
+  <text x="450" y="70" fill="#94a3b8" font-size="13" text-anchor="middle">全自動雲端資料庫串接 ‧ 零伺服器維護 ‧ 多終端即時同步</text>
+
+  <!-- Cloud Services Box -->
+  <rect x="40" y="95" width="820" height="150" rx="16" fill="url(#cloudGrad)" stroke="#334155" stroke-width="2" filter="url(#shadow)"/>
+  <text x="60" y="125" fill="#38bdf8" font-size="15" font-weight="bold">☁️ 雲端服務託管層 (Cloud Infrastructure)</text>
+
+  <!-- Supabase Card -->
+  <rect x="70" y="140" width="360" height="85" rx="12" fill="url(#supaGrad)" filter="url(#shadow)"/>
+  <text x="90" y="172" fill="#ffffff" font-size="18" font-weight="900">🗄️ Supabase 雲端資料庫</text>
+  <text x="90" y="195" fill="#d1fae5" font-size="13">訂單存取 ‧ 菜單同步 ‧ 庫存進貨 ‧ 記帳損益 ‧ WebSocket</text>
+  <rect x="340" y="152" width="70" height="24" rx="12" fill="#ffffff" fill-opacity="0.2"/>
+  <text x="375" y="168" fill="#ffffff" font-size="11" font-weight="bold" text-anchor="middle">即時推播</text>
+
+  <!-- Vercel Card -->
+  <rect x="470" y="140" width="360" height="85" rx="12" fill="url(#vercelGrad)" filter="url(#shadow)"/>
+  <text x="490" y="172" fill="#ffffff" font-size="18" font-weight="900">⚡ Vercel 前端伺服器託管</text>
+  <text x="490" y="195" fill="#dbeafe" font-size="13">全球邊緣 CDN ‧ 自動 SSL 憑證 ‧ GitHub 連動一鍵更新</text>
+  <rect x="740" y="152" width="70" height="24" rx="12" fill="#ffffff" fill-opacity="0.2"/>
+  <text x="775" y="168" fill="#ffffff" font-size="11" font-weight="bold" text-anchor="middle">極速上線</text>
+
+  <!-- Connecting Line / Arrows -->
+  <path d="M 250 245 L 250 280" stroke="#10b981" stroke-width="3" stroke-dasharray="6,4"/>
+  <path d="M 650 245 L 650 280" stroke="#3b82f6" stroke-width="3" stroke-dasharray="6,4"/>
+
+  <!-- Client Devices Row -->
+  <!-- 1. Customer Phone -->
+  <rect x="40" y="280" width="185" height="200" rx="14" fill="#1e293b" stroke="#2563eb" stroke-width="2" filter="url(#shadow)"/>
+  <rect x="55" y="295" width="40" height="40" rx="8" fill="#2563eb"/>
+  <text x="75" y="322" fill="#fff" font-size="20" text-anchor="middle">📱</text>
+  <text x="105" y="315" fill="#f8fafc" font-size="15" font-weight="bold">顧客點餐</text>
+  <text x="105" y="330" fill="#94a3b8" font-size="11">掃碼即點 免裝App</text>
+  <text x="55" y="365" fill="#cbd5e1" font-size="12">• 桌貼 QR 內用掃碼</text>
+  <text x="55" y="390" fill="#cbd5e1" font-size="12">• 外帶線上提前預點</text>
+  <text x="55" y="415" fill="#cbd5e1" font-size="12">• 自選加料 / 調料客製</text>
+  <text x="55" y="440" fill="#38bdf8" font-size="12" font-weight="bold">🔔 取餐推播 + 響鈴震動</text>
+
+  <!-- 2. POS Cashier -->
+  <rect x="250" y="280" width="185" height="200" rx="14" fill="#1e293b" stroke="#ea580c" stroke-width="2" filter="url(#shadow)"/>
+  <rect x="265" y="295" width="40" height="40" rx="8" fill="#ea580c"/>
+  <text x="285" y="322" fill="#fff" font-size="20" text-anchor="middle">🖥️</text>
+  <text x="315" y="315" fill="#f8fafc" font-size="15" font-weight="bold">POS 櫃檯收銀</text>
+  <text x="315" y="330" fill="#94a3b8" font-size="11">現場送單即完成</text>
+  <text x="265" y="365" fill="#cbd5e1" font-size="12">• 現場點單送出即結單</text>
+  <text x="265" y="390" fill="#cbd5e1" font-size="12">• 顧客單專屬【✔ 完成】</text>
+  <text x="265" y="415" fill="#cbd5e1" font-size="12">• 58/80mm 出單機列印</text>
+  <text x="265" y="440" fill="#fb923c" font-size="12" font-weight="bold">🖨️ 支援熱感小票/廚房單</text>
+
+  <!-- 3. Bookkeeping -->
+  <rect x="460" y="280" width="185" height="200" rx="14" fill="#1e293b" stroke="#8b5cf6" stroke-width="2" filter="url(#shadow)"/>
+  <rect x="475" y="295" width="40" height="40" rx="8" fill="#8b5cf6"/>
+  <text x="495" y="322" fill="#fff" font-size="20" text-anchor="middle">📊</text>
+  <text x="525" y="315" fill="#f8fafc" font-size="15" font-weight="bold">財務記帳盤點</text>
+  <text x="525" y="330" fill="#94a3b8" font-size="11">對帳 / 抽屜現金</text>
+  <text x="475" y="365" fill="#cbd5e1" font-size="12">• 每日即時營業額流水</text>
+  <text x="475" y="390" fill="#cbd5e1" font-size="12">• 抽屜零錢盤點計算機</text>
+  <text x="475" y="415" fill="#cbd5e1" font-size="12">• 一鍋麵線產能效益分析</text>
+  <text x="475" y="440" fill="#c084fc" font-size="12" font-weight="bold">🍲 一鍋賣幾碗精確拆解</text>
+
+  <!-- 4. Menu Management -->
+  <rect x="670" y="280" width="190" height="200" rx="14" fill="#1e293b" stroke="#0284c7" stroke-width="2" filter="url(#shadow)"/>
+  <rect x="685" y="295" width="40" height="40" rx="8" fill="#0284c7"/>
+  <text x="705" y="322" fill="#fff" font-size="20" text-anchor="middle">⚙️</text>
+  <text x="735" y="315" fill="#f8fafc" font-size="15" font-weight="bold">商品菜單後台</text>
+  <text x="735" y="330" fill="#94a3b8" font-size="11">多規格 / 照片上傳</text>
+  <text x="685" y="365" fill="#cbd5e1" font-size="12">• 多組規格自訂 (大小碗)</text>
+  <text x="685" y="390" fill="#cbd5e1" font-size="12">• 手機相簿 / 拍照上傳</text>
+  <text x="685" y="415" fill="#cbd5e1" font-size="12">• 內建極速自動壓縮</text>
+  <text x="685" y="440" fill="#38bdf8" font-size="12" font-weight="bold">⚡ 秒級壓縮至 &lt; 80KB</text>
+</svg>

@@ -1,0 +1,72 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 380" width="100%" height="100%" style="background:#0f172a; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+  <defs>
+    <linearGradient id="step1Grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#059669"/>
+      <stop offset="100%" stop-color="#047857"/>
+    </linearGradient>
+    <linearGradient id="step2Grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#2563eb"/>
+      <stop offset="100%" stop-color="#1d4ed8"/>
+    </linearGradient>
+    <linearGradient id="step3Grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ea580c"/>
+      <stop offset="100%" stop-color="#c2410c"/>
+    </linearGradient>
+    <filter id="shadow2" x="-5%" y="-5%" width="110%" height="115%">
+      <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#000" flood-opacity="0.4"/>
+    </filter>
+  </defs>
+
+  <!-- Title -->
+  <text x="450" y="40" fill="#f8fafc" font-size="22" font-weight="900" text-anchor="middle">⏱️ 5 分鐘快速部署 3 大步驟圖解</text>
+  <text x="450" y="65" fill="#94a3b8" font-size="13" text-anchor="middle">只需兩個免費帳號，跟隨圖解三步驟即可完成全系統上線！</text>
+
+  <!-- Step 1 -->
+  <rect x="40" y="90" width="255" height="260" rx="14" fill="#1e293b" stroke="#10b981" stroke-width="2" filter="url(#shadow2)"/>
+  <rect x="55" y="105" width="225" height="40" rx="8" fill="url(#step1Grad)"/>
+  <text x="167" y="130" fill="#ffffff" font-size="14" font-weight="bold" text-anchor="middle">🛠️ 步驟 1：Supabase (2分鐘)</text>
+  <text x="55" y="170" fill="#f8fafc" font-size="13" font-weight="bold">1. 註冊登入 Supabase</text>
+  <text x="65" y="190" fill="#94a3b8" font-size="11">建立專案 (選 Singapore / Tokyo)</text>
+  <text x="55" y="215" fill="#f8fafc" font-size="13" font-weight="bold">2. 執行 SQL 建表檔</text>
+  <text x="65" y="235" fill="#94a3b8" font-size="11">複製貼上 schema.sql 並按 [Run]</text>
+  <text x="55" y="260" fill="#f8fafc" font-size="13" font-weight="bold">3. 複製 API 兩把金鑰</text>
+  <text x="65" y="280" fill="#34d399" font-size="11">✔ Project URL</text>
+  <text x="65" y="300" fill="#34d399" font-size="11">✔ anon public Key</text>
+  <rect x="55" y="315" width="225" height="22" rx="4" fill="#10b981" fill-opacity="0.15"/>
+  <text x="167" y="330" fill="#10b981" font-size="11" font-weight="bold" text-anchor="middle">✅ 資料庫與即時同步完成！</text>
+
+  <!-- Arrow 1 -> 2 -->
+  <path d="M 305 220 L 325 220" stroke="#64748b" stroke-width="3" marker-end="url(#arrow)"/>
+  <text x="315" y="210" fill="#64748b" font-size="14" text-anchor="middle">➔</text>
+
+  <!-- Step 2 -->
+  <rect x="335" y="90" width="255" height="260" rx="14" fill="#1e293b" stroke="#3b82f6" stroke-width="2" filter="url(#shadow2)"/>
+  <rect x="350" y="105" width="225" height="40" rx="8" fill="url(#step2Grad)"/>
+  <text x="462" y="130" fill="#ffffff" font-size="14" font-weight="bold" text-anchor="middle">🚀 步驟 2：Vercel 部署 (2分鐘)</text>
+  <text x="350" y="170" fill="#f8fafc" font-size="13" font-weight="bold">1. Push 到 GitHub 儲存庫</text>
+  <text x="360" y="190" fill="#94a3b8" font-size="11">將本專案推送到您的 GitHub</text>
+  <text x="350" y="215" fill="#f8fafc" font-size="13" font-weight="bold">2. 登入 Vercel 匯入專案</text>
+  <text x="360" y="235" fill="#94a3b8" font-size="11">點選 [Import] 選擇該 Repository</text>
+  <text x="350" y="260" fill="#f8fafc" font-size="13" font-weight="bold">3. 填入 4 個環境變數</text>
+  <text x="360" y="280" fill="#60a5fa" font-size="11">VITE_SUPABASE_URL / KEY</text>
+  <text x="360" y="300" fill="#60a5fa" font-size="11">VITE_STORE_NAME / SECRET</text>
+  <rect x="350" y="315" width="225" height="22" rx="4" fill="#3b82f6" fill-opacity="0.15"/>
+  <text x="462" y="330" fill="#38bdf8" font-size="11" font-weight="bold" text-anchor="middle">✅ 按下 [Deploy] 30秒完成！</text>
+
+  <!-- Arrow 2 -> 3 -->
+  <text x="600" y="210" fill="#64748b" font-size="14" text-anchor="middle">➔</text>
+
+  <!-- Step 3 -->
+  <rect x="620" y="90" width="240" height="260" rx="14" fill="#1e293b" stroke="#ea580c" stroke-width="2" filter="url(#shadow2)"/>
+  <rect x="635" y="105" width="210" height="40" rx="8" fill="url(#step3Grad)"/>
+  <text x="740" y="130" fill="#ffffff" font-size="14" font-weight="bold" text-anchor="middle">📱 步驟 3：即刻上線 (1分鐘)</text>
+  <text x="635" y="170" fill="#f8fafc" font-size="13" font-weight="bold">1. 獲取專屬網址</text>
+  <text x="645" y="190" fill="#94a3b8" font-size="11">例如: https://dragon.twabc.com</text>
+  <text x="635" y="215" fill="#f8fafc" font-size="13" font-weight="bold">2. 產生桌貼 QR Code</text>
+  <text x="645" y="235" fill="#94a3b8" font-size="11">/?store=鑰匙&amp;table=3 (3號桌)</text>
+  <text x="635" y="260" fill="#f8fafc" font-size="13" font-weight="bold">3. 開啟 POS / 記帳後台</text>
+  <text x="645" y="280" fill="#fb923c" font-size="11">&amp;cashier=true (POS)</text>
+  <text x="645" y="300" fill="#fb923c" font-size="11">&amp;bookkeeping=true (記帳)</text>
+  <rect x="635" y="315" width="210" height="22" rx="4" fill="#ea580c" fill-opacity="0.15"/>
+  <text x="740" y="330" fill="#fb923c" font-size="11" font-weight="bold" text-anchor="middle">🎉 全店營運正式開始！</text>
+</svg>

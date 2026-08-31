@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 280" width="100%" height="100%" style="background:#0f172a; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+  <!-- Title -->
+  <text x="450" y="35" fill="#f8fafc" font-size="20" font-weight="900" text-anchor="middle">🌐 系統四大專屬入口網址圖解</text>
+
+  <!-- 4 Cards Grid -->
+  <!-- Card 1: Customer -->
+  <rect x="40" y="60" width="190" height="190" rx="12" fill="#1e293b" stroke="#2563eb" stroke-width="1.5"/>
+  <text x="60" y="90" fill="#3b82f6" font-size="15" font-weight="bold">📱 顧客線上點餐</text>
+  <text x="60" y="115" fill="#cbd5e1" font-size="11">用途：桌貼 QR 或外帶連結</text>
+  <rect x="50" y="130" width="170" height="60" rx="6" fill="#0f172a"/>
+  <text x="58" y="152" fill="#60a5fa" font-size="10" font-family="monospace">/?store=鑰匙</text>
+  <text x="58" y="172" fill="#93c5fd" font-size="10" font-family="monospace">&amp;table=桌號 (可選)</text>
+  <text x="60" y="215" fill="#38bdf8" font-size="11" font-weight="bold">✔ 免裝 App 掃碼即點</text>
+
+  <!-- Card 2: POS -->
+  <rect x="250" y="60" width="190" height="190" rx="12" fill="#1e293b" stroke="#ea580c" stroke-width="1.5"/>
+  <text x="270" y="90" fill="#ea580c" font-size="15" font-weight="bold">🖥️ 現場收銀 POS</text>
+  <text x="270" y="115" fill="#cbd5e1" font-size="11">用途：現場送單、出單列印</text>
+  <rect x="260" y="130" width="170" height="60" rx="6" fill="#0f172a"/>
+  <text x="268" y="152" fill="#fb923c" font-size="10" font-family="monospace">/?store=鑰匙</text>
+  <text x="268" y="172" fill="#fdba74" font-size="10" font-family="monospace">&amp;cashier=true</text>
+  <text x="270" y="215" fill="#fb923c" font-size="11" font-weight="bold">✔ 預設 PIN 碼 8888</text>
+
+  <!-- Card 3: Bookkeeping -->
+  <rect x="460" y="60" width="190" height="190" rx="12" fill="#1e293b" stroke="#8b5cf6" stroke-width="1.5"/>
+  <text x="480" y="90" fill="#8b5cf6" font-size="15" font-weight="bold">📊 財務記帳盤點</text>
+  <text x="480" y="115" fill="#cbd5e1" font-size="11">用途：營收、現金盤點、產能</text>
+  <rect x="470" y="130" width="170" height="60" rx="6" fill="#0f172a"/>
+  <text x="478" y="152" fill="#c084fc" font-size="10" font-family="monospace">/?store=鑰匙</text>
+  <text x="478" y="172" fill="#d8b4fe" font-size="10" font-family="monospace">&amp;bookkeeping=true</text>
+  <text x="480" y="215" fill="#c084fc" font-size="11" font-weight="bold">✔ 抽屜盤點 + 一鍋產能</text>
+
+  <!-- Card 4: Management -->
+  <rect x="670" y="60" width="190" height="190" rx="12" fill="#1e293b" stroke="#0284c7" stroke-width="1.5"/>
+  <text x="690" y="90" fill="#0284c7" font-size="15" font-weight="bold">⚙️ 商品菜單管理</text>
+  <text x="690" y="115" fill="#cbd5e1" font-size="11">用途：規格、拍照上傳、加料</text>
+  <rect x="680" y="130" width="170" height="60" rx="6" fill="#0f172a"/>
+  <text x="688" y="152" fill="#38bdf8" font-size="10" font-family="monospace">/?store=鑰匙</text>
+  <text x="688" y="172" fill="#7dd3fc" font-size="10" font-family="monospace">&amp;management=true</text>
+  <text x="690" y="215" fill="#38bdf8" font-size="11" font-weight="bold">✔ 多規格 + 手機拍照壓縮</text>
+</svg>

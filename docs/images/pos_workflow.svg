@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 320" width="100%" height="100%" style="background:#0f172a; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+  <!-- Title -->
+  <text x="450" y="35" fill="#f8fafc" font-size="20" font-weight="900" text-anchor="middle">⚡ 現場 POS 結單 vs 📱 顧客線上點餐推播連動流程</text>
+
+  <!-- Left: POS In-Store Order Flow -->
+  <rect x="40" y="60" width="395" height="235" rx="14" fill="#1e293b" stroke="#16a34a" stroke-width="2"/>
+  <rect x="55" y="75" width="365" height="32" rx="6" fill="#16a34a"/>
+  <text x="237" y="96" fill="#ffffff" font-size="13" font-weight="bold" text-anchor="middle">🖥️ 現場櫃檯點餐（零多餘流程 ‧ 送單即結）</text>
+  
+  <rect x="60" y="125" width="100" height="60" rx="8" fill="#334155"/>
+  <text x="110" y="150" fill="#f8fafc" font-size="12" font-weight="bold" text-anchor="middle">1. 點選餐點</text>
+  <text x="110" y="170" fill="#94a3b8" font-size="10" text-anchor="middle">大/小碗 ‧ 加料</text>
+
+  <text x="175" y="160" fill="#16a34a" font-size="18" text-anchor="middle">➔</text>
+
+  <rect x="190" y="125" width="100" height="60" rx="8" fill="#334155"/>
+  <text x="240" y="150" fill="#f8fafc" font-size="12" font-weight="bold" text-anchor="middle">2. 送出結帳</text>
+  <text x="240" y="170" fill="#94a3b8" font-size="10" text-anchor="middle">現金 / 線上支付</text>
+
+  <text x="305" y="160" fill="#16a34a" font-size="18" text-anchor="middle">➔</text>
+
+  <rect x="320" y="125" width="100" height="60" rx="8" fill="#16a34a" fill-opacity="0.3" stroke="#16a34a" stroke-width="1.5"/>
+  <text x="370" y="150" fill="#34d399" font-size="12" font-weight="bold" text-anchor="middle">3. 直接完成</text>
+  <text x="370" y="170" fill="#34d399" font-size="10" text-anchor="middle">自動計入營收</text>
+
+  <rect x="60" y="205" width="360" height="65" rx="8" fill="#0f172a" stroke="#334155"/>
+  <text x="80" y="230" fill="#f8fafc" font-size="12" font-weight="bold">✨ 櫃檯快速特點：</text>
+  <text x="80" y="250" fill="#94a3b8" font-size="11">免去待製作、待取餐等繁瑣按鈕，小票機自動印單，高峰期秒速出餐！</text>
+
+  <!-- Right: Customer Online Order Flow -->
+  <rect x="465" y="60" width="395" height="235" rx="14" fill="#1e293b" stroke="#8b5cf6" stroke-width="2"/>
+  <rect x="480" y="75" width="365" height="32" rx="6" fill="#8b5cf6"/>
+  <text x="662" y="96" fill="#ffffff" font-size="13" font-weight="bold" text-anchor="middle">📱 顧客手機點餐（WebSocket 實時取餐連動）</text>
+
+  <rect x="485" y="125" width="100" height="60" rx="8" fill="#334155"/>
+  <text x="535" y="150" fill="#f8fafc" font-size="12" font-weight="bold" text-anchor="middle">1. 手機掃碼</text>
+  <text x="535" y="170" fill="#94a3b8" font-size="10" text-anchor="middle">點餐送單</text>
+
+  <text x="600" y="160" fill="#8b5cf6" font-size="18" text-anchor="middle">➔</text>
+
+  <rect x="615" y="125" width="100" height="60" rx="8" fill="#334155"/>
+  <text x="665" y="150" fill="#c084fc" font-size="12" font-weight="bold" text-anchor="middle">2. POS待出餐</text>
+  <text x="665" y="170" fill="#c084fc" font-size="10" text-anchor="middle">按單一【✔完成】</text>
+
+  <text x="730" y="160" fill="#8b5cf6" font-size="18" text-anchor="middle">➔</text>
+
+  <rect x="745" y="125" width="100" height="60" rx="8" fill="#8b5cf6" fill-opacity="0.3" stroke="#8b5cf6" stroke-width="1.5"/>
+  <text x="795" y="150" fill="#e9d5ff" font-size="12" font-weight="bold" text-anchor="middle">3. 手機即時響</text>
+  <text x="795" y="170" fill="#e9d5ff" font-size="10" text-anchor="middle">跳出取餐卡片</text>
+
+  <rect x="485" y="205" width="360" height="65" rx="8" fill="#0f172a" stroke="#334155"/>
+  <text x="505" y="230" fill="#f8fafc" font-size="12" font-weight="bold">🎉 顧客即時體驗：</text>
+  <text x="505" y="250" fill="#94a3b8" font-size="11">POS 一鍵點擊完成，顧客手機立即響起「🎉 餐點製作完成」提示音！</text>
+</svg>

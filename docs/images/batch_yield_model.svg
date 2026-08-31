@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 280" width="100%" height="100%" style="background:#0f172a; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+  <!-- Title -->
+  <text x="450" y="35" fill="#f8fafc" font-size="20" font-weight="900" text-anchor="middle">🍲 一鍋麵線賣幾碗？大單位產能效益模型</text>
+
+  <!-- Formula Container -->
+  <rect x="40" y="60" width="820" height="195" rx="14" fill="#1e293b" stroke="#f59e0b" stroke-width="2"/>
+
+  <!-- Left: Inputs -->
+  <rect x="60" y="80" width="220" height="155" rx="10" fill="#0f172a" stroke="#334155"/>
+  <text x="80" y="105" fill="#fbbf24" font-size="14" font-weight="bold">📥 數據來源</text>
+  <text x="80" y="135" fill="#f8fafc" font-size="12">1. POS 實售數量 (自動)</text>
+  <text x="95" y="155" fill="#94a3b8" font-size="11">• 大碗 850 碗 (42.5%)</text>
+  <text x="95" y="175" fill="#94a3b8" font-size="11">• 小碗 1,150 碗 (57.5%)</text>
+  <text x="80" y="200" fill="#f8fafc" font-size="12">2. 店長輸入鍋數</text>
+  <text x="95" y="220" fill="#38bdf8" font-size="11">✍️ 本月共煮 50 鍋</text>
+
+  <!-- Middle: Calculations -->
+  <rect x="300" y="80" width="260" height="155" rx="10" fill="#0f172a" stroke="#334155"/>
+  <text x="320" y="105" fill="#34d399" font-size="14" font-weight="bold">⭐ 核心產能拆解指標</text>
+  <text x="320" y="135" fill="#f8fafc" font-size="12">🥣 每鍋平均總碗數：<tspan fill="#34d399" font-weight="bold">40.0 碗/鍋</tspan></text>
+  <text x="335" y="155" fill="#60a5fa" font-size="11">大碗 17.0 碗 + 小碗 23.0 碗</text>
+  <text x="320" y="185" fill="#f8fafc" font-size="12">⚖️ 等效產能達成率：<tspan fill="#34d399" font-weight="bold">102.1%</tspan></text>
+  <text x="335" y="205" fill="#94a3b8" font-size="11">每鍋等效 45.9 碗 (標準 40 碗)</text>
+
+  <!-- Right: Financial ROI -->
+  <rect x="580" y="80" width="260" height="155" rx="10" fill="#0f172a" stroke="#334155"/>
+  <text x="600" y="105" fill="#f43f5e" font-size="14" font-weight="bold">💰 單鍋獲利與毛利分析</text>
+  <text x="600" y="135" fill="#f8fafc" font-size="12">🍲 每鍋平均營收：<tspan fill="#fbbf24" font-weight="bold">NT$ 2,770</tspan></text>
+  <text x="600" y="165" fill="#f8fafc" font-size="12">🛒 每鍋物料成本：<tspan fill="#f43f5e">NT$ 350</tspan></text>
+  <text x="600" y="195" fill="#f8fafc" font-size="12">🏆 每鍋預估毛利：<tspan fill="#34d399" font-weight="bold">NT$ 2,420</tspan></text>
+  <text x="615" y="215" fill="#34d399" font-size="11">單鍋毛利率：87.4%</text>
+</svg>
