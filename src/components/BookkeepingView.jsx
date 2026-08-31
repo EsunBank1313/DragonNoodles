@@ -230,6 +230,22 @@ const mapPurchaseUnit = (purchaseItemName) => {
   return mapping[purchaseItemName] || '個';
 };
 
+const defaultBatchTemplates = [
+  {
+    id: 'mee-sua',
+    name: '🍜 招牌柴魚手工麵線',
+    batchUnit: '大鍋',
+    category: 'mee-sua',
+    portionSpecs: [
+      { label: '小碗', weight: 1.0, isBase: true },
+      { label: '大碗', weight: 1.35, isBase: false }
+    ],
+    expectedPortions: 40,
+    batchCost: 350,
+    note: '以柴魚高湯與手工紅麵線慢火熬煮'
+  }
+];
+
 export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo, onLogout, parentClosedDates, parentSetClosedDates }) {
   const storeCode = propStoreCode || getActiveStoreCode();
     const [condimentsAvailability, setCondimentsAvailability] = useState({});
@@ -715,6 +731,45 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
   const [newCustomTagName, setNewCustomTagName] = useState('');
   const [newCustomTagIsGood, setNewCustomTagIsGood] = useState(true);
   const [showVendorScorecard, setShowVendorScorecard] = useState(true);
+
+  // 🍲 大單位物料換算與產能效益分析 (Batch Yield Analysis) States
+  const [batchYieldTemplates, setBatchYieldTemplates] = useState(() => {
+    try {
+      const saved = localStorage.getItem(`${storeCode}_restaurant_batch_templates`);
+      return saved ? JSON.parse(saved) : defaultBatchTemplates;
+    } catch (e) {
+      return defaultBatchTemplates;
+    }
+  });
+  const [monthlyBatchLogs, setMonthlyBatchLogs] = useState(() => {
+    try {
+      const saved = localStorage.getItem(`${storeCode}_restaurant_monthly_batch_logs`);
+      return saved ? JSON.parse(saved) : {};
+    } catch (e) {
+      return {};
+    }
+  });
+  const [showBatchTemplateModal, setShowBatchTemplateModal] = useState(false);
+  const [showBatchLogModal, setShowBatchLogModal] = useState(false);
+  const [editingBatchTemplate, setEditingBatchTemplate] = useState(null);
+  
+  // Batch Log Modal Form State
+  const [batchLogMonth, setBatchLogMonth] = useState(() => getTodayLocalDate().slice(0, 7));
+  const [batchLogTemplateId, setBatchLogTemplateId] = useState('mee-sua');
+  const [batchLogCount, setBatchLogCount] = useState('');
+  const [batchLogCost, setBatchLogCost] = useState('350');
+  const [batchLogNotes, setBatchLogNotes] = useState('');
+
+  // Batch Template Form State
+  const [tmplName, setTmplName] = useState('');
+  const [tmplUnit, setTmplUnit] = useState('大鍋');
+  const [tmplCat, setTmplCat] = useState('mee-sua');
+  const [tmplSmallLabel, setTmplSmallLabel] = useState('小碗');
+  const [tmplBigLabel, setTmplBigLabel] = useState('大碗');
+  const [tmplBigWeight, setTmplBigWeight] = useState('1.35');
+  const [tmplExpectedPortions, setTmplExpectedPortions] = useState('40');
+  const [tmplCost, setTmplCost] = useState('350');
+  const [tmplNote, setTmplNote] = useState('');
 
   useEffect(() => {
     const onModulesChanged = (e) => {
@@ -1536,6 +1591,100 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
       </div>
     </div>
 
+    <!-- 🍲 大單位物料換算與產能效益分析 (HTML 展報) -->
+    <div class="table-card">
+      <div class="chart-title">🍲 大單位物料換算與產能效益分析 (一鍋/桶能賣幾碗？)</div>
+      <p style="font-size: 0.8rem; color: #94a3b8; margin: 4px 0 16px 0;">
+        比對統計區間內大單位製作量（如大鍋麵線）與實際售出之大碗/小碗數量、每鍋產出效益與毛利貢獻。
+      </p>
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th>物料項目</th>
+              <th>本期製作量</th>
+              <th>大碗售出</th>
+              <th>小碗售出</th>
+              <th>實售總碗數</th>
+              <th style="color: #10b981;">每鍋平均總碗數</th>
+              <th>等效產能達成率</th>
+              <th>每鍋營收貢獻</th>
+              <th style="color: #10b981;">每鍋預估毛利</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${(() => {
+              const activeReportMonths = Array.from(new Set(targetReports.map(r => r.month.slice(0, 7))));
+              return batchYieldTemplates.map(tmpl => {
+                let bigBowl = 0;
+                let smallBowl = 0;
+                let tmplRev = 0;
+
+                filteredOrders.forEach(o => {
+                  const itemsArr = Array.isArray(o.items) ? o.items : (o.items?.cart || []);
+                  itemsArr.forEach(it => {
+                    const isMatch = (it.category === tmpl.category) || 
+                                    (tmpl.category === 'mee-sua' && (it.name?.includes('麵線') || it.name?.includes('清麵線') || it.name?.includes('綜合')));
+                    if (isMatch) {
+                      const qty = Number(it.quantity) || 1;
+                      const price = Number(it.totalPrice) || (Number(it.price) * qty) || 0;
+                      tmplRev += price;
+                      const specStr = String(it.specs || it.spec || '');
+                      if (specStr.includes(tmpl.portionSpecs[1]?.label || '大碗') || specStr.includes('大')) {
+                        bigBowl += qty;
+                      } else {
+                        smallBowl += qty;
+                      }
+                    }
+                  });
+                });
+
+                let totalBatches = 0;
+                let totalCost = 0;
+                activeReportMonths.forEach(m => {
+                  const cnt = monthlyBatchLogs[m]?.[tmpl.id];
+                  if (cnt) {
+                    totalBatches += Number(cnt) || 0;
+                    const cUnit = Number(monthlyBatchLogs[m]?.[tmpl.id + '_cost']) || tmpl.batchCost || 0;
+                    totalCost += (Number(cnt) || 0) * cUnit;
+                  }
+                });
+
+                const totalSold = bigBowl + smallBowl;
+                const avgBowls = totalBatches > 0 ? (totalSold / totalBatches).toFixed(1) : '-';
+                const avgBig = totalBatches > 0 ? (bigBowl / totalBatches).toFixed(1) : '-';
+                const avgSmall = totalBatches > 0 ? (smallBowl / totalBatches).toFixed(1) : '-';
+                const bigW = Number(tmpl.portionSpecs[1]?.weight) || 1.35;
+                const equivPortions = (smallBowl * 1.0) + (bigBowl * bigW);
+                const avgEquiv = totalBatches > 0 ? (equivPortions / totalBatches).toFixed(1) : '-';
+                const expPortions = Number(tmpl.expectedPortions) || 40;
+                const yieldEff = (totalBatches > 0 && expPortions > 0) ? ((avgEquiv / expPortions) * 100).toFixed(1) + '%' : '-';
+                const avgRev = totalBatches > 0 ? Math.round(tmplRev / totalBatches) : 0;
+                const avgCost = totalBatches > 0 ? Math.round(totalCost / totalBatches) : tmpl.batchCost;
+                const avgGross = avgRev - avgCost;
+
+                return `
+                  <tr>
+                    <td style="font-weight: bold; color: #ea580c;">${tmpl.name}</td>
+                    <td style="font-weight: bold; color: #8b5cf6;">${totalBatches > 0 ? totalBatches + ' ' + tmpl.batchUnit : '尚未登錄'}</td>
+                    <td style="color: #38bdf8; font-weight: bold;">${bigBowl} 碗</td>
+                    <td style="color: #ea580c; font-weight: bold;">${smallBowl} 碗</td>
+                    <td style="font-weight: bold;">${totalSold} 碗</td>
+                    <td style="font-weight: bold; color: #10b981; font-size: 1.05rem;">
+                      ${totalBatches > 0 ? avgBowls + ' 碗/' + tmpl.batchUnit + ' <span style="font-size:0.75rem;color:#94a3b8;">(大 ' + avgBig + ' + 小 ' + avgSmall + ')</span>' : '-'}
+                    </td>
+                    <td style="font-weight: bold;">${yieldEff}</td>
+                    <td style="font-weight: bold;">${totalBatches > 0 ? 'NT$ ' + avgRev.toLocaleString() : '-'}</td>
+                    <td style="font-weight: bold; color: #10b981;">${totalBatches > 0 ? 'NT$ ' + avgGross.toLocaleString() : '-'}</td>
+                  </tr>
+                `;
+              }).join('');
+            })()}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
     <!-- Mee-Sua & Item Sales Analysis Table -->
     <div class="table-card">
       <div class="chart-title">🍜 各類麵線與餐點品項銷售與毛利深度分析表</div>
@@ -2043,6 +2192,24 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
             const parsed = JSON.parse(tagsItem.description);
             setVendorEvalTags(parsed);
             localStorage.setItem(`${storeCode}_restaurant_vendor_eval_tags`, JSON.stringify(parsed));
+          } catch (e) {}
+        }
+
+        const batchTmplItem = storeItems.find(i => i.name === 'SYSTEM_SETTING_BATCH_YIELD_TEMPLATES');
+        if (batchTmplItem && batchTmplItem.description) {
+          try {
+            const parsed = JSON.parse(batchTmplItem.description);
+            setBatchYieldTemplates(parsed);
+            localStorage.setItem(`${storeCode}_restaurant_batch_templates`, JSON.stringify(parsed));
+          } catch (e) {}
+        }
+
+        const batchLogsItem = storeItems.find(i => i.name === 'SYSTEM_SETTING_MONTHLY_BATCH_LOGS');
+        if (batchLogsItem && batchLogsItem.description) {
+          try {
+            const parsed = JSON.parse(batchLogsItem.description);
+            setMonthlyBatchLogs(parsed);
+            localStorage.setItem(`${storeCode}_restaurant_monthly_batch_logs`, JSON.stringify(parsed));
           } catch (e) {}
         }
 
@@ -4342,7 +4509,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                         onClick={handleExportMonthlyCSV}
                         style={{ padding: '6px 12px', fontSize: '0.75rem', borderRadius: '6px', border: 'none', backgroundColor: '#10b981', color: 'white', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
                       >
-                        📊 開啟按月財務分析報告 (新分頁展報)
+                        📊 開啟按月財務與產能分析完整報告
                       </button>
                     </div>
                   </div>
@@ -4475,6 +4642,340 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                         淨利率: <strong style={{ color: isPeriodNetProfit ? '#16a34a' : '#dc2626' }}>{netProfitMargin}%</strong> (毛利 NT$ {totalPeriodGrossProfit.toLocaleString()})
                       </div>
                     </div>
+                  </div>
+
+                  
+                  {/* 🍲 大單位物料換算與產能效益分析 (Batch Yield Analysis) */}
+                  <div style={{
+                    backgroundColor: 'var(--bg-card)',
+                    border: '1px solid var(--border)',
+                    borderRadius: '12px',
+                    padding: '18px',
+                    boxShadow: 'var(--shadow-sm)',
+                    marginBottom: '20px'
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '10px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ fontSize: '1.25rem' }}>🍲</span>
+                        <div>
+                          <h4 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 'bold', color: 'var(--text-main)' }}>
+                            大單位物料換算與產能效益分析 (一鍋/桶能賣幾碗？)
+                          </h4>
+                          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                            統計區間內大單位製作量（如一鍋麵線）與 POS 實際售出之大碗/小碗數量對比、每鍋產出率與營收毛利
+                          </div>
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const currentYM = reportRangeType === 'thisMonth' ? getTodayLocalDate().slice(0, 7) : (targetReports.length > 0 ? targetReports[0].month.slice(0, 7) : getTodayLocalDate().slice(0, 7));
+                            setBatchLogMonth(currentYM);
+                            setBatchLogTemplateId(batchYieldTemplates[0]?.id || 'mee-sua');
+                            const existingCount = monthlyBatchLogs[currentYM]?.[batchYieldTemplates[0]?.id || 'mee-sua'] || '';
+                            const existingCost = monthlyBatchLogs[currentYM]?.[(batchYieldTemplates[0]?.id || 'mee-sua') + '_cost'] || batchYieldTemplates[0]?.batchCost || '350';
+                            setBatchLogCount(existingCount ? String(existingCount) : '');
+                            setBatchLogCost(String(existingCost));
+                            setBatchLogNotes(monthlyBatchLogs[currentYM]?.[(batchYieldTemplates[0]?.id || 'mee-sua') + '_notes'] || '');
+                            setShowBatchLogModal(true);
+                          }}
+                          style={{
+                            padding: '6px 14px',
+                            fontSize: '0.78rem',
+                            fontWeight: 'bold',
+                            backgroundColor: '#8b5cf6',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '6px',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            boxShadow: '0 2px 6px rgba(139, 92, 246, 0.3)'
+                          }}
+                        >
+                          ✍️ 登錄本月製作量 (煮了幾鍋)
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingBatchTemplate(null);
+                            setTmplName('');
+                            setTmplUnit('大鍋');
+                            setTmplCat('mee-sua');
+                            setTmplSmallLabel('小碗');
+                            setTmplBigLabel('大碗');
+                            setTmplBigWeight('1.35');
+                            setTmplExpectedPortions('40');
+                            setTmplCost('350');
+                            setTmplNote('');
+                            setShowBatchTemplateModal(true);
+                          }}
+                          style={{
+                            padding: '6px 12px',
+                            fontSize: '0.75rem',
+                            fontWeight: 'bold',
+                            backgroundColor: 'var(--bg-body)',
+                            color: 'var(--text-main)',
+                            border: '1px solid var(--border)',
+                            borderRadius: '6px',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px'
+                          }}
+                        >
+                          ⚙️ 大單位換算模板設定
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Template Analytics List */}
+                    {batchYieldTemplates.map(tmpl => {
+                      // 1. Gather all sales of this template category within the target date range
+                      const periodOrders = orders.filter(o => {
+                        if (o.status !== 'completed' && o.status !== 'received') return false;
+                        let dStr = '';
+                        if (o.timestamp) {
+                          dStr = new Date(o.timestamp).toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' });
+                        } else if (o.time) {
+                          dStr = o.time.slice(0, 10);
+                        } else if (o.created_at) {
+                          dStr = new Date(o.created_at).toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' });
+                        }
+                        return dStr >= range.start && dStr <= range.end;
+                      });
+
+                      let bigBowlCount = 0;
+                      let smallBowlCount = 0;
+                      let otherBowlCount = 0;
+                      let templateRevenue = 0;
+
+                      periodOrders.forEach(o => {
+                        const itemsArr = Array.isArray(o.items) ? o.items : (o.items?.cart || []);
+                        itemsArr.forEach(it => {
+                          const isMatch = (it.category === tmpl.category) || 
+                                          (tmpl.category === 'mee-sua' && (it.name?.includes('麵線') || it.name?.includes('清麵線') || it.name?.includes('綜合')));
+                          if (isMatch) {
+                            const qty = Number(it.quantity) || 1;
+                            const price = Number(it.totalPrice) || (Number(it.price) * qty) || 0;
+                            templateRevenue += price;
+
+                            // Check specs
+                            const specStr = String(it.specs || it.spec || '');
+                            if (specStr.includes(tmpl.portionSpecs[1]?.label || '大碗') || specStr.includes('大')) {
+                              bigBowlCount += qty;
+                            } else if (specStr.includes(tmpl.portionSpecs[0]?.label || '小碗') || specStr.includes('小')) {
+                              smallBowlCount += qty;
+                            } else {
+                              // If no size specified, check default or split
+                              smallBowlCount += qty;
+                            }
+                          }
+                        });
+                      });
+
+                      const totalBowlsSold = bigBowlCount + smallBowlCount + otherBowlCount;
+
+                      // 2. Sum up logged batches for this period
+                      const activeReportMonths = Array.from(new Set(targetReports.map(r => r.month.slice(0, 7))));
+                      let totalBatchesCooked = 0;
+                      let totalBatchCost = 0;
+
+                      if (activeReportMonths.length > 0) {
+                        activeReportMonths.forEach(m => {
+                          const logForMonth = monthlyBatchLogs[m]?.[tmpl.id];
+                          if (logForMonth) {
+                            totalBatchesCooked += Number(logForMonth) || 0;
+                            const costUnit = Number(monthlyBatchLogs[m]?.[tmpl.id + '_cost']) || tmpl.batchCost || 0;
+                            totalBatchCost += (Number(logForMonth) || 0) * costUnit;
+                          }
+                        });
+                      }
+
+                      // Calculations
+                      const hasBatchLogs = totalBatchesCooked > 0;
+                      const avgBowlsPerBatch = hasBatchLogs ? (totalBowlsSold / totalBatchesCooked).toFixed(1) : 0;
+                      const avgBigPerBatch = hasBatchLogs ? (bigBowlCount / totalBatchesCooked).toFixed(1) : 0;
+                      const avgSmallPerBatch = hasBatchLogs ? (smallBowlCount / totalBatchesCooked).toFixed(1) : 0;
+
+                      const bigWeight = Number(tmpl.portionSpecs[1]?.weight) || 1.35;
+                      const equivStandardPortions = (smallBowlCount * 1.0) + (bigBowlCount * bigWeight);
+                      const avgEquivPerBatch = hasBatchLogs ? (equivStandardPortions / totalBatchesCooked).toFixed(1) : 0;
+                      const expectedPortions = Number(tmpl.expectedPortions) || 40;
+                      const yieldEfficiency = (hasBatchLogs && expectedPortions > 0) ? ((avgEquivPerBatch / expectedPortions) * 100).toFixed(1) : 0;
+
+                      const avgRevPerBatch = hasBatchLogs ? Math.round(templateRevenue / totalBatchesCooked) : 0;
+                      const avgCostPerBatch = hasBatchLogs ? Math.round(totalBatchCost / totalBatchesCooked) : tmpl.batchCost;
+                      const avgGrossProfitPerBatch = avgRevPerBatch - avgCostPerBatch;
+                      const batchProfitMargin = avgRevPerBatch > 0 ? ((avgGrossProfitPerBatch / avgRevPerBatch) * 100).toFixed(1) : '0.0';
+
+                      const bigPercent = totalBowlsSold > 0 ? Math.round((bigBowlCount / totalBowlsSold) * 100) : 0;
+                      const smallPercent = totalBowlsSold > 0 ? (100 - bigPercent) : 0;
+
+                      return (
+                        <div key={tmpl.id} style={{
+                          backgroundColor: 'var(--bg-body)',
+                          border: '1px solid var(--border)',
+                          borderRadius: '10px',
+                          padding: '16px',
+                          marginTop: '12px'
+                        }}>
+                          {/* Header of item */}
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border)', paddingBottom: '10px', marginBottom: '14px', flexWrap: 'wrap', gap: '8px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <span style={{ fontSize: '1.1rem', fontWeight: '900', color: 'var(--primary)' }}>{tmpl.name}</span>
+                              <span style={{ fontSize: '0.72rem', backgroundColor: 'rgba(234, 88, 12, 0.1)', color: 'var(--primary)', padding: '2px 8px', borderRadius: '4px', fontWeight: 'bold' }}>
+                                換算單位：1 {tmpl.batchUnit} (預期標準 {tmpl.expectedPortions} 份)
+                              </span>
+                            </div>
+
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingBatchTemplate(tmpl);
+                                  setTmplName(tmpl.name);
+                                  setTmplUnit(tmpl.batchUnit);
+                                  setTmplCat(tmpl.category);
+                                  setTmplSmallLabel(tmpl.portionSpecs[0]?.label || '小碗');
+                                  setTmplBigLabel(tmpl.portionSpecs[1]?.label || '大碗');
+                                  setTmplBigWeight(String(tmpl.portionSpecs[1]?.weight || 1.35));
+                                  setTmplExpectedPortions(String(tmpl.expectedPortions || 40));
+                                  setTmplCost(String(tmpl.batchCost || 350));
+                                  setTmplNote(tmpl.note || '');
+                                  setShowBatchTemplateModal(true);
+                                }}
+                                style={{ padding: '3px 8px', fontSize: '0.7rem', border: '1px solid var(--border)', backgroundColor: 'transparent', color: 'var(--text-muted)', borderRadius: '4px', cursor: 'pointer' }}
+                              >
+                                ✏️ 編輯設定
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Analysis Metric Cards */}
+                          {hasBatchLogs ? (
+                            <>
+                              <div style={{
+                                display: 'grid',
+                                gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+                                gap: '12px',
+                                marginBottom: '14px'
+                              }}>
+                                {/* 1. 本期製作鍋數 */}
+                                <div style={{ backgroundColor: 'var(--bg-card)', padding: '12px', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 'bold' }}>🍲 本期製作總量</div>
+                                  <div style={{ fontSize: '1.25rem', fontWeight: '900', color: '#8b5cf6', marginTop: '2px' }}>
+                                    {totalBatchesCooked} <span style={{ fontSize: '0.8rem' }}>{tmpl.batchUnit}</span>
+                                  </div>
+                                  <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                                    物料總成本: NT$ {totalBatchCost.toLocaleString()}
+                                  </div>
+                                </div>
+
+                                {/* 2. 實際總售出碗數 */}
+                                <div style={{ backgroundColor: 'var(--bg-card)', padding: '12px', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 'bold' }}>🥣 POS 實售總碗數</div>
+                                  <div style={{ fontSize: '1.25rem', fontWeight: '900', color: 'var(--text-main)', marginTop: '2px' }}>
+                                    {totalBowlsSold} <span style={{ fontSize: '0.8rem' }}>碗</span>
+                                  </div>
+                                  <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                                    大碗: {bigBowlCount} ({bigPercent}%) | 小碗: {smallBowlCount} ({smallPercent}%)
+                                  </div>
+                                </div>
+
+                                {/* 3. 每鍋平均產出碗數 */}
+                                <div style={{ backgroundColor: 'rgba(22, 163, 74, 0.05)', padding: '12px', borderRadius: '8px', border: '1.5px solid #16a34a' }}>
+                                  <div style={{ fontSize: '0.72rem', color: '#16a34a', fontWeight: 'bold' }}>⭐ 每{tmpl.batchUnit}平均產出碗數</div>
+                                  <div style={{ fontSize: '1.35rem', fontWeight: '900', color: '#16a34a', marginTop: '2px' }}>
+                                    {avgBowlsPerBatch} <span style={{ fontSize: '0.85rem' }}>碗/{tmpl.batchUnit}</span>
+                                  </div>
+                                  <div style={{ fontSize: '0.7rem', color: 'var(--text-main)', marginTop: '2px', fontWeight: 'bold' }}>
+                                    🥣 大碗 {avgBigPerBatch} 碗 ＋ 小碗 {avgSmallPerBatch} 碗
+                                  </div>
+                                </div>
+
+                                {/* 4. 等效產能達成率 */}
+                                <div style={{ backgroundColor: 'var(--bg-card)', padding: '12px', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 'bold' }}>⚖️ 等效產能與達成率</div>
+                                  <div style={{ fontSize: '1.25rem', fontWeight: '900', color: Number(yieldEfficiency) >= 95 ? '#16a34a' : '#ea580c', marginTop: '2px' }}>
+                                    {avgEquivPerBatch} <span style={{ fontSize: '0.75rem' }}>等效碗 (達成 {yieldEfficiency}%)</span>
+                                  </div>
+                                  <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                                    標準預期: {tmpl.expectedPortions} 碗 (大碗權重 x{bigWeight})
+                                  </div>
+                                </div>
+
+                                {/* 5. 每鍋營收與預估毛利 */}
+                                <div style={{ backgroundColor: 'var(--bg-card)', padding: '12px', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 'bold' }}>💰 每{tmpl.batchUnit}營收與毛利</div>
+                                  <div style={{ fontSize: '1.25rem', fontWeight: '900', color: 'var(--primary)', marginTop: '2px' }}>
+                                    NT$ {avgRevPerBatch.toLocaleString()} <span style={{ fontSize: '0.75rem' }}>/ {tmpl.batchUnit}</span>
+                                  </div>
+                                  <div style={{ fontSize: '0.68rem', color: '#16a34a', fontWeight: 'bold', marginTop: '2px' }}>
+                                    每{tmpl.batchUnit}毛利: NT$ {avgGrossProfitPerBatch.toLocaleString()} ({batchProfitMargin}%)
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Progress bar of big vs small bowls */}
+                              <div style={{ marginBottom: '6px' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem', fontWeight: 'bold', marginBottom: '4px' }}>
+                                  <span style={{ color: '#2563eb' }}>🍜 大碗售出: {bigBowlCount} 碗 (佔 {bigPercent}%) ➔ 每{tmpl.batchUnit}平均 {avgBigPerBatch} 碗</span>
+                                  <span style={{ color: '#ea580c' }}>🥣 小碗售出: {smallBowlCount} 碗 (佔 {smallPercent}%) ➔ 每{tmpl.batchUnit}平均 {avgSmallPerBatch} 碗</span>
+                                </div>
+                                <div style={{ height: '8px', width: '100%', backgroundColor: 'var(--border)', borderRadius: '4px', overflow: 'hidden', display: 'flex' }}>
+                                  <div style={{ width: `${bigPercent}%`, backgroundColor: '#2563eb' }} title={`大碗 ${bigPercent}%`} />
+                                  <div style={{ width: `${smallPercent}%`, backgroundColor: '#ea580c' }} title={`小碗 ${smallPercent}%`} />
+                                </div>
+                              </div>
+                            </>
+                          ) : (
+                            <div style={{
+                              padding: '16px',
+                              backgroundColor: 'var(--bg-card)',
+                              borderRadius: '8px',
+                              border: '1px dashed var(--border)',
+                              textAlign: 'center'
+                            }}>
+                              <p style={{ margin: '0 0 8px 0', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                                💡 本區間目前累計售出 <strong>{totalBowlsSold} 碗</strong> (大碗 {bigBowlCount} 碗、小碗 {smallBowlCount} 碗)，營收 <strong>NT$ {templateRevenue.toLocaleString()}</strong>。
+                              </p>
+                              <p style={{ margin: '0 0 12px 0', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                                尚未登錄本期製作的總{tmpl.batchUnit}數。點擊下方按鈕登錄後，系統將立即自動換算每{tmpl.batchUnit}產出大碗/小碗數與毛利效益！
+                              </p>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const currentYM = reportRangeType === 'thisMonth' ? getTodayLocalDate().slice(0, 7) : (targetReports.length > 0 ? targetReports[0].month.slice(0, 7) : getTodayLocalDate().slice(0, 7));
+                                  setBatchLogMonth(currentYM);
+                                  setBatchLogTemplateId(tmpl.id);
+                                  setBatchLogCount('');
+                                  setBatchLogCost(String(tmpl.batchCost || 350));
+                                  setBatchLogNotes('');
+                                  setShowBatchLogModal(true);
+                                }}
+                                style={{
+                                  padding: '6px 16px',
+                                  fontSize: '0.78rem',
+                                  fontWeight: 'bold',
+                                  backgroundColor: 'var(--primary)',
+                                  color: 'white',
+                                  border: 'none',
+                                  borderRadius: '6px',
+                                  cursor: 'pointer'
+                                }}
+                              >
+                                ✍️ 登錄 {tmpl.name} 製作{tmpl.batchUnit}數
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
 
                   {/* Weekday vs Weekend & Day-of-Week Insights */}
@@ -5546,6 +6047,274 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                 關閉視窗
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+            {/* ✍️ 登錄大單位製作量彈窗 (Batch Log Modal) */}
+      {showBatchLogModal && (
+        <div className="modal-backdrop" style={{ zIndex: 1100 }}>
+          <div className="modal-content" style={{ maxWidth: '440px', borderRadius: '16px', padding: '24px', textAlign: 'left' }}>
+            <div className="modal-header" style={{ padding: 0, borderBottom: 'none', marginBottom: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h3 style={{ margin: 0, fontSize: '1.15rem', color: 'var(--primary)', fontWeight: 'bold' }}>
+                ✍️ 登錄月份大單位製作量
+              </h3>
+              <button className="close-btn" onClick={() => setShowBatchLogModal(false)}>&times;</button>
+            </div>
+
+            <form onSubmit={handleSaveBatchLog} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div>
+                <label style={{ fontSize: '0.8rem', fontWeight: 'bold', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>
+                  📅 目標對帳月份
+                </label>
+                <input
+                  type="month"
+                  value={batchLogMonth}
+                  onChange={(e) => {
+                    const ym = e.target.value;
+                    setBatchLogMonth(ym);
+                    const existing = monthlyBatchLogs[ym]?.[batchLogTemplateId] || '';
+                    setBatchLogCount(existing ? String(existing) : '');
+                  }}
+                  required
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-input)', color: 'var(--text-main)', fontSize: '0.9rem' }}
+                />
+              </div>
+
+              <div>
+                <label style={{ fontSize: '0.8rem', fontWeight: 'bold', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>
+                  🍲 製作物料項目
+                </label>
+                <select
+                  value={batchLogTemplateId}
+                  onChange={(e) => {
+                    const tid = e.target.value;
+                    setBatchLogTemplateId(tid);
+                    const existing = monthlyBatchLogs[batchLogMonth]?.[tid] || '';
+                    setBatchLogCount(existing ? String(existing) : '');
+                    const matched = batchYieldTemplates.find(t => t.id === tid);
+                    if (matched) setBatchLogCost(String(matched.batchCost || 350));
+                  }}
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-input)', color: 'var(--text-main)', fontSize: '0.9rem' }}
+                >
+                  {batchYieldTemplates.map(t => (
+                    <option key={t.id} value={t.id}>{t.name} (單位: {t.batchUnit})</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label style={{ fontSize: '0.8rem', fontWeight: 'bold', color: 'var(--primary)', display: 'block', marginBottom: '4px' }}>
+                  🔢 該月份實際製作/消耗量 (鍋數/桶數) <span style={{ color: '#ef4444' }}>*</span>
+                </label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <input
+                    type="number"
+                    step="1"
+                    min="1"
+                    placeholder="例如: 50"
+                    value={batchLogCount}
+                    onChange={(e) => setBatchLogCount(e.target.value)}
+                    required
+                    style={{ flex: 1, padding: '10px 12px', borderRadius: '8px', border: '2px solid var(--primary)', backgroundColor: 'var(--bg-input)', color: 'var(--text-main)', fontSize: '1.1rem', fontWeight: 'bold' }}
+                  />
+                  <span style={{ fontSize: '1rem', fontWeight: 'bold', color: 'var(--text-main)' }}>
+                    {batchYieldTemplates.find(t => t.id === batchLogTemplateId)?.batchUnit || '大鍋'}
+                  </span>
+                </div>
+              </div>
+
+              <div>
+                <label style={{ fontSize: '0.8rem', fontWeight: 'bold', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>
+                  💰 單一單位物料成本 (元 / 鍋)
+                </label>
+                <input
+                  type="number"
+                  placeholder="例如: 350"
+                  value={batchLogCost}
+                  onChange={(e) => setBatchLogCost(e.target.value)}
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-input)', color: 'var(--text-main)', fontSize: '0.9rem' }}
+                />
+              </div>
+
+              <div>
+                <label style={{ fontSize: '0.8rem', fontWeight: 'bold', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>
+                  📝 備註說明 (選填)
+                </label>
+                <input
+                  type="text"
+                  placeholder="例: 中秋連假加煮5鍋"
+                  value={batchLogNotes}
+                  onChange={(e) => setBatchLogNotes(e.target.value)}
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-input)', color: 'var(--text-main)', fontSize: '0.85rem' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
+                <button
+                  type="button"
+                  onClick={() => setShowBatchLogModal(false)}
+                  style={{ flex: 1, padding: '10px', borderRadius: '8px', border: '1px solid var(--border)', backgroundColor: 'transparent', color: 'var(--text-main)', cursor: 'pointer' }}
+                >
+                  取消
+                </button>
+                <button
+                  type="submit"
+                  style={{ flex: 1.5, padding: '10px', borderRadius: '8px', border: 'none', backgroundColor: '#8b5cf6', color: 'white', fontWeight: 'bold', cursor: 'pointer' }}
+                >
+                  確認儲存
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ⚙️ 大單位換算模板設定彈窗 (Batch Template Modal) */}
+      {showBatchTemplateModal && (
+        <div className="modal-backdrop" style={{ zIndex: 1100 }}>
+          <div className="modal-content" style={{ maxWidth: '480px', borderRadius: '16px', padding: '24px', textAlign: 'left' }}>
+            <div className="modal-header" style={{ padding: 0, borderBottom: 'none', marginBottom: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h3 style={{ margin: 0, fontSize: '1.15rem', color: 'var(--primary)', fontWeight: 'bold' }}>
+                {editingBatchTemplate ? '✏️ 編輯大單位物料模板' : '➕ 新增大單位物料模板'}
+              </h3>
+              <button className="close-btn" onClick={() => setShowBatchTemplateModal(false)}>&times;</button>
+            </div>
+
+            <form onSubmit={handleSaveBatchTemplate} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div>
+                <label style={{ fontSize: '0.8rem', fontWeight: 'bold', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>
+                  物料名稱
+                </label>
+                <input
+                  type="text"
+                  placeholder="例如: 🍜 招牌柴魚手工麵線"
+                  value={tmplName}
+                  onChange={(e) => setTmplName(e.target.value)}
+                  required
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-input)', color: 'var(--text-main)', fontSize: '0.9rem' }}
+                />
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                <div>
+                  <label style={{ fontSize: '0.8rem', fontWeight: 'bold', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>
+                    大單位名稱
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="例如: 大鍋 / 桶 / 箱"
+                    value={tmplUnit}
+                    onChange={(e) => setTmplUnit(e.target.value)}
+                    required
+                    style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-input)', color: 'var(--text-main)', fontSize: '0.9rem' }}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ fontSize: '0.8rem', fontWeight: 'bold', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>
+                    單一單位預估成本 (NT$)
+                  </label>
+                  <input
+                    type="number"
+                    placeholder="例如: 350"
+                    value={tmplCost}
+                    onChange={(e) => setTmplCost(e.target.value)}
+                    style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-input)', color: 'var(--text-main)', fontSize: '0.9rem' }}
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                <div>
+                  <label style={{ fontSize: '0.8rem', fontWeight: 'bold', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>
+                    小單位 (基準) 名稱
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="小碗 / 中杯"
+                    value={tmplSmallLabel}
+                    onChange={(e) => setTmplSmallLabel(e.target.value)}
+                    required
+                    style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-input)', color: 'var(--text-main)', fontSize: '0.9rem' }}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ fontSize: '0.8rem', fontWeight: 'bold', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>
+                    大單位規格名稱
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="大碗 / 大杯"
+                    value={tmplBigLabel}
+                    onChange={(e) => setTmplBigLabel(e.target.value)}
+                    required
+                    style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-input)', color: 'var(--text-main)', fontSize: '0.9rem' }}
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                <div>
+                  <label style={{ fontSize: '0.8rem', fontWeight: 'bold', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>
+                    大碗份量比重 (倍數)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.05"
+                    placeholder="例如: 1.35 或 1.5"
+                    value={tmplBigWeight}
+                    onChange={(e) => setTmplBigWeight(e.target.value)}
+                    required
+                    style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-input)', color: 'var(--text-main)', fontSize: '0.9rem' }}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ fontSize: '0.8rem', fontWeight: 'bold', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>
+                    標準預期產出份數
+                  </label>
+                  <input
+                    type="number"
+                    placeholder="例如: 40"
+                    value={tmplExpectedPortions}
+                    onChange={(e) => setTmplExpectedPortions(e.target.value)}
+                    required
+                    style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-input)', color: 'var(--text-main)', fontSize: '0.9rem' }}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label style={{ fontSize: '0.8rem', fontWeight: 'bold', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>
+                  備註說明 (選填)
+                </label>
+                <input
+                  type="text"
+                  placeholder="配方或物料備註"
+                  value={tmplNote}
+                  onChange={(e) => setTmplNote(e.target.value)}
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-input)', color: 'var(--text-main)', fontSize: '0.85rem' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
+                <button
+                  type="button"
+                  onClick={() => setShowBatchTemplateModal(false)}
+                  style={{ flex: 1, padding: '10px', borderRadius: '8px', border: '1px solid var(--border)', backgroundColor: 'transparent', color: 'var(--text-main)', cursor: 'pointer' }}
+                >
+                  取消
+                </button>
+                <button
+                  type="submit"
+                  style={{ flex: 1.5, padding: '10px', borderRadius: '8px', border: 'none', backgroundColor: 'var(--primary)', color: 'white', fontWeight: 'bold', cursor: 'pointer' }}
+                >
+                  儲存模板
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
