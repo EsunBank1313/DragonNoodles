@@ -197,7 +197,14 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
   const [showCart, setShowCart] = useState(false);
   const [editingCartItem, setEditingCartItem] = useState(null);
   const [remarks, setRemarks] = useState('');
-  const [upgradeCombos, setUpgradeCombos] = useState(defaultUpgradeCombos);
+  const [upgradeCombos, setUpgradeCombos] = useState(() => {
+    try {
+      const saved = localStorage.getItem(`${storeCode}_restaurant_upgrade_combos`);
+      return saved ? JSON.parse(saved) : defaultUpgradeCombos;
+    } catch (e) {
+      return defaultUpgradeCombos;
+    }
+  });
 
   // OTP Verification States (Real Firebase Phone Auth)
   const [showOtpModal, setShowOtpModal] = useState(false);
@@ -359,12 +366,13 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
           } catch (e) {}
         }
 
-        const upgradeCombosItem = storeItems.find(item => item.name === 'SYSTEM_SETTING_UPGRADE_COMBOS');
+        const upgradeCombosItem = storeItems.find(item => item.name === 'SYSTEM_SETTING_UPGRADE_COMBOS') || data.find(item => item.name === 'SYSTEM_SETTING_UPGRADE_COMBOS');
         if (upgradeCombosItem && upgradeCombosItem.description) {
           try {
             const parsed = JSON.parse(upgradeCombosItem.description);
             if (Array.isArray(parsed) && parsed.length > 0) {
               setUpgradeCombos(parsed);
+              localStorage.setItem(`${storeCode}_restaurant_upgrade_combos`, JSON.stringify(parsed));
             }
           } catch (e) {}
         }
@@ -1040,7 +1048,7 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
 
   // Filtered menu items based on active category and search input
   const filteredItems = menuItems.filter(item => {
-    const matchesCategory = item.category === activeCategory;
+    const matchesCategory = (item.category === activeCategory) || (activeCategory === 'combos' && (item.category === 'combos' || item.customizations?.is_combo));
     const matchesSearch = item.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
                           item.description.toLowerCase().includes(searchQuery.toLowerCase());
     return matchesCategory && matchesSearch;
@@ -1348,8 +1356,22 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
                       </div>
                     )}
                     <div className="item-info">
-                      <div className="item-name-row">
+                      <div className="item-name-row" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                         <div className="item-name">{item.name}</div>
+                        {(upgradeCombos || []).some(pkg => isComboApplicableToItem(pkg, item)) && (
+                          <span style={{
+                            backgroundColor: 'rgba(255, 107, 53, 0.12)',
+                            color: 'var(--primary)',
+                            fontSize: '0.68rem',
+                            fontWeight: 'bold',
+                            padding: '2px 6px',
+                            borderRadius: '4px',
+                            whiteSpace: 'nowrap',
+                            marginLeft: '6px'
+                          }}>
+                            🍱 可升級
+                          </span>
+                        )}
                       </div>
                       <p className="item-description">{item.description}</p>
                       <div className="item-price-row">
@@ -1655,6 +1677,7 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
           }}
           condimentsAvailability={condimentsAvailability}
           editingCartItem={editingCartItem}
+          upgradeCombos={upgradeCombos}
         />
       )}
 
