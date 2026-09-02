@@ -480,10 +480,6 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
       receiptConfig,
       timestamp: Date.now()
     });
-    setTimeout(() => {
-      window.focus();
-      window.print();
-    }, 80);
   };
 
   useEffect(() => {
@@ -653,10 +649,6 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
       receiptConfig,
       timestamp: Date.now()
     });
-    setTimeout(() => {
-      window.focus();
-      window.print();
-    }, 80);
   };
 
   const handleShiftLogoutOnly = async () => {
@@ -1132,10 +1124,12 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
     }
 
     try {
+      // 1. Trigger Daily Closing Receipt Printout
       handlePrintDailyClosing();
+
       const todayStr = getTodayLocalDate();
 
-      // 1. Mark store closed in storeOpenStatus
+      // 2. Mark store closed in storeOpenStatus
       const openStatusKey = prefixNameForStore('SYSTEM_SETTING_STORE_OPEN_STATUS', storeCode);
       const newStatus = {
         is_open: false,
@@ -1153,10 +1147,11 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
         }
       } catch (e) {}
 
-      // 2. Add today to closedDates and sync
+      // 3. Add today to closedDates and sync
       const updated = Array.from(new Set([...closedDates, todayStr]));
       setClosedDates(updated);
       localStorage.setItem(`${storeCode}_restaurant_closed_dates`, JSON.stringify(updated));
+      localStorage.setItem('restaurant_closed_dates', JSON.stringify(updated));
       window.dispatchEvent(new Event('storage'));
 
       const closedKey = prefixNameForStore('SYSTEM_SETTING_CLOSED_DATES', storeCode);
@@ -1166,8 +1161,6 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
       } else {
         await supabase.from('menu_items').insert([{ name: closedKey, price: 0, category: 'settings', description: JSON.stringify(updated) }]);
       }
-
-      alert("🎉 打烊收店結算完成！本日線上點餐已關閉，POS 帳目已安全結案。");
     } catch (err) {
       console.error("Failed executing daily closing:", err);
       alert("收店過程中發生錯誤，請檢查網路連線。");
@@ -1565,6 +1558,18 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
           <h2 style={{ fontSize: '1.2rem', fontWeight: '900', margin: '15px 0 8px 0', color: 'var(--text-main)' }}>
             今日收銀系統已結案鎖定
           </h2>
+          <div style={{
+            backgroundColor: 'rgba(16, 185, 129, 0.1)',
+            border: '1px solid rgba(16, 185, 129, 0.3)',
+            borderRadius: '8px',
+            padding: '8px 12px',
+            marginBottom: '16px',
+            fontSize: '0.82rem',
+            color: '#059669',
+            fontWeight: 'bold'
+          }}>
+            🖨️ 本日日結對帳單 (Z-Report) 已發送列印
+          </div>
           <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', lineHeight: '1.5', marginBottom: '24px' }}>
             今日 ({getTodayLocalDate()}) 已完成收店結帳。本 POS 系統已關閉服務並安全鎖定，直到明日才會自動解鎖恢復。
           </p>
@@ -1575,8 +1580,10 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                   const todayStr = getTodayLocalDate();
                   const updated = closedDates.filter(d => d !== todayStr);
                   setClosedDates(updated);
+                  localStorage.setItem(`${storeCode}_restaurant_closed_dates`, JSON.stringify(updated));
                   localStorage.setItem('restaurant_closed_dates', JSON.stringify(updated));
                   window.dispatchEvent(new Event('storage'));
+                  setPrintPayload(null);
 
                   try {
                     const closedKey = 'SYSTEM_SETTING_CLOSED_DATES';
@@ -1625,6 +1632,8 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
             )}
           </div>
         </div>
+        {/* Direct Body Portal for Thermal Printing during Locked View */}
+        <ThermalPrintPortal printPayload={printPayload} onClose={() => setPrintPayload(null)} />
       </div>
     );
   }
@@ -4106,37 +4115,9 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
 
                 <button
                   type="button"
-                  onClick={async () => {
+                  onClick={() => {
                     setShowPosSettingsModal(false);
-                    if (window.confirm("確定要執行今日收店結帳嗎？結帳後今日收銀系統將安全結案鎖定。")) {
-                      handlePrintDailyClosing();
-                      const todayStr = getTodayLocalDate();
-                      const updated = [...closedDates, todayStr];
-                      setClosedDates(updated);
-                      localStorage.setItem('restaurant_closed_dates', JSON.stringify(updated));
-                      window.dispatchEvent(new Event('storage'));
-
-                      try {
-                        const closedKey = 'SYSTEM_SETTING_CLOSED_DATES';
-                        const { data: exist } = await supabase.from('menu_items').select('*').eq('name', closedKey);
-                        if (exist && exist.length > 0) {
-                          await supabase.from('menu_items').update({
-                            description: JSON.stringify(updated)
-                          }).eq('name', closedKey);
-                        } else {
-                          await supabase.from('menu_items').insert([{
-                            name: closedKey,
-                            price: 0,
-                            category: 'settings',
-                            description: JSON.stringify(updated)
-                          }]);
-                        }
-                      } catch (e) {
-                        console.warn("Failed to sync closed dates to menu_items:", e);
-                      }
-
-                      alert("🎉 收店結帳成功！今日營業已完成結算並安全鎖定。");
-                    }
+                    handleDailyClosingAndLock();
                   }}
                   style={{
                     flex: 1,

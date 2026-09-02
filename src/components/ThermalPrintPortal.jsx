@@ -29,18 +29,43 @@ export default function ThermalPrintPortal({ printPayload, onClose }) {
     return [];
   };
 
-  // Automatically trigger native browser print on mount
+  // Automatically trigger native browser print on mount (At most ONCE per payload)
   useEffect(() => {
-    const timer = setTimeout(() => {
+    if (!printPayload) return;
+
+    let hasPrinted = false;
+    const triggerPrint = () => {
+      if (hasPrinted) return;
+      hasPrinted = true;
       try {
         window.focus();
         window.print();
       } catch (e) {
         console.warn("Native print invoke error:", e);
       }
-    }, 100);
-    return () => clearTimeout(timer);
-  }, [printPayload.timestamp]);
+    };
+
+    const timer = setTimeout(triggerPrint, 120);
+
+    const handleAfterPrint = () => {
+      if (onClose) {
+        setTimeout(() => onClose(), 100);
+      }
+    };
+
+    window.addEventListener('afterprint', handleAfterPrint);
+
+    // Fallback: clear payload after print dialogue closes or timeout
+    const fallbackTimer = setTimeout(() => {
+      if (onClose) onClose();
+    }, 4000);
+
+    return () => {
+      clearTimeout(timer);
+      clearTimeout(fallbackTimer);
+      window.removeEventListener('afterprint', handleAfterPrint);
+    };
+  }, [printPayload?.timestamp]);
 
   // Build the receipt content
   let printableContent = null;
