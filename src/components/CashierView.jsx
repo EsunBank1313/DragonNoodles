@@ -483,8 +483,11 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
   };
 
   useEffect(() => {
-    const handleStorageChange = () => {
+    const handleStorageChange = (e) => {
       setClosedDates(JSON.parse(localStorage.getItem('restaurant_closed_dates') || '[]'));
+      if (e && (e.key === 'pos_order_deleted_sync' || e.key === 'restaurant_orders')) {
+        fetchOrders();
+      }
     };
     window.addEventListener('storage', handleStorageChange);
     return () => window.removeEventListener('storage', handleStorageChange);
@@ -494,6 +497,7 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
     const handleVisibility = () => {
       if (document.visibilityState === 'visible') {
         fetchClosedDatesFromCloud();
+        fetchOrders();
       }
     };
     document.addEventListener('visibilitychange', handleVisibility);
@@ -878,7 +882,7 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
         const clientOrders = storeOrders.filter(o => {
           const orderDate = new Date(o.created_at).toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' });
           const itemsData = typeof o.items === 'string' ? JSON.parse(o.items) : o.items;
-          return orderDate === todayStr && itemsData?.customerName !== 'SYSTEM_STORE_CLOSE';
+          return orderDate === todayStr && itemsData?.customerName !== 'SYSTEM_STORE_CLOSE' && o.status !== 'deleted';
         });
         const mapped = clientOrders.map(formatSupabaseOrder).filter(Boolean);
         
@@ -2598,10 +2602,10 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
               {activeCategory === 'orders' ? (
                 /* Orders list */
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', textAlign: 'left' }}>
-                  {orders.length === 0 ? (
+                  {orders.filter(o => o.status !== 'deleted').length === 0 ? (
                     <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem', padding: '20px', textAlign: 'center' }}>暫無訂單記錄</div>
                   ) : (
-                    orders.map(order => {
+                    orders.filter(o => o.status !== 'deleted').map(order => {
                       const isCustomerOrder = Boolean(!order.cashier || order.isOnline || (order.customerPhone && order.customerPhone.length > 0) || order.pickupTime || order.source === 'customer');
                       const isCustomerUnfinished = isCustomerOrder && order.status !== 'completed' && order.status !== 'deleted';
 

@@ -2558,6 +2558,8 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
       
       if (error) throw error;
       alert("已成功刪除該筆帳目紀錄！");
+      localStorage.setItem('pos_order_deleted_sync', String(Date.now()));
+      window.dispatchEvent(new Event('storage'));
       fetchOrders();
     } catch (err) {
       console.error("Failed to soft-delete order in BookkeepingView:", err);
@@ -2570,6 +2572,8 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
         return o;
       });
       localStorage.setItem('restaurant_orders', JSON.stringify(updated));
+      localStorage.setItem('pos_order_deleted_sync', String(Date.now()));
+      window.dispatchEvent(new Event('storage'));
       fetchOrders();
       alert("已由本機存檔執行軟刪除！");
     }
