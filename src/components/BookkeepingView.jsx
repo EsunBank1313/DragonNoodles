@@ -790,6 +790,35 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
   const [showReportConfigModal, setShowReportConfigModal] = useState(false);
   const [selectedSpecGroupName, setSelectedSpecGroupName] = useState('份量大小');
 
+  // ⚙️ Toggle Monthly Report Statistical Modules Visibility (with localStorage & cloud sync)
+  const handleToggleMonthlyModule = (moduleKey, forcedVal = null) => {
+    setMonthlyReportVisibility(prev => {
+      const updated = {
+        ...prev,
+        [moduleKey]: forcedVal !== null ? forcedVal : !prev[moduleKey]
+      };
+      try {
+        localStorage.setItem(`${storeCode}_monthly_report_visibility`, JSON.stringify(updated));
+      } catch (e) {}
+
+      (async () => {
+        try {
+          const settingName = prefixNameForStore('SYSTEM_SETTING_MONTHLY_REPORT_VISIBILITY', storeCode);
+          await supabase.from('menu_items').upsert({
+            name: settingName,
+            category: 'settings',
+            price: 0,
+            description: JSON.stringify(updated)
+          }, { onConflict: 'name' });
+        } catch (err) {
+          console.warn("Failed to sync monthly report visibility to cloud:", err);
+        }
+      })();
+
+      return updated;
+    });
+  };
+
   useEffect(() => {
     const onModulesChanged = (e) => {
       if (e.detail) setActiveModules(e.detail);
@@ -4894,6 +4923,71 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                       </button>
                     </div>
                   </div>
+
+                  {/* Notice banner if any modules are currently hidden */}
+                  {Object.values(monthlyReportVisibility).some(v => v === false) && (
+                    <div style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      padding: '8px 14px',
+                      backgroundColor: 'rgba(59, 130, 246, 0.08)',
+                      border: '1px solid rgba(59, 130, 246, 0.25)',
+                      borderRadius: '8px',
+                      marginBottom: '16px',
+                      fontSize: '0.78rem',
+                      color: 'var(--text-main)',
+                      flexWrap: 'wrap',
+                      gap: '8px'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span>ℹ️</span>
+                        <span>
+                          目前已隱藏 <strong>{Object.values(monthlyReportVisibility).filter(v => v === false).length}</strong> 項統計模組，可隨時點右側按鈕恢復或自訂。
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const allOn = { kpiSummary: true, batchYield: true, specsBreakdown: true, weekdayWeekend: true, dayOfWeek: true, monthlyLedger: true };
+                            setMonthlyReportVisibility(allOn);
+                            try {
+                              localStorage.setItem(`${storeCode}_monthly_report_visibility`, JSON.stringify(allOn));
+                            } catch (e) {}
+                          }}
+                          style={{
+                            padding: '3px 10px',
+                            fontSize: '0.72rem',
+                            backgroundColor: '#3b82f6',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '4px',
+                            cursor: 'pointer',
+                            fontWeight: 'bold'
+                          }}
+                        >
+                          ✨ 一鍵全部恢復顯示
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setShowReportConfigModal(true)}
+                          style={{
+                            padding: '3px 10px',
+                            fontSize: '0.72rem',
+                            backgroundColor: 'transparent',
+                            color: '#3b82f6',
+                            border: '1px solid #3b82f6',
+                            borderRadius: '4px',
+                            cursor: 'pointer',
+                            fontWeight: 'bold'
+                          }}
+                        >
+                          ⚙️ 自訂模組
+                        </button>
+                      </div>
+                    </div>
+                  )}
 
                   {/* 🏆 Executive KPI Summary Cards - Total Estimated Monthly Net Profit & Breakdown */}
                   {monthlyReportVisibility.kpiSummary !== false && (
