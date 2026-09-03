@@ -788,6 +788,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
     };
   });
   const [showReportConfigModal, setShowReportConfigModal] = useState(false);
+  const [selectedSpecGroupName, setSelectedSpecGroupName] = useState('份量大小');
 
   useEffect(() => {
     const onModulesChanged = (e) => {
@@ -5372,14 +5373,58 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                   )}
 
 
-                  {/* 🏷️ Module 3: 後台商品規格月度銷售明細分析 (大小碗 / 口味 / 尺寸分佈統計) */}
+                  {/* 🏷️ Module 3: 規格形式選擇、全店大小碗總比例與個別商品統計 */}
                   {monthlyReportVisibility.specsBreakdown !== false && (() => {
-                    // Aggregate sold specs for products that have specifications configured in backend
-                    const specSalesMap = {};
-
-                    targetReports.forEach(r => {
-                      // Period orders for this month range
+                    // 1. Discover all distinct radio specification groups defined across backend menuItems
+                    const availableSpecGroups = [];
+                    (menuItems || []).forEach(item => {
+                      if (item.customizations && typeof item.customizations === 'object') {
+                        Object.entries(item.customizations).forEach(([key, group]) => {
+                          if (group && group.type === 'radio' && Array.isArray(group.options) && group.options.length > 0) {
+                            const groupTitle = group.name || group.title || (key === 'size' ? '份量大小' : '自訂規格');
+                            let existing = availableSpecGroups.find(g => g.title === groupTitle);
+                            const optionLabels = group.options.map(o => o.label || o.name || '').filter(Boolean);
+                            if (!existing) {
+                              existing = {
+                                key,
+                                title: groupTitle,
+                                options: optionLabels,
+                                productNames: [item.name]
+                              };
+                              availableSpecGroups.push(existing);
+                            } else {
+                              optionLabels.forEach(lbl => {
+                                if (!existing.options.includes(lbl)) existing.options.push(lbl);
+                              });
+                              if (!existing.productNames.includes(item.name)) existing.productNames.push(item.name);
+                            }
+                          }
+                        });
+                      }
                     });
+
+                    // Default fallback if no custom groups in database
+                    if (availableSpecGroups.length === 0) {
+                      availableSpecGroups.push({
+                        key: 'size',
+                        title: '份量大小',
+                        options: ['小碗', '大碗'],
+                        productNames: ['綜合麵線', '蚵仔麵線', '雙腸麵線', '豬肚麵線', '肉羹麵線', '花枝羹麵線', '貢丸麵線', '清麵線']
+                      });
+                    }
+
+                    // Active Spec Group
+                    const activeGroup = availableSpecGroups.find(g => g.title === selectedSpecGroupName) || availableSpecGroups[0];
+
+                    // 2. Aggregate sales for products possessing this specification within the target period
+                    const optionStats = {};
+                    activeGroup.options.forEach(opt => {
+                      optionStats[opt] = { count: 0, revenue: 0 };
+                    });
+
+                    let totalGroupVolume = 0;
+                    let totalGroupRevenue = 0;
+                    const productBreakdownMap = {};
 
                     // Loop through orders in the target date range
                     orders.filter(o => {
@@ -5394,52 +5439,65 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                       itemsArr.forEach(it => {
                         const rawName = (it.name || '').replace(/\s*\([大中小]+\)/g, '').trim();
                         if (!rawName) return;
-                        
-                        const matchedMenu = (menuItems || []).find(m => m.name === rawName || m.id === it.id);
+
+                        // Check if this product possesses this specification
+                        const isPossessed = activeGroup.productNames.includes(rawName) || 
+                                            (activeGroup.title === '份量大小' && (rawName.includes('麵線') || rawName.includes('清麵線') || rawName.includes('綜合')));
+                        if (!isPossessed) return;
+
                         const qty = Number(it.quantity) || 1;
                         const price = Number(it.totalPrice) || ((Number(it.price) || 0) * qty);
 
-                        if (!specSalesMap[rawName]) {
-                          specSalesMap[rawName] = {
+                        totalGroupVolume += qty;
+                        totalGroupRevenue += price;
+
+                        if (!productBreakdownMap[rawName]) {
+                          productBreakdownMap[rawName] = {
                             name: rawName,
-                            category: it.category || matchedMenu?.category || 'general',
                             totalQty: 0,
                             totalRevenue: 0,
-                            specs: {}
+                            options: {}
                           };
+                          activeGroup.options.forEach(opt => {
+                            productBreakdownMap[rawName].options[opt] = 0;
+                          });
                         }
 
-                        specSalesMap[rawName].totalQty += qty;
-                        specSalesMap[rawName].totalRevenue += price;
+                        productBreakdownMap[rawName].totalQty += qty;
+                        productBreakdownMap[rawName].totalRevenue += price;
 
-                        // Parse spec label
+                        // Detect which option was ordered
                         const specs = Array.isArray(it.specs) ? it.specs : (typeof it.specs === 'string' ? [it.specs] : []);
-                        let specLabel = '';
+                        let matchedOpt = '';
                         for (const s of specs) {
                           const sStr = typeof s === 'object' && s ? (s.value || s.name || '') : String(s);
-                          if (sStr.includes('大碗') || sStr.includes('大份') || sStr.includes('大杯')) {
-                            specLabel = '大碗';
-                            break;
-                          } else if (sStr.includes('小碗') || sStr.includes('小份') || sStr.includes('中杯')) {
-                            specLabel = '小碗';
-                            break;
-                          } else if (sStr.includes(':')) {
-                            specLabel = sStr.split(':')[1]?.trim() || sStr;
+                          const found = activeGroup.options.find(opt => sStr.includes(opt));
+                          if (found) {
+                            matchedOpt = found;
                             break;
                           }
                         }
 
-                        if (!specLabel) {
-                          if (it.name?.includes('大碗') || it.name?.includes('(大)')) specLabel = '大碗';
-                          else if (it.name?.includes('小碗') || it.name?.includes('(小)')) specLabel = '小碗';
-                          else specLabel = '標準/單一規格';
+                        if (!matchedOpt) {
+                          const foundNameOpt = activeGroup.options.find(opt => it.name?.includes(opt) || rawName.includes(opt));
+                          if (foundNameOpt) {
+                            matchedOpt = foundNameOpt;
+                          } else {
+                            matchedOpt = activeGroup.options[0] || '小碗';
+                          }
                         }
 
-                        specSalesMap[rawName].specs[specLabel] = (specSalesMap[rawName].specs[specLabel] || 0) + qty;
+                        if (!optionStats[matchedOpt]) {
+                          optionStats[matchedOpt] = { count: 0, revenue: 0 };
+                        }
+                        optionStats[matchedOpt].count += qty;
+                        optionStats[matchedOpt].revenue += price;
+
+                        productBreakdownMap[rawName].options[matchedOpt] = (productBreakdownMap[rawName].options[matchedOpt] || 0) + qty;
                       });
                     });
 
-                    const specProductsList = Object.values(specSalesMap).filter(p => p.totalQty > 0);
+                    const productList = Object.values(productBreakdownMap).sort((a, b) => b.totalQty - a.totalQty);
 
                     return (
                       <div style={{
@@ -5450,69 +5508,230 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                         marginBottom: '20px',
                         boxShadow: 'var(--shadow-sm)'
                       }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '10px' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <span style={{ fontSize: '1.25rem' }}>🏷️</span>
-                            <div>
-                              <h4 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 'bold', color: 'var(--text-main)' }}>
-                                後台商品規格銷售分佈月統計 (大小碗 / 規格佔比)
-                              </h4>
-                              <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '2px' }}>
-                                自動連動後台商品設定之多規格（如大小碗、份量、麵條種類），即時分析全店各規格銷售碗數與比例
-                              </div>
+                        {/* Header & Spec Group Selector */}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '10px' }}>
+                          <div>
+                            <h4 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 'bold', color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <span>🏷️</span> 商品規格銷售與總佔比分析
+                            </h4>
+                            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                              切換規格形式，查看該規格在全店的總體佔比（如大小碗總比例），以及具備該規格之商品明細
                             </div>
                           </div>
 
-                          <button
-                            type="button"
-                            onClick={() => handleToggleMonthlyModule('specsBreakdown', false)}
-                            style={{ padding: '4px 8px', fontSize: '0.72rem', borderRadius: '4px', border: '1px solid var(--border)', backgroundColor: 'transparent', color: 'var(--text-muted)', cursor: 'pointer' }}
-                            title="隱藏此統計模組"
-                          >
-                            ✕ 隱藏此統計
-                          </button>
+                          <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
+                            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 'bold' }}>規格形式:</span>
+                            {availableSpecGroups.map(grp => (
+                              <button
+                                key={grp.title}
+                                type="button"
+                                onClick={() => setSelectedSpecGroupName(grp.title)}
+                                style={{
+                                  padding: '5px 12px',
+                                  fontSize: '0.78rem',
+                                  borderRadius: '6px',
+                                  border: activeGroup.title === grp.title ? '1.5px solid var(--primary)' : '1px solid var(--border)',
+                                  backgroundColor: activeGroup.title === grp.title ? 'var(--primary)' : 'var(--bg-body)',
+                                  color: activeGroup.title === grp.title ? 'white' : 'var(--text-main)',
+                                  fontWeight: 'bold',
+                                  cursor: 'pointer',
+                                  transition: 'all 0.15s'
+                                }}
+                              >
+                                {grp.title === '份量大小' ? '🍜 份量大小 (大碗 / 小碗)' : grp.title}
+                              </button>
+                            ))}
+
+                            <button
+                              type="button"
+                              onClick={() => handleToggleMonthlyModule('specsBreakdown', false)}
+                              style={{ padding: '5px 8px', fontSize: '0.72rem', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'transparent', color: 'var(--text-muted)', cursor: 'pointer', marginLeft: '6px' }}
+                              title="隱藏此統計模組"
+                            >
+                              ✕ 隱藏此統計
+                            </button>
+                          </div>
                         </div>
 
-                        {specProductsList.length === 0 ? (
-                          <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-                            此月份區間尚無餐點規格銷售數據
+                        {/* Aggregate Total Ratio & Volume Dashboard */}
+                        <div style={{
+                          backgroundColor: 'var(--bg-body)',
+                          border: '1px solid var(--border)',
+                          borderRadius: '10px',
+                          padding: '16px',
+                          marginBottom: '18px'
+                        }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
+                            <div>
+                              <span style={{ fontSize: '0.88rem', fontWeight: 'bold', color: 'var(--text-main)' }}>
+                                📊 全店「{activeGroup.title}」銷售總額與規格總比例
+                              </span>
+                              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginLeft: '8px' }}>
+                                (累計實售 <strong>{totalGroupVolume.toLocaleString()}</strong> 份 / 總營收 <strong>NT$ {totalGroupRevenue.toLocaleString()}</strong>)
+                              </span>
+                            </div>
                           </div>
-                        ) : (
-                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '12px' }}>
-                            {specProductsList.map(prod => {
-                              const specEntries = Object.entries(prod.specs);
+
+                          {/* Cards for each spec option */}
+                          <div style={{
+                            display: 'grid',
+                            gridTemplateColumns: `repeat(auto-fit, minmax(200px, 1fr))`,
+                            gap: '12px',
+                            marginBottom: '14px'
+                          }}>
+                            {activeGroup.options.map((opt, oIdx) => {
+                              const count = optionStats[opt]?.count || 0;
+                              const rev = optionStats[opt]?.revenue || 0;
+                              const pct = totalGroupVolume > 0 ? ((count / totalGroupVolume) * 100).toFixed(1) : '0.0';
+                              const isBig = opt.includes('大');
+                              const themeColor = isBig ? '#2563eb' : (oIdx === 0 ? '#ea580c' : '#10b981');
+
                               return (
-                                <div key={prod.name} style={{ backgroundColor: 'var(--bg-body)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px' }}>
-                                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                                    <span style={{ fontWeight: 'bold', fontSize: '0.85rem', color: 'var(--primary)' }}>{prod.name}</span>
-                                    <span style={{ fontSize: '0.75rem', fontWeight: 'bold', color: 'var(--text-main)' }}>
-                                      總售出 {prod.totalQty} 份 (NT$ {prod.totalRevenue.toLocaleString()})
+                                <div key={opt} style={{
+                                  backgroundColor: 'var(--bg-card)',
+                                  padding: '12px 14px',
+                                  borderRadius: '8px',
+                                  border: `1.5px solid ${themeColor}`,
+                                  boxShadow: 'var(--shadow-sm)'
+                                }}>
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                    <span style={{ fontSize: '0.85rem', fontWeight: '900', color: themeColor }}>
+                                      {isBig ? '🍜' : '🥣'} {opt}
+                                    </span>
+                                    <span style={{
+                                      backgroundColor: themeColor,
+                                      color: 'white',
+                                      padding: '2px 8px',
+                                      borderRadius: '10px',
+                                      fontSize: '0.72rem',
+                                      fontWeight: '900'
+                                    }}>
+                                      佔比 {pct}%
                                     </span>
                                   </div>
-
-                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                                    {specEntries.map(([sName, sQty]) => {
-                                      const pct = prod.totalQty > 0 ? Math.round((sQty / prod.totalQty) * 100) : 0;
-                                      const isBig = sName.includes('大');
-                                      const isSmall = sName.includes('小');
-                                      const barColor = isBig ? '#2563eb' : (isSmall ? '#ea580c' : '#10b981');
-
-                                      return (
-                                        <div key={sName} style={{ fontSize: '0.75rem' }}>
-                                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
-                                            <span style={{ color: barColor, fontWeight: 'bold' }}>{sName}</span>
-                                            <span><strong>{sQty}</strong> 份 ({pct}%)</span>
-                                          </div>
-                                          <div style={{ height: '6px', width: '100%', backgroundColor: 'var(--border)', borderRadius: '3px', overflow: 'hidden' }}>
-                                            <div style={{ width: `${pct}%`, height: '100%', backgroundColor: barColor, borderRadius: '3px' }} />
-                                          </div>
-                                        </div>
-                                      );
-                                    })}
+                                  <div style={{ fontSize: '1.4rem', fontWeight: '900', color: 'var(--text-main)', marginTop: '4px' }}>
+                                    {count.toLocaleString()} <span style={{ fontSize: '0.8rem', fontWeight: 'normal', color: 'var(--text-muted)' }}>碗/份</span>
+                                  </div>
+                                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                                    累計營收: <strong style={{ color: themeColor }}>NT$ {rev.toLocaleString()}</strong>
                                   </div>
                                 </div>
                               );
                             })}
+                          </div>
+
+                          {/* Full-width Aggregate Proportion Bar */}
+                          {totalGroupVolume > 0 && (
+                            <div>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem', fontWeight: 'bold', marginBottom: '4px' }}>
+                                {activeGroup.options.map((opt, oIdx) => {
+                                  const count = optionStats[opt]?.count || 0;
+                                  const pct = totalGroupVolume > 0 ? ((count / totalGroupVolume) * 100).toFixed(1) : '0.0';
+                                  const isBig = opt.includes('大');
+                                  const themeColor = isBig ? '#2563eb' : (oIdx === 0 ? '#ea580c' : '#10b981');
+                                  return (
+                                    <span key={opt} style={{ color: themeColor }}>
+                                      {opt}: {count} 碗 ({pct}%)
+                                    </span>
+                                  );
+                                })}
+                              </div>
+                              <div style={{ height: '10px', width: '100%', backgroundColor: 'var(--border)', borderRadius: '5px', overflow: 'hidden', display: 'flex' }}>
+                                {activeGroup.options.map((opt, oIdx) => {
+                                  const count = optionStats[opt]?.count || 0;
+                                  const pct = totalGroupVolume > 0 ? ((count / totalGroupVolume) * 100).toFixed(1) : 0;
+                                  const isBig = opt.includes('大');
+                                  const themeColor = isBig ? '#2563eb' : (oIdx === 0 ? '#ea580c' : '#10b981');
+                                  return (
+                                    <div
+                                      key={opt}
+                                      style={{ width: `${pct}%`, backgroundColor: themeColor, transition: 'width 0.3s ease' }}
+                                      title={`${opt}: ${pct}%`}
+                                    />
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Individual Products Breakdown Table */}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                          <span style={{ fontSize: '0.85rem', fontWeight: 'bold', color: 'var(--text-main)' }}>
+                            📋 擁有「{activeGroup.title}」規格之個別商品銷量明細
+                          </span>
+                          <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                            共 {productList.length} 項商品
+                          </span>
+                        </div>
+
+                        {productList.length === 0 ? (
+                          <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem', backgroundColor: 'var(--bg-body)', borderRadius: '8px' }}>
+                            此月份區間尚無此規格之相關餐點銷售數據
+                          </div>
+                        ) : (
+                          <div style={{ overflowX: 'auto', backgroundColor: 'var(--bg-body)', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem', textAlign: 'left' }}>
+                              <thead>
+                                <tr style={{ backgroundColor: 'var(--bg-input)', borderBottom: '1px solid var(--border)', color: 'var(--text-muted)' }}>
+                                  <th style={{ padding: '8px 12px' }}>商品名稱</th>
+                                  <th style={{ padding: '8px 12px' }}>總實售量</th>
+                                  {activeGroup.options.map(opt => (
+                                    <th key={opt} style={{ padding: '8px 12px' }}>{opt} (銷量 / 佔比)</th>
+                                  ))}
+                                  <th style={{ padding: '8px 12px', minWidth: '130px' }}>規格比例長條</th>
+                                  <th style={{ padding: '8px 12px', textAlign: 'right' }}>商品累計營收</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {productList.map(prod => {
+                                  return (
+                                    <tr key={prod.name} style={{ borderBottom: '1px solid var(--border)' }}>
+                                      <td style={{ padding: '10px 12px', fontWeight: 'bold', color: 'var(--primary)' }}>
+                                        {prod.name}
+                                      </td>
+                                      <td style={{ padding: '10px 12px', fontWeight: 'bold' }}>
+                                        {prod.totalQty} 碗
+                                      </td>
+                                      {activeGroup.options.map(opt => {
+                                        const oQty = prod.options[opt] || 0;
+                                        const oPct = prod.totalQty > 0 ? Math.round((oQty / prod.totalQty) * 100) : 0;
+                                        const isBig = opt.includes('大');
+                                        const colColor = isBig ? '#2563eb' : '#ea580c';
+                                        return (
+                                          <td key={opt} style={{ padding: '10px 12px' }}>
+                                            <strong style={{ color: colColor }}>{oQty}</strong> 碗
+                                            <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginLeft: '4px' }}>
+                                              ({oPct}%)
+                                            </span>
+                                          </td>
+                                        );
+                                      })}
+                                      <td style={{ padding: '10px 12px' }}>
+                                        <div style={{ height: '7px', width: '100%', backgroundColor: 'var(--border)', borderRadius: '4px', overflow: 'hidden', display: 'flex' }}>
+                                          {activeGroup.options.map((opt, oIdx) => {
+                                            const oQty = prod.options[opt] || 0;
+                                            const oPct = prod.totalQty > 0 ? Math.round((oQty / prod.totalQty) * 100) : 0;
+                                            const isBig = opt.includes('大');
+                                            const barColor = isBig ? '#2563eb' : (oIdx === 0 ? '#ea580c' : '#10b981');
+                                            return (
+                                              <div
+                                                key={opt}
+                                                style={{ width: `${oPct}%`, backgroundColor: barColor }}
+                                                title={`${opt}: ${oPct}%`}
+                                              />
+                                            );
+                                          })}
+                                        </div>
+                                      </td>
+                                      <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 'bold', color: '#16a34a' }}>
+                                        NT$ {prod.totalRevenue.toLocaleString()}
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
                           </div>
                         )}
                       </div>
