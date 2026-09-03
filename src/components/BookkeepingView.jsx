@@ -809,6 +809,8 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
   const [editOrderItems, setEditOrderItems] = useState([]);
   const [editAddItemName, setEditAddItemName] = useState('');
   const [editAddItemQty, setEditAddItemQty] = useState(1);
+  const [salesViewMode, setSalesViewMode] = useState('active'); // 'active' (有效訂單) or 'deleted' (已作廢/已刪除訂單)
+  const [showAllHistoryDeleted, setShowAllHistoryDeleted] = useState(false);
 
   const [vendors, setVendors] = useState([]);
   const [selectedVendorId, setSelectedVendorId] = useState('v1');
@@ -2589,6 +2591,53 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
     }
   };
 
+  // Restore previously voided / deleted order back to active
+  const handleRestoreBookkeepingOrder = async (order) => {
+    if (!window.confirm(`⚠️ 確定要將已作廢訂單【${order.serialNum || order.id}】復原嗎？\n復原後金額 (NT$ ${order.total}) 將重新計回當日營業額，並同步恢復顯示於 POS 系統中。`)) {
+      return;
+    }
+
+    try {
+      const numericId = Number(order.id);
+      const nowStr = new Date().toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' });
+      const cleanedRemarks = (order.remarks || '')
+        .replace(/\[(已刪除|POS作廢)[^\]]*\]/g, '')
+        .trim();
+      const restoredRemarks = `${cleanedRemarks} [已復原 ${nowStr}]`.trim();
+
+      const updatedItems = {
+        cart: order.items || [],
+        source: order.source || 'pos',
+        storeCode: storeCode,
+        cashier: order.cashier || '店長 (Admin)',
+        customerName: order.customerName || '',
+        customerPhone: order.customerPhone || '',
+        pickupTime: order.pickupTime || '',
+        paymentMethod: order.paymentMethod || 'cash',
+        remarks: restoredRemarks
+      };
+
+      // Restore status: customer orders go to 'received' or 'completed', pos orders go to 'completed'
+      const targetStatus = order.source === 'customer' ? 'received' : 'completed';
+
+      const { error } = await supabase.from('orders').update({
+        status: targetStatus,
+        items: updatedItems
+      }).eq('id', isNaN(numericId) ? order.id : numericId);
+
+      if (error) throw error;
+
+      localStorage.setItem('pos_order_deleted_sync', String(Date.now()));
+      window.dispatchEvent(new Event('storage'));
+      fetchOrders();
+      alert(`🎉 訂單【${order.serialNum || order.id}】已成功復原！營業額已即時加回，並已同步回 POS。`);
+    } catch (err) {
+      console.error("Failed to restore order in BookkeepingView:", err);
+      alert("復原訂單失敗：" + (err.message || "請檢查網路連線"));
+    }
+  };
+
+
   // Helper to sync purchase to inventory
   const updateInventoryFromPurchase = (vendor, itemName, qtyText, dateText, timeText) => {
     const numericQty = parseFloat(qtyText.replace(/[^0-9.]/g, '')) || 0;
@@ -3214,6 +3263,16 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
     });
   }, [orders, selectedBookkeepingDate]);
 
+  // Memoized Deleted / Voided Orders for Viewing & Restoration
+  const deletedOrders = useMemo(() => {
+    return orders.filter(o => {
+      if (o.status !== 'deleted') return false;
+      if (showAllHistoryDeleted) return true;
+      const orderDate = new Date(o.timestamp).toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' });
+      return orderDate === selectedBookkeepingDate;
+    });
+  }, [orders, selectedBookkeepingDate, showAllHistoryDeleted]);
+
   // 2. Memoized Daily Summary & Product BOM Costs
   const { 
     totalRevenue, 
@@ -3727,142 +3786,309 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                   );
                 })()}
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '8px' }}>
-                  <h4 style={{ fontSize: '0.9rem', fontWeight: 'bold', margin: 0 }}>📝 當日已結交易流水帳明細</h4>
-                  <div style={{ display: 'flex', gap: '8px' }}>
-                    {receiptConfig.enableDailyClosingPrint !== false && (
-                      <button
-                        type="button"
-                        onClick={handlePrintDailyClosingReport}
-                        title="列印該日之熱感應日結對帳小票"
-                        style={{
-                          padding: '6px 12px',
-                          fontSize: '0.75rem',
-                          borderRadius: '6px',
-                          border: '1px solid #3b82f6',
-                          color: '#2563eb',
-                          backgroundColor: 'rgba(59, 130, 246, 0.08)',
-                          cursor: 'pointer',
-                          fontWeight: 'bold',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '4px'
-                        }}
-                      >
-                        🖨️ 列印日結對帳小票
-                      </button>
+                  {/* View Mode Toggle: Active vs Deleted */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <button
+                      type="button"
+                      onClick={() => setSalesViewMode('active')}
+                      style={{
+                        padding: '6px 14px',
+                        borderRadius: '6px',
+                        border: salesViewMode === 'active' ? '2px solid var(--primary)' : '1px solid var(--border)',
+                        backgroundColor: salesViewMode === 'active' ? 'var(--primary)' : 'var(--bg-card)',
+                        color: salesViewMode === 'active' ? 'white' : 'var(--text-main)',
+                        fontWeight: 'bold',
+                        fontSize: '0.85rem',
+                        cursor: 'pointer',
+                        transition: 'all 0.15s'
+                      }}
+                    >
+                      📋 有效營業帳目 ({completedOrders.length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSalesViewMode('deleted')}
+                      style={{
+                        padding: '6px 14px',
+                        borderRadius: '6px',
+                        border: salesViewMode === 'deleted' ? '2px solid #ef4444' : '1px solid var(--border)',
+                        backgroundColor: salesViewMode === 'deleted' ? '#ef4444' : 'var(--bg-card)',
+                        color: salesViewMode === 'deleted' ? 'white' : 'var(--text-main)',
+                        fontWeight: 'bold',
+                        fontSize: '0.85rem',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        transition: 'all 0.15s'
+                      }}
+                    >
+                      🗑️ 已作廢/已刪除訂單
+                      {deletedOrders.length > 0 && (
+                        <span style={{
+                          backgroundColor: salesViewMode === 'deleted' ? 'white' : '#ef4444',
+                          color: salesViewMode === 'deleted' ? '#ef4444' : 'white',
+                          borderRadius: '10px',
+                          padding: '1px 6px',
+                          fontSize: '0.72rem',
+                          fontWeight: '900'
+                        }}>
+                          {deletedOrders.length}
+                        </span>
+                      )}
+                    </button>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    {salesViewMode === 'deleted' ? (
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.78rem', color: 'var(--text-muted)', cursor: 'pointer', backgroundColor: 'var(--bg-body)', padding: '4px 8px', borderRadius: '4px', border: '1px solid var(--border)' }}>
+                        <input
+                          type="checkbox"
+                          checked={showAllHistoryDeleted}
+                          onChange={(e) => setShowAllHistoryDeleted(e.target.checked)}
+                        />
+                        顯示所有日期的歷史作廢訂單
+                      </label>
+                    ) : (
+                      receiptConfig.enableDailyClosingPrint !== false && (
+                        <button
+                          type="button"
+                          onClick={handlePrintDailyClosingReport}
+                          title="列印該日之熱感應日結對帳小票"
+                          style={{
+                            padding: '6px 12px',
+                            fontSize: '0.75rem',
+                            borderRadius: '6px',
+                            border: '1px solid #3b82f6',
+                            color: '#2563eb',
+                            backgroundColor: 'rgba(59, 130, 246, 0.08)',
+                            cursor: 'pointer',
+                            fontWeight: 'bold',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px'
+                          }}
+                        >
+                          🖨️ 列印日結對帳小票
+                        </button>
+                      )
                     )}
                   </div>
                 </div>
+
                 <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem', textAlign: 'left' }}>
-                    <thead>
-                      <tr style={{ backgroundColor: 'var(--bg-input)', borderBottom: '1px solid var(--border)', color: 'var(--text-muted)' }}>
-                        <th style={{ padding: '10px 12px' }}>時間</th>
-                        <th style={{ padding: '10px 12px' }}>流水號</th>
-                        <th style={{ padding: '10px 12px' }}>類型</th>
-                        <th style={{ padding: '10px 12px' }}>顧客/桌號</th>
-                        <th style={{ padding: '10px 12px' }}>實收金額</th>
-                        <th style={{ padding: '10px 12px' }}>付款方式</th>
-                        <th style={{ padding: '10px 12px' }}>明細/備註</th>
-                        <th style={{ padding: '10px 12px', textAlign: 'center' }}>操作</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {completedOrders.length === 0 ? (
-                        <tr>
-                          <td colSpan="8" style={{ padding: '30px', textAlign: 'center', color: 'var(--text-muted)' }}>該日無已結交易流水記錄</td>
+                  {salesViewMode === 'active' ? (
+                    /* Active Orders Table */
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem', textAlign: 'left' }}>
+                      <thead>
+                        <tr style={{ backgroundColor: 'var(--bg-input)', borderBottom: '1px solid var(--border)', color: 'var(--text-muted)' }}>
+                          <th style={{ padding: '10px 12px' }}>時間</th>
+                          <th style={{ padding: '10px 12px' }}>流水號</th>
+                          <th style={{ padding: '10px 12px' }}>類型</th>
+                          <th style={{ padding: '10px 12px' }}>顧客/桌號</th>
+                          <th style={{ padding: '10px 12px' }}>實收金額</th>
+                          <th style={{ padding: '10px 12px' }}>付款方式</th>
+                          <th style={{ padding: '10px 12px' }}>明細/備註</th>
+                          <th style={{ padding: '10px 12px', textAlign: 'center' }}>操作</th>
                         </tr>
-                      ) : (
-                        completedOrders.map(order => (
-                          <tr key={order.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                            <td style={{ padding: '10px 12px' }}>{order.time}</td>
-                            <td style={{ padding: '10px 12px', fontWeight: 'bold', color: 'var(--primary)' }}>{order.serialNum || order.id.slice(-6)}</td>
-                            <td style={{ padding: '10px 12px' }}>{order.type === 'dine-in' ? '🍽️ 內用' : '🛍️ 外帶'}</td>
-                            <td style={{ padding: '10px 12px' }}>{order.customerName}</td>
-                            <td style={{ padding: '10px 12px', fontWeight: 'bold' }}>NT$ {order.total}</td>
-                            <td style={{ padding: '10px 12px' }}>{order.paymentMethod === 'online' ? '💳 線上付' : '💵 現金付'}</td>
-                            <td style={{ padding: '10px 12px', fontSize: '0.75rem' }}>
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
-                                {(!order.items || order.items.length === 0) ? (
-                                  <div style={{ color: '#ef4444', fontWeight: 'bold', fontSize: '0.76rem', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                    ⚠️ 無品項明細 (請點右側「✏️ 編輯」補登)
-                                  </div>
-                                ) : (
-                                order.items.map((item, idx) => {
-                                  let sizeLabel = '';
-                                  const specs = Array.isArray(item.specs) ? item.specs : (typeof item.specs === 'string' ? [item.specs] : []);
-                                  
-                                  const sizeSpec = specs.find(s => {
-                                    const str = typeof s === 'object' && s ? (s.value || s.name || '') : String(s);
-                                    return str.includes('大碗') || str.includes('小碗');
-                                  });
-                                  if (sizeSpec) {
-                                    const val = typeof sizeSpec === 'object' && sizeSpec ? (sizeSpec.value || sizeSpec.name || '') : String(sizeSpec);
-                                    if (val.includes('大碗') || val.includes('大')) sizeLabel = ' (大碗)';
-                                    else if (val.includes('小碗') || val.includes('小')) sizeLabel = ' (小碗)';
-                                  } else if (item.name.includes('大碗') || item.name.includes('(大)')) {
-                                    sizeLabel = '';
-                                  }
-
-                                  const addonSpecs = specs.filter(s => {
-                                    const str = typeof s === 'object' && s ? (s.value || s.name || '') : String(s);
-                                    return str.includes('加料') || str.includes('皮蛋') || str.includes('貢丸') || str.includes('蚵仔') || str.includes('雙腸') || str.includes('豬肚') || str.includes('花枝羹') || str.includes('肉羹');
-                                  }).map(s => {
-                                    const str = typeof s === 'object' && s ? (s.value || s.name || '') : String(s);
-                                    return str.replace(/^加料:\s*/, '').trim();
-                                  });
-
-                                  const otherSpecs = specs.filter(s => {
-                                    const str = typeof s === 'object' && s ? (s.value || s.name || '') : String(s);
-                                    const isSize = str.includes('大碗') || str.includes('小碗') || str.includes('份量');
-                                    const isAddon = str.includes('加料') || str.includes('皮蛋') || str.includes('貢丸') || str.includes('蚵仔') || str.includes('雙腸') || str.includes('豬肚') || str.includes('花枝羹') || str.includes('肉羹');
-                                    return !isSize && !isAddon;
-                                  }).map(s => typeof s === 'object' && s ? (s.value || s.name || '') : String(s));
-
-                                  return (
-                                    <div key={idx} style={{ lineHeight: '1.4' }}>
-                                      <span style={{ fontWeight: 'bold', color: 'var(--text-main)' }}>
-                                        {item.name}{sizeLabel} x {item.quantity}
-                                      </span>
-                                      {addonSpecs.length > 0 && (
-                                        <div style={{ color: '#d97706', fontSize: '0.7rem', paddingLeft: '6px', fontWeight: 'bold' }}>
-                                          └ +加料: {addonSpecs.join(', ')}
-                                        </div>
-                                      )}
-                                      {otherSpecs.length > 0 && (
-                                        <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem', paddingLeft: '6px' }}>
-                                          └ 備註: {otherSpecs.join(', ')}
-                                        </div>
-                                      )}
+                      </thead>
+                      <tbody>
+                        {completedOrders.length === 0 ? (
+                          <tr>
+                            <td colSpan="8" style={{ padding: '30px', textAlign: 'center', color: 'var(--text-muted)' }}>該日無已結交易流水記錄</td>
+                          </tr>
+                        ) : (
+                          completedOrders.map(order => (
+                            <tr key={order.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                              <td style={{ padding: '10px 12px' }}>{order.time}</td>
+                              <td style={{ padding: '10px 12px', fontWeight: 'bold', color: 'var(--primary)' }}>{order.serialNum || order.id.slice(-6)}</td>
+                              <td style={{ padding: '10px 12px' }}>{order.type === 'dine-in' ? '🍽️ 內用' : '🛍️ 外帶'}</td>
+                              <td style={{ padding: '10px 12px' }}>{order.customerName}</td>
+                              <td style={{ padding: '10px 12px', fontWeight: 'bold' }}>NT$ {order.total}</td>
+                              <td style={{ padding: '10px 12px' }}>{order.paymentMethod === 'online' ? '💳 線上付' : '💵 現金付'}</td>
+                              <td style={{ padding: '10px 12px', fontSize: '0.75rem' }}>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                                  {(!order.items || order.items.length === 0) ? (
+                                    <div style={{ color: '#ef4444', fontWeight: 'bold', fontSize: '0.76rem', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                      ⚠️ 無品項明細 (請點右側「✏️ 編輯」補登)
                                     </div>
-                                  );
-                                }))}
-                              </div>
-                              {order.remarks && <div style={{ color: 'var(--primary)', fontStyle: 'italic', marginTop: '3px' }}>※ {order.remarks}</div>}
-                              <div style={{ color: '#16a34a', fontWeight: 'bold', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '3px' }}>
-                                👤 經手收銀: {order.cashier || '店長 (Admin)'}
-                              </div>
-                            </td>
-                            <td style={{ padding: '10px 12px', textAlign: 'center', display: 'flex', gap: '6px', justifyContent: 'center' }}>
-                              <button 
-                                onClick={() => handleOpenEditBookkeepingOrderModal(order)}
-                                style={{ padding: '4px 8px', fontSize: '0.7rem', border: '1px solid var(--primary)', color: 'var(--primary)', backgroundColor: 'transparent', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}
-                              >
-                                ✏️ 編輯
-                              </button>
-                              <button 
-                                onClick={() => handleDeleteBookkeepingOrder(order.id, order.remarks)}
-                                style={{ padding: '4px 8px', fontSize: '0.7rem', border: '1px solid #ef4444', color: '#ef4444', backgroundColor: 'transparent', borderRadius: '4px', cursor: 'pointer' }}
-                              >
-                                🗑️ 刪除
-                              </button>
+                                  ) : (
+                                  order.items.map((item, idx) => {
+                                    let sizeLabel = '';
+                                    const specs = Array.isArray(item.specs) ? item.specs : (typeof item.specs === 'string' ? [item.specs] : []);
+                                    
+                                    const sizeSpec = specs.find(s => {
+                                      const str = typeof s === 'object' && s ? (s.value || s.name || '') : String(s);
+                                      return str.includes('大碗') || str.includes('小碗');
+                                    });
+                                    if (sizeSpec) {
+                                      const val = typeof sizeSpec === 'object' && sizeSpec ? (sizeSpec.value || sizeSpec.name || '') : String(sizeSpec);
+                                      if (val.includes('大碗') || val.includes('大')) sizeLabel = ' (大碗)';
+                                      else if (val.includes('小碗') || val.includes('小')) sizeLabel = ' (小碗)';
+                                    } else if (item.name.includes('大碗') || item.name.includes('(大)')) {
+                                      sizeLabel = '';
+                                    }
+
+                                    const addonSpecs = specs.filter(s => {
+                                      const str = typeof s === 'object' && s ? (s.value || s.name || '') : String(s);
+                                      return str.includes('加料') || str.includes('皮蛋') || str.includes('貢丸') || str.includes('蚵仔') || str.includes('雙腸') || str.includes('豬肚') || str.includes('花枝羹') || str.includes('肉羹');
+                                    }).map(s => {
+                                      const str = typeof s === 'object' && s ? (s.value || s.name || '') : String(s);
+                                      return str.replace(/^加料:\s*/, '').trim();
+                                    });
+
+                                    const otherSpecs = specs.filter(s => {
+                                      const str = typeof s === 'object' && s ? (s.value || s.name || '') : String(s);
+                                      const isSize = str.includes('大碗') || str.includes('小碗') || str.includes('份量');
+                                      const isAddon = str.includes('加料') || str.includes('皮蛋') || str.includes('貢丸') || str.includes('蚵仔') || str.includes('雙腸') || str.includes('豬肚') || str.includes('花枝羹') || str.includes('肉羹');
+                                      return !isSize && !isAddon;
+                                    }).map(s => typeof s === 'object' && s ? (s.value || s.name || '') : String(s));
+
+                                    return (
+                                      <div key={idx} style={{ lineHeight: '1.4' }}>
+                                        <span style={{ fontWeight: 'bold', color: 'var(--text-main)' }}>
+                                          {item.name}{sizeLabel} x {item.quantity}
+                                        </span>
+                                        {addonSpecs.length > 0 && (
+                                          <div style={{ color: '#d97706', fontSize: '0.7rem', paddingLeft: '6px', fontWeight: 'bold' }}>
+                                            └ +加料: {addonSpecs.join(', ')}
+                                          </div>
+                                        )}
+                                        {otherSpecs.length > 0 && (
+                                          <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem', paddingLeft: '6px' }}>
+                                            └ 備註: {otherSpecs.join(', ')}
+                                          </div>
+                                        )}
+                                      </div>
+                                    );
+                                  }))}
+                                </div>
+                                {order.remarks && <div style={{ color: 'var(--primary)', fontStyle: 'italic', marginTop: '3px' }}>※ {order.remarks}</div>}
+                                <div style={{ color: '#16a34a', fontWeight: 'bold', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                                  👤 經手收銀: {order.cashier || '店長 (Admin)'}
+                                </div>
+                              </td>
+                              <td style={{ padding: '10px 12px', textAlign: 'center', display: 'flex', gap: '6px', justifyContent: 'center' }}>
+                                <button 
+                                  onClick={() => handleOpenEditBookkeepingOrderModal(order)}
+                                  style={{ padding: '4px 8px', fontSize: '0.7rem', border: '1px solid var(--primary)', color: 'var(--primary)', backgroundColor: 'transparent', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}
+                                >
+                                  ✏️ 編輯
+                                </button>
+                                <button 
+                                  onClick={() => handleDeleteBookkeepingOrder(order.id, order.remarks)}
+                                  style={{ padding: '4px 8px', fontSize: '0.7rem', border: '1px solid #ef4444', color: '#ef4444', backgroundColor: 'transparent', borderRadius: '4px', cursor: 'pointer' }}
+                                >
+                                  🗑️ 刪除
+                                </button>
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  ) : (
+                    /* Deleted / Voided Orders Table with Restore feature */
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem', textAlign: 'left' }}>
+                      <thead>
+                        <tr style={{ backgroundColor: 'rgba(239, 68, 68, 0.08)', borderBottom: '1px solid rgba(239, 68, 68, 0.25)', color: '#dc2626' }}>
+                          <th style={{ padding: '10px 12px' }}>下單時間</th>
+                          <th style={{ padding: '10px 12px' }}>原流水號</th>
+                          <th style={{ padding: '10px 12px' }}>類型</th>
+                          <th style={{ padding: '10px 12px' }}>顧客/桌號</th>
+                          <th style={{ padding: '10px 12px' }}>原金額</th>
+                          <th style={{ padding: '10px 12px' }}>付款方式</th>
+                          <th style={{ padding: '10px 12px' }}>點餐明細 / 作廢緣由紀錄</th>
+                          <th style={{ padding: '10px 12px', textAlign: 'center' }}>操作</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {deletedOrders.length === 0 ? (
+                          <tr>
+                            <td colSpan="8" style={{ padding: '30px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                              🎉 {showAllHistoryDeleted ? '尚無任何作廢訂單記錄' : `本日 (${selectedBookkeepingDate}) 尚無任何已作廢訂單`}
                             </td>
                           </tr>
-                        ))
-                      )}
-                    </tbody>
-
-                  </table>
+                        ) : (
+                          deletedOrders.map(order => (
+                            <tr key={order.id} style={{ borderBottom: '1px solid var(--border)', backgroundColor: 'rgba(239, 68, 68, 0.02)' }}>
+                              <td style={{ padding: '10px 12px', color: 'var(--text-muted)' }}>
+                                <div>{order.time}</div>
+                                {showAllHistoryDeleted && (
+                                  <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                                    {new Date(order.timestamp).toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' })}
+                                  </div>
+                                )}
+                              </td>
+                              <td style={{ padding: '10px 12px', fontWeight: 'bold', color: '#ef4444' }}>
+                                {order.serialNum || order.id.slice(-6)}
+                                <div style={{ fontSize: '0.68rem', color: '#ef4444', fontWeight: 'bold' }}>[已作廢]</div>
+                              </td>
+                              <td style={{ padding: '10px 12px' }}>{order.type === 'dine-in' ? '🍽️ 內用' : '🛍️ 外帶'}</td>
+                              <td style={{ padding: '10px 12px' }}>{order.customerName}</td>
+                              <td style={{ padding: '10px 12px', fontWeight: 'bold', textDecoration: 'line-through', color: 'var(--text-muted)' }}>
+                                NT$ {order.total}
+                              </td>
+                              <td style={{ padding: '10px 12px' }}>{order.paymentMethod === 'online' ? '💳 線上付' : '💵 現金付'}</td>
+                              <td style={{ padding: '10px 12px', fontSize: '0.75rem' }}>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', marginBottom: '6px' }}>
+                                  {(!order.items || order.items.length === 0) ? (
+                                    <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>(無品項明細)</span>
+                                  ) : (
+                                    order.items.map((item, idx) => (
+                                      <div key={idx} style={{ lineHeight: '1.4' }}>
+                                        <span style={{ fontWeight: 'bold', color: 'var(--text-main)' }}>
+                                          {item.name} x {item.quantity}
+                                        </span>
+                                      </div>
+                                    ))
+                                  )}
+                                </div>
+                                <div style={{
+                                  backgroundColor: 'rgba(239, 68, 68, 0.08)',
+                                  border: '1px solid rgba(239, 68, 68, 0.2)',
+                                  borderRadius: '4px',
+                                  padding: '4px 8px',
+                                  color: '#b91c1c',
+                                  fontSize: '0.72rem',
+                                  fontWeight: 'bold'
+                                }}>
+                                  📌 作廢歷程: {order.remarks || '未填寫原因'}
+                                </div>
+                                <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem', marginTop: '2px' }}>
+                                  👤 經手人員: {order.cashier || '店長 (Admin)'}
+                                </div>
+                              </td>
+                              <td style={{ padding: '10px 12px', textAlign: 'center' }}>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRestoreBookkeepingOrder(order)}
+                                  style={{
+                                    padding: '6px 12px',
+                                    fontSize: '0.78rem',
+                                    borderRadius: '6px',
+                                    border: '1px solid #10b981',
+                                    backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                                    color: '#059669',
+                                    fontWeight: 'bold',
+                                    cursor: 'pointer',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '4px',
+                                    whiteSpace: 'nowrap',
+                                    boxShadow: '0 1px 3px rgba(16, 185, 129, 0.2)'
+                                  }}
+                                  title="將此筆作廢訂單復原回營業帳目，並同步回 POS 系統"
+                                >
+                                  ♻️ 復原訂單
+                                </button>
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  )}
                 </div>
               </div>
             )}

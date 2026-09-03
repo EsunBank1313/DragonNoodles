@@ -1334,6 +1334,51 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
     setCashReceived('');
   };
 
+  // Void / Delete POS Order Handler
+  const handleDeletePosOrder = async (orderId, serialNum) => {
+    if (!window.confirm(`⚠️ 確定要作廢/刪除訂單【${serialNum || orderId}】嗎？\n作廢後該筆單據將從 POS 系統移除，並可在財務記帳系統中查閱或復原。`)) {
+      return;
+    }
+
+    const reason = window.prompt("請輸入作廢/刪除原因 (例如: 客人點錯、取消棄單、測試單)：", "客人取消點餐");
+    if (reason === null) return; // User cancelled prompt
+    const trimmedReason = reason.trim() || '未填寫原因';
+
+    try {
+      const numericId = Number(orderId);
+      const targetOrder = orders.find(o => String(o.id) === String(orderId));
+      const nowStr = new Date().toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' });
+      const updatedRemarks = `${targetOrder?.remarks || ''} [POS作廢 - 原因: ${trimmedReason}] [經手: ${cashierName || '店長 (Admin)'} ${nowStr}]`.trim();
+
+      const updatedItems = {
+        cart: targetOrder?.items || [],
+        source: targetOrder?.source || 'pos',
+        storeCode: storeCode,
+        cashier: targetOrder?.cashier || cashierName || '店長 (Admin)',
+        customerName: targetOrder?.customerName || '',
+        customerPhone: targetOrder?.customerPhone || '',
+        pickupTime: targetOrder?.pickupTime || '',
+        paymentMethod: targetOrder?.paymentMethod || 'cash',
+        remarks: updatedRemarks
+      };
+
+      const { error } = await supabase.from('orders').update({
+        status: 'deleted',
+        items: updatedItems
+      }).eq('id', isNaN(numericId) ? orderId : numericId);
+
+      if (error) throw error;
+
+      localStorage.setItem('pos_order_deleted_sync', String(Date.now()));
+      window.dispatchEvent(new Event('storage'));
+      fetchOrders();
+      alert(`🗑️ 訂單【${serialNum || orderId}】已成功作廢！如需復原可至【記帳系統】進行還原。`);
+    } catch (err) {
+      console.error("Failed to delete/void order in CashierView:", err);
+      alert("作廢訂單失敗，請檢查網路連線！");
+    }
+  };
+
   // Submit POS Order to Supabase with auto-retry and print isolation
   const handleCheckoutSubmit = async (e) => {
     e.preventDefault();
@@ -2785,6 +2830,27 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                                 style={{ padding: '5px 10px', fontSize: '0.75rem', backgroundColor: 'transparent', color: 'var(--text-main)', border: '1px solid var(--border)', borderRadius: '4px', cursor: 'pointer' }}
                               >
                                 🖨️ 列印
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => handleDeletePosOrder(order.id, order.serialNum)}
+                                style={{
+                                  padding: '5px 10px',
+                                  fontSize: '0.75rem',
+                                  backgroundColor: 'rgba(239, 68, 68, 0.08)',
+                                  color: '#ef4444',
+                                  border: '1px solid rgba(239, 68, 68, 0.3)',
+                                  borderRadius: '4px',
+                                  cursor: 'pointer',
+                                  fontWeight: 'bold',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '2px'
+                                }}
+                                title="作廢此筆訂單，將從 POS 系統移除 (可在記帳系統查閱與復原)"
+                              >
+                                🗑️ 作廢
                               </button>
                             </div>
                           </div>
