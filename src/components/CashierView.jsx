@@ -2721,7 +2721,10 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
 
                           {/* Items Breakdown */}
                           <div style={{ fontSize: '0.82rem', color: 'var(--text-main)', lineHeight: '1.5' }}>
-                            {(order.items || []).map((it, idx) => (
+                            {(!order.items || order.items.length === 0) ? (
+                              <div style={{ color: '#ef4444', fontSize: '0.75rem', fontWeight: 'bold' }}>⚠️ 無品項明細 (可由記帳系統補登)</div>
+                            ) : (
+                            (order.items || []).map((it, idx) => (
                               <div key={idx} style={{ display: 'flex', alignItems: 'baseline', gap: '6px' }}>
                                 <strong>• {it.name}</strong>
                                 <span style={{ color: 'var(--primary)', fontWeight: 'bold' }}>x{it.quantity}</span>
@@ -2731,7 +2734,7 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                                   </span>
                                 )}
                               </div>
-                            ))}
+                            )))}
                           </div>
 
                           {/* Footer Action Controls */}

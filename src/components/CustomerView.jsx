@@ -41,6 +41,15 @@ export const formatSupabaseOrder = (dbOrder) => {
     customerName = finalType === 'dine-in' ? (tableName ? `內用 ${tableName} 號桌` : '內用點餐') : '現場外帶';
   }
 
+  let cartItems = [];
+  if (Array.isArray(itemsData)) {
+    cartItems = itemsData;
+  } else if (itemsData && Array.isArray(itemsData.cart)) {
+    cartItems = itemsData.cart;
+  } else if (itemsData && Array.isArray(itemsData.items)) {
+    cartItems = itemsData.items;
+  }
+
   return {
     id: String(dbOrder.id),
     serialNum: dbOrder.order_number || String(dbOrder.id).slice(-6),
@@ -56,7 +65,7 @@ export const formatSupabaseOrder = (dbOrder) => {
     paymentMethod: itemsData.paymentMethod || 'cash',
     paymentStatus: dbOrder.payment_status,
     remarks: itemsData.remarks || '',
-    items: itemsData.cart || [],
+    items: cartItems,
     total: Number(dbOrder.total),
     cashier: itemsData.cashier || '',
     source: itemsData.source || (itemsData.cashier ? 'pos' : 'customer')

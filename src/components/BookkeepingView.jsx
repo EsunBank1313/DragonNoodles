@@ -807,6 +807,8 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
   const [editOrderRemarks, setEditOrderRemarks] = useState('');
   const [editOrderCashier, setEditOrderCashier] = useState('店長 (Admin)');
   const [editOrderItems, setEditOrderItems] = useState([]);
+  const [editAddItemName, setEditAddItemName] = useState('');
+  const [editAddItemQty, setEditAddItemQty] = useState(1);
 
   const [vendors, setVendors] = useState([]);
   const [selectedVendorId, setSelectedVendorId] = useState('v1');
@@ -2490,17 +2492,25 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
     e.preventDefault();
     if (!editingBookkeepingOrder) return;
 
+    if (editOrderItems.length === 0) {
+      if (!window.confirm("⚠️ 此訂單目前沒有加入任何餐點品項，確定要儲存為「無明細訂單」嗎？\n（建議點選下方「➕ 加入品項」補登商品，以利正確計算銷量與食材成本）")) {
+        return;
+      }
+    }
+
     try {
       const numericId = Number(editingBookkeepingOrder.id);
       const newTotal = Number(editOrderTotal) || 0;
       
       const updatedItemsPayload = {
         cart: editOrderItems,
+        source: editingBookkeepingOrder.source || 'pos',
+        storeCode: storeCode,
         cashier: editOrderCashier.trim() || '店長 (Admin)',
         remarks: editOrderRemarks.trim(),
-        pickupTime: editingBookkeepingOrder.pickupTime,
+        pickupTime: editingBookkeepingOrder.pickupTime || '',
         customerName: editOrderCust.trim(),
-        customerPhone: editingBookkeepingOrder.customerPhone,
+        customerPhone: editingBookkeepingOrder.customerPhone || '',
         paymentMethod: editOrderPayment.trim()
       };
 
@@ -3773,7 +3783,12 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                             <td style={{ padding: '10px 12px' }}>{order.paymentMethod === 'online' ? '💳 線上付' : '💵 現金付'}</td>
                             <td style={{ padding: '10px 12px', fontSize: '0.75rem' }}>
                               <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
-                                {order.items.map((item, idx) => {
+                                {(!order.items || order.items.length === 0) ? (
+                                  <div style={{ color: '#ef4444', fontWeight: 'bold', fontSize: '0.76rem', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                    ⚠️ 無品項明細 (請點右側「✏️ 編輯」補登)
+                                  </div>
+                                ) : (
+                                order.items.map((item, idx) => {
                                   let sizeLabel = '';
                                   const specs = Array.isArray(item.specs) ? item.specs : (typeof item.specs === 'string' ? [item.specs] : []);
                                   
@@ -3821,7 +3836,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                                       )}
                                     </div>
                                   );
-                                })}
+                                }))}
                               </div>
                               {order.remarks && <div style={{ color: 'var(--primary)', fontStyle: 'italic', marginTop: '3px' }}>※ {order.remarks}</div>}
                               <div style={{ color: '#16a34a', fontWeight: 'bold', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '3px' }}>
@@ -7324,40 +7339,124 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                 />
               </div>
 
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '6px' }}>
-                <label style={{ fontSize: '0.8rem', fontWeight: 'bold', color: 'var(--text-main)' }}>點餐品項明細調整：</label>
-                {editOrderItems.map((item, idx) => (
-                  <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: 'var(--bg-body)', padding: '8px 10px', borderRadius: '6px', border: '1px solid var(--border)' }}>
-                    <span style={{ flex: 1, fontSize: '0.8rem', fontWeight: 'bold' }}>{item.name}</span>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const updated = [...editOrderItems];
-                          if (updated[idx].quantity > 1) {
-                            updated[idx].quantity -= 1;
-                            setEditOrderItems(updated);
-                          }
-                        }}
-                        style={{ width: '24px', height: '24px', borderRadius: '4px', border: '1px solid var(--border)', cursor: 'pointer', fontWeight: 'bold' }}
-                      >
-                        -
-                      </button>
-                      <span style={{ fontSize: '0.85rem', fontWeight: 'bold', width: '24px', textAlign: 'center' }}>{item.quantity}</span>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const updated = [...editOrderItems];
-                          updated[idx].quantity += 1;
-                          setEditOrderItems(updated);
-                        }}
-                        style={{ width: '24px', height: '24px', borderRadius: '4px', border: '1px solid var(--border)', cursor: 'pointer', fontWeight: 'bold' }}
-                      >
-                        +
-                      </button>
-                    </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '6px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <label style={{ fontSize: '0.8rem', fontWeight: 'bold', color: 'var(--text-main)' }}>點餐品項明細調整：</label>
+                  {editOrderItems.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const calculated = editOrderItems.reduce((sum, it) => sum + (Number(it.price || it.totalPrice) || 0) * (it.quantity || 1), 0);
+                        if (calculated > 0) setEditOrderTotal(String(calculated));
+                      }}
+                      style={{ fontSize: '0.72rem', color: 'var(--primary)', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 'bold', textDecoration: 'underline' }}
+                    >
+                      🔄 依品項自動重算金額
+                    </button>
+                  )}
+                </div>
+
+                {editOrderItems.length === 0 ? (
+                  <div style={{ padding: '12px', textAlign: 'center', backgroundColor: 'rgba(239, 68, 68, 0.08)', borderRadius: '6px', border: '1px dashed #ef4444', color: '#ef4444', fontSize: '0.8rem', fontWeight: 'bold' }}>
+                    ⚠️ 目前無品項明細！請從下方選單挑選餐點加入訂單以補齊記錄。
                   </div>
-                ))}
+                ) : (
+                  editOrderItems.map((item, idx) => (
+                    <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: 'var(--bg-body)', padding: '8px 10px', borderRadius: '6px', border: '1px solid var(--border)' }}>
+                      <span style={{ flex: 1, fontSize: '0.8rem', fontWeight: 'bold' }}>
+                        {item.name} {item.price ? <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>(NT$ {item.price})</span> : ''}
+                      </span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const updated = [...editOrderItems];
+                            if (updated[idx].quantity > 1) {
+                              updated[idx].quantity -= 1;
+                              setEditOrderItems(updated);
+                            }
+                          }}
+                          style={{ width: '24px', height: '24px', borderRadius: '4px', border: '1px solid var(--border)', cursor: 'pointer', fontWeight: 'bold' }}
+                        >
+                          -
+                        </button>
+                        <span style={{ fontSize: '0.85rem', fontWeight: 'bold', width: '24px', textAlign: 'center' }}>{item.quantity}</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const updated = [...editOrderItems];
+                            updated[idx].quantity += 1;
+                            setEditOrderItems(updated);
+                          }}
+                          style={{ width: '24px', height: '24px', borderRadius: '4px', border: '1px solid var(--border)', cursor: 'pointer', fontWeight: 'bold' }}
+                        >
+                          +
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditOrderItems(editOrderItems.filter((_, i) => i !== idx));
+                          }}
+                          style={{ marginLeft: '4px', border: 'none', background: 'none', color: '#ef4444', cursor: 'pointer', fontSize: '0.85rem' }}
+                          title="移除此品項"
+                        >
+                          🗑️
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                )}
+
+                {/* Add Item to Order tool */}
+                <div style={{ display: 'flex', gap: '6px', alignItems: 'center', backgroundColor: 'var(--bg-body)', padding: '8px', borderRadius: '6px', border: '1px solid var(--border)', marginTop: '4px' }}>
+                  <select
+                    value={editAddItemName}
+                    onChange={(e) => setEditAddItemName(e.target.value)}
+                    style={{ flex: 1, padding: '6px 8px', fontSize: '0.8rem', borderRadius: '4px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-card)', color: 'var(--text-main)' }}
+                  >
+                    <option value="">-- ➕ 選擇餐點補登或追加 --</option>
+                    {(menuItems || []).filter(m => m.category !== 'settings' && m.price > 0).map(m => (
+                      <option key={m.id} value={m.name}>
+                        {m.name} (NT$ {m.price})
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    type="number"
+                    min="1"
+                    value={editAddItemQty}
+                    onChange={(e) => setEditAddItemQty(Math.max(1, parseInt(e.target.value) || 1))}
+                    style={{ width: '48px', padding: '6px', fontSize: '0.8rem', borderRadius: '4px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-card)', color: 'var(--text-main)', textAlign: 'center' }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!editAddItemName) return;
+                      const matched = (menuItems || []).find(m => m.name === editAddItemName);
+                      const unitPrice = matched ? Number(matched.price) : 0;
+                      const newItem = {
+                        name: editAddItemName,
+                        quantity: Number(editAddItemQty) || 1,
+                        price: unitPrice,
+                        totalPrice: unitPrice * (Number(editAddItemQty) || 1)
+                      };
+                      const nextItems = [...editOrderItems, newItem];
+                      setEditOrderItems(nextItems);
+                      
+                      // Auto-update total if current total is 0 or matches previous items sum
+                      const newSum = nextItems.reduce((sum, it) => sum + (Number(it.price || it.totalPrice) || 0) * (it.quantity || 1), 0);
+                      if (Number(editOrderTotal) === 0) {
+                        setEditOrderTotal(String(newSum));
+                      }
+
+                      setEditAddItemName('');
+                      setEditAddItemQty(1);
+                    }}
+                    style={{ padding: '6px 12px', fontSize: '0.8rem', borderRadius: '4px', border: 'none', backgroundColor: '#10b981', color: 'white', fontWeight: 'bold', cursor: 'pointer', whiteSpace: 'nowrap' }}
+                  >
+                    ➕ 加入品項
+                  </button>
+                </div>
               </div>
 
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '14px', borderTop: '1px solid var(--border)', paddingTop: '14px' }}>
