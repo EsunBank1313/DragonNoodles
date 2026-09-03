@@ -770,6 +770,24 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
   const [tmplExpectedPortions, setTmplExpectedPortions] = useState('40');
   const [tmplCost, setTmplCost] = useState('350');
   const [tmplNote, setTmplNote] = useState('');
+  const [selectedImportItemId, setSelectedImportItemId] = useState('');
+  
+  // ⚙️ Monthly Report Statistical Modules Visibility State
+  const [monthlyReportVisibility, setMonthlyReportVisibility] = useState(() => {
+    try {
+      const saved = localStorage.getItem(`${storeCode}_monthly_report_visibility`);
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    return {
+      kpiSummary: true,        // 核心財務損益總覽
+      batchYield: true,        // 大單位物料換算與產能效益分析 (大小碗)
+      specsBreakdown: true,    // 後台商品規格銷售月統計 (大小碗/尺寸/口味)
+      weekdayWeekend: true,    // 平日 vs 假日 營收對比
+      dayOfWeek: true,         // 週一至週日 營業熱度分佈
+      monthlyLedger: true      // 歷程明細對帳表
+    };
+  });
+  const [showReportConfigModal, setShowReportConfigModal] = useState(false);
 
   useEffect(() => {
     const onModulesChanged = (e) => {
@@ -2214,6 +2232,15 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
             const parsed = JSON.parse(batchLogsItem.description);
             setMonthlyBatchLogs(parsed);
             localStorage.setItem(`${storeCode}_restaurant_monthly_batch_logs`, JSON.stringify(parsed));
+          } catch (e) {}
+        }
+
+        const reportVisibilityItem = storeItems.find(i => i.name === prefixNameForStore('SYSTEM_SETTING_MONTHLY_REPORT_VISIBILITY', storeCode) || i.name === 'SYSTEM_SETTING_MONTHLY_REPORT_VISIBILITY');
+        if (reportVisibilityItem && reportVisibilityItem.description) {
+          try {
+            const parsed = JSON.parse(reportVisibilityItem.description);
+            setMonthlyReportVisibility(prev => ({ ...prev, ...parsed }));
+            localStorage.setItem(`${storeCode}_monthly_report_visibility`, JSON.stringify(parsed));
           } catch (e) {}
         }
 
@@ -4855,10 +4882,20 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                       >
                         📊 開啟按月財務與產能分析完整報告
                       </button>
+
+                      <button 
+                        type="button"
+                        onClick={() => setShowReportConfigModal(true)}
+                        style={{ padding: '6px 12px', fontSize: '0.75rem', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-card)', color: 'var(--text-main)', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
+                        title="開啟或關閉按月報表內的各項統計卡片與分析模組"
+                      >
+                        ⚙️ 自訂統計模組
+                      </button>
                     </div>
                   </div>
 
                   {/* 🏆 Executive KPI Summary Cards - Total Estimated Monthly Net Profit & Breakdown */}
+                  {monthlyReportVisibility.kpiSummary !== false && (
                   <div style={{
                     display: 'grid',
                     gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
@@ -4987,9 +5024,11 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                       </div>
                     </div>
                   </div>
+                  )}
 
                   
-                  {/* 🍲 大單位物料換算與產能效益分析 (Batch Yield Analysis) */}
+                  {/* 🍲 大單位物料換算與大小碗產能效益分析 (Batch Yield Analysis) */}
+                  {monthlyReportVisibility.batchYield !== false && (
                   <div style={{
                     backgroundColor: 'var(--bg-card)',
                     border: '1px solid var(--border)',
@@ -5003,7 +5042,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                         <span style={{ fontSize: '1.25rem' }}>🍲</span>
                         <div>
                           <h4 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 'bold', color: 'var(--text-main)' }}>
-                            大單位物料換算與產能效益分析 (一鍋/桶能賣幾碗？)
+                            大單位物料換算與大小碗產能效益分析 (一鍋/桶能賣幾碗？)
                           </h4>
                           <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '2px' }}>
                             統計區間內大單位製作量（如一鍋麵線）與 POS 實際售出之大碗/小碗數量對比、每鍋產出率與營收毛利
@@ -5073,6 +5112,15 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                           }}
                         >
                           ⚙️ 大單位換算模板設定
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleToggleMonthlyModule('batchYield', false)}
+                          style={{ padding: '4px 8px', fontSize: '0.72rem', borderRadius: '4px', border: '1px solid var(--border)', backgroundColor: 'transparent', color: 'var(--text-muted)', cursor: 'pointer' }}
+                          title="隱藏此統計模組"
+                        >
+                          ✕ 隱藏此統計
                         </button>
                       </div>
                     </div>
@@ -5321,13 +5369,169 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                       );
                     })}
                   </div>
+                  )}
+
+
+                  {/* 🏷️ Module 3: 後台商品規格月度銷售明細分析 (大小碗 / 口味 / 尺寸分佈統計) */}
+                  {monthlyReportVisibility.specsBreakdown !== false && (() => {
+                    // Aggregate sold specs for products that have specifications configured in backend
+                    const specSalesMap = {};
+
+                    targetReports.forEach(r => {
+                      // Period orders for this month range
+                    });
+
+                    // Loop through orders in the target date range
+                    orders.filter(o => {
+                      if (o.status !== 'completed' && o.status !== 'received') return false;
+                      let dStr = '';
+                      if (o.timestamp) dStr = new Date(o.timestamp).toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' });
+                      else if (o.time) dStr = o.time.slice(0, 10);
+                      else if (o.created_at) dStr = new Date(o.created_at).toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' });
+                      return dStr >= range.start && dStr <= range.end;
+                    }).forEach(o => {
+                      const itemsArr = Array.isArray(o.items) ? o.items : (o.items?.cart || []);
+                      itemsArr.forEach(it => {
+                        const rawName = (it.name || '').replace(/\s*\([大中小]+\)/g, '').trim();
+                        if (!rawName) return;
+                        
+                        const matchedMenu = (menuItems || []).find(m => m.name === rawName || m.id === it.id);
+                        const qty = Number(it.quantity) || 1;
+                        const price = Number(it.totalPrice) || ((Number(it.price) || 0) * qty);
+
+                        if (!specSalesMap[rawName]) {
+                          specSalesMap[rawName] = {
+                            name: rawName,
+                            category: it.category || matchedMenu?.category || 'general',
+                            totalQty: 0,
+                            totalRevenue: 0,
+                            specs: {}
+                          };
+                        }
+
+                        specSalesMap[rawName].totalQty += qty;
+                        specSalesMap[rawName].totalRevenue += price;
+
+                        // Parse spec label
+                        const specs = Array.isArray(it.specs) ? it.specs : (typeof it.specs === 'string' ? [it.specs] : []);
+                        let specLabel = '';
+                        for (const s of specs) {
+                          const sStr = typeof s === 'object' && s ? (s.value || s.name || '') : String(s);
+                          if (sStr.includes('大碗') || sStr.includes('大份') || sStr.includes('大杯')) {
+                            specLabel = '大碗';
+                            break;
+                          } else if (sStr.includes('小碗') || sStr.includes('小份') || sStr.includes('中杯')) {
+                            specLabel = '小碗';
+                            break;
+                          } else if (sStr.includes(':')) {
+                            specLabel = sStr.split(':')[1]?.trim() || sStr;
+                            break;
+                          }
+                        }
+
+                        if (!specLabel) {
+                          if (it.name?.includes('大碗') || it.name?.includes('(大)')) specLabel = '大碗';
+                          else if (it.name?.includes('小碗') || it.name?.includes('(小)')) specLabel = '小碗';
+                          else specLabel = '標準/單一規格';
+                        }
+
+                        specSalesMap[rawName].specs[specLabel] = (specSalesMap[rawName].specs[specLabel] || 0) + qty;
+                      });
+                    });
+
+                    const specProductsList = Object.values(specSalesMap).filter(p => p.totalQty > 0);
+
+                    return (
+                      <div style={{
+                        backgroundColor: 'var(--bg-card)',
+                        border: '1px solid var(--border)',
+                        borderRadius: '12px',
+                        padding: '20px',
+                        marginBottom: '20px',
+                        boxShadow: 'var(--shadow-sm)'
+                      }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '10px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <span style={{ fontSize: '1.25rem' }}>🏷️</span>
+                            <div>
+                              <h4 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 'bold', color: 'var(--text-main)' }}>
+                                後台商品規格銷售分佈月統計 (大小碗 / 規格佔比)
+                              </h4>
+                              <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                                自動連動後台商品設定之多規格（如大小碗、份量、麵條種類），即時分析全店各規格銷售碗數與比例
+                              </div>
+                            </div>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => handleToggleMonthlyModule('specsBreakdown', false)}
+                            style={{ padding: '4px 8px', fontSize: '0.72rem', borderRadius: '4px', border: '1px solid var(--border)', backgroundColor: 'transparent', color: 'var(--text-muted)', cursor: 'pointer' }}
+                            title="隱藏此統計模組"
+                          >
+                            ✕ 隱藏此統計
+                          </button>
+                        </div>
+
+                        {specProductsList.length === 0 ? (
+                          <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                            此月份區間尚無餐點規格銷售數據
+                          </div>
+                        ) : (
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '12px' }}>
+                            {specProductsList.map(prod => {
+                              const specEntries = Object.entries(prod.specs);
+                              return (
+                                <div key={prod.name} style={{ backgroundColor: 'var(--bg-body)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px' }}>
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                                    <span style={{ fontWeight: 'bold', fontSize: '0.85rem', color: 'var(--primary)' }}>{prod.name}</span>
+                                    <span style={{ fontSize: '0.75rem', fontWeight: 'bold', color: 'var(--text-main)' }}>
+                                      總售出 {prod.totalQty} 份 (NT$ {prod.totalRevenue.toLocaleString()})
+                                    </span>
+                                  </div>
+
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                    {specEntries.map(([sName, sQty]) => {
+                                      const pct = prod.totalQty > 0 ? Math.round((sQty / prod.totalQty) * 100) : 0;
+                                      const isBig = sName.includes('大');
+                                      const isSmall = sName.includes('小');
+                                      const barColor = isBig ? '#2563eb' : (isSmall ? '#ea580c' : '#10b981');
+
+                                      return (
+                                        <div key={sName} style={{ fontSize: '0.75rem' }}>
+                                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
+                                            <span style={{ color: barColor, fontWeight: 'bold' }}>{sName}</span>
+                                            <span><strong>{sQty}</strong> 份 ({pct}%)</span>
+                                          </div>
+                                          <div style={{ height: '6px', width: '100%', backgroundColor: 'var(--border)', borderRadius: '3px', overflow: 'hidden' }}>
+                                            <div style={{ width: `${pct}%`, height: '100%', backgroundColor: barColor, borderRadius: '3px' }} />
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
 
                   {/* Weekday vs Weekend & Day-of-Week Insights */}
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '16px', marginBottom: '20px' }}>
                     {/* Weekday vs Weekend Card */}
+                    {monthlyReportVisibility.weekdayWeekend !== false && (
                     <div style={{ backgroundColor: 'var(--bg-body)', border: '1px solid var(--border)', borderRadius: '10px', padding: '16px' }}>
-                      <div style={{ fontSize: '0.85rem', fontWeight: 'bold', color: 'var(--primary)', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        ⚖️ 平日 (週一至週五) vs 假日 (週六日) 營收對比
+                      <div style={{ fontSize: '0.85rem', fontWeight: 'bold', color: 'var(--primary)', marginBottom: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span>⚖️ 平日 (週一至週五) vs 假日 (週六日) 營收對比</span>
+                        <button
+                          type="button"
+                          onClick={() => handleToggleMonthlyModule('weekdayWeekend', false)}
+                          style={{ padding: '2px 6px', fontSize: '0.7rem', borderRadius: '4px', border: '1px solid var(--border)', backgroundColor: 'transparent', color: 'var(--text-muted)', cursor: 'pointer' }}
+                          title="隱藏此統計"
+                        >✕</button>
                       </div>
                       
                       <div style={{ display: 'flex', gap: '12px', marginBottom: '10px' }}>
@@ -5356,11 +5560,19 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                         <div style={{ width: `${weekendPercent}%`, backgroundColor: '#ea580c' }} title={`假日 ${weekendPercent}%`} />
                       </div>
                     </div>
+                    )}
 
                     {/* Day of Week Mini Bar Chart */}
+                    {monthlyReportVisibility.dayOfWeek !== false && (
                     <div style={{ backgroundColor: 'var(--bg-body)', border: '1px solid var(--border)', borderRadius: '10px', padding: '16px' }}>
-                      <div style={{ fontSize: '0.85rem', fontWeight: 'bold', color: 'var(--primary)', marginBottom: '10px' }}>
-                        📊 週一至週日平均日營業額分佈
+                      <div style={{ fontSize: '0.85rem', fontWeight: 'bold', color: 'var(--primary)', marginBottom: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span>📊 週一至週日平均日營業額分佈</span>
+                        <button
+                          type="button"
+                          onClick={() => handleToggleMonthlyModule('dayOfWeek', false)}
+                          style={{ padding: '2px 6px', fontSize: '0.7rem', borderRadius: '4px', border: '1px solid var(--border)', backgroundColor: 'transparent', color: 'var(--text-muted)', cursor: 'pointer' }}
+                          title="隱藏此統計"
+                        >✕</button>
                       </div>
                       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '6px', alignItems: 'flex-end', height: '90px' }}>
                         {dowStats.map((dow, idx) => {
@@ -5392,8 +5604,11 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                         })}
                       </div>
                     </div>
+                    )}
                   </div>
 
+                  {monthlyReportVisibility.monthlyLedger !== false && (
+                  <div>
                   <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '16px' }}>根據資料庫中訂單交易額與支出流，每月進行自動化對帳與結算淨利。您也可以手動補登非系統記錄的人工營業額。</p>
                 
                 <div style={{ overflowX: 'auto' }}>
@@ -5514,6 +5729,8 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                     )}
                   </table>
                 </div>
+                </div>
+                )}
               </div>
             )})()}
 
@@ -6447,6 +6664,48 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                 </select>
               </div>
 
+              {/* Live POS Sales Reference for this Month and Template */}
+              {(() => {
+                const matchedTmpl = (batchYieldTemplates || []).find(t => t.id === batchLogTemplateId);
+                const monthOrders = orders.filter(o => {
+                  if (o.status !== 'completed' && o.status !== 'received') return false;
+                  let dStr = '';
+                  if (o.timestamp) dStr = new Date(o.timestamp).toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' });
+                  else if (o.time) dStr = o.time.slice(0, 10);
+                  else if (o.created_at) dStr = new Date(o.created_at).toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' });
+                  return dStr.startsWith(batchLogMonth);
+                });
+
+                let mBig = 0, mSmall = 0;
+                monthOrders.forEach(o => {
+                  const itArr = Array.isArray(o.items) ? o.items : (o.items?.cart || []);
+                  itArr.forEach(it => {
+                    const isMatch = (it.category === matchedTmpl?.category) ||
+                                    (matchedTmpl?.category === 'mee-sua' && (it.name?.includes('麵線') || it.name?.includes('清麵線') || it.name?.includes('綜合')));
+                    if (isMatch) {
+                      const qty = Number(it.quantity) || 1;
+                      const specStr = String(it.specs || it.spec || '');
+                      if (specStr.includes(matchedTmpl?.portionSpecs[1]?.label || '大碗') || specStr.includes('大')) {
+                        mBig += qty;
+                      } else {
+                        mSmall += qty;
+                      }
+                    }
+                  });
+                });
+
+                return (
+                  <div style={{ backgroundColor: 'rgba(139, 92, 246, 0.08)', border: '1px solid rgba(139, 92, 246, 0.25)', borderRadius: '8px', padding: '10px 12px', fontSize: '0.78rem' }}>
+                    <div style={{ color: '#7c3aed', fontWeight: 'bold', marginBottom: '2px' }}>
+                      💡 {batchLogMonth} 月份 POS 雲端實際售出參考：
+                    </div>
+                    <div style={{ color: 'var(--text-main)' }}>
+                      大碗 <strong>{mBig}</strong> 碗 ＋ 小碗 <strong>{mSmall}</strong> 碗（總計 <strong>{mBig + mSmall}</strong> 碗）
+                    </div>
+                  </div>
+                );
+              })()}
+
               <div>
                 <label style={{ fontSize: '0.8rem', fontWeight: 'bold', color: 'var(--primary)', display: 'block', marginBottom: '4px' }}>
                   🔢 該月份實際製作/消耗量 (鍋數/桶數) <span style={{ color: '#ef4444' }}>*</span>
@@ -6514,6 +6773,140 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
         </div>
       )}
 
+
+      {/* ⚙️ 按月報表統計模組開關設定彈窗 (Monthly Report Modules Config Modal) */}
+      {showReportConfigModal && (
+        <div className="modal-backdrop" style={{ zIndex: 1150 }}>
+          <div className="modal-content" style={{ maxWidth: '520px', borderRadius: '16px', padding: '24px', textAlign: 'left' }}>
+            <div className="modal-header" style={{ padding: 0, borderBottom: 'none', marginBottom: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ fontSize: '1.25rem' }}>⚙️</span>
+                <h3 style={{ margin: 0, fontSize: '1.15rem', color: 'var(--primary)', fontWeight: 'bold' }}>
+                  按月報表統計模組顯示設定
+                </h3>
+              </div>
+              <button className="close-btn" onClick={() => setShowReportConfigModal(false)}>&times;</button>
+            </div>
+
+            <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', margin: '0 0 16px 0', lineHeight: '1.5' }}>
+              您可以自由開啟或關閉各項統計卡片。不需要大小碗換算或其他分析的店家可隨時關閉，保持月報表簡潔清晰。設定將自動同步儲存至雲端。
+            </p>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '20px' }}>
+              {[
+                {
+                  key: 'kpiSummary',
+                  icon: '📊',
+                  title: '核心財務損益總覽卡片',
+                  desc: '營業總額、固定成本、變動採購成本、預估淨利、淨利率與成本佔比。'
+                },
+                {
+                  key: 'batchYield',
+                  icon: '🍲',
+                  title: '大單位物料換算與產能效益分析 (大小碗分析)',
+                  desc: '一鍋/桶能賣幾碗？每鍋產出率、大小碗平均比例、每鍋營收與毛利換算。'
+                },
+                {
+                  key: 'specsBreakdown',
+                  icon: '🏷️',
+                  title: '後台商品規格銷售分佈月統計',
+                  desc: '自動連動後台商品設定之多規格，統計各商品大小碗、口味、規格銷售碗數與比例。'
+                },
+                {
+                  key: 'weekdayWeekend',
+                  icon: '⚖️',
+                  title: '平日 vs 假日 營收與客單價對比',
+                  desc: '平日與假日營業額佔比、營業天數、日均營收與平均每單消費均消。'
+                },
+                {
+                  key: 'dayOfWeek',
+                  icon: '📅',
+                  title: '週一至週日 營業熱度長條分佈圖',
+                  desc: '星期一到星期日各天平均日營業額與客單表現。'
+                },
+                {
+                  key: 'monthlyLedger',
+                  icon: '📝',
+                  title: '各月損益結算歷程對帳明細表',
+                  desc: '月份財務對帳清單、系統 vs 人工營業額補登歷程與財務健康狀態。'
+                }
+              ].map(item => {
+                const isChecked = monthlyReportVisibility[item.key] !== false;
+                return (
+                  <div
+                    key={item.key}
+                    onClick={() => handleToggleMonthlyModule(item.key)}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      gap: '12px',
+                      padding: '10px 12px',
+                      borderRadius: '8px',
+                      border: isChecked ? '1.5px solid var(--primary)' : '1px solid var(--border)',
+                      backgroundColor: isChecked ? 'rgba(234, 88, 12, 0.04)' : 'var(--bg-body)',
+                      cursor: 'pointer',
+                      transition: 'all 0.15s'
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={isChecked}
+                      onChange={() => {}} // Handled by parent div
+                      style={{ marginTop: '3px', cursor: 'pointer' }}
+                    />
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: '0.85rem', fontWeight: 'bold', color: isChecked ? 'var(--primary)' : 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <span>{item.icon}</span> {item.title}
+                      </div>
+                      <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '2px', lineHeight: '1.4' }}>
+                        {item.desc}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Quick Action Presets */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--border)', paddingTop: '14px', flexWrap: 'wrap', gap: '8px' }}>
+              <div style={{ display: 'flex', gap: '6px' }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const allOn = { kpiSummary: true, batchYield: true, specsBreakdown: true, weekdayWeekend: true, dayOfWeek: true, monthlyLedger: true };
+                    setMonthlyReportVisibility(allOn);
+                    localStorage.setItem(`${storeCode}_monthly_report_visibility`, JSON.stringify(allOn));
+                  }}
+                  style={{ padding: '5px 10px', fontSize: '0.75rem', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'transparent', color: 'var(--text-main)', cursor: 'pointer', fontWeight: 'bold' }}
+                >
+                  ✨ 全選開啟
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const minimal = { kpiSummary: true, batchYield: false, specsBreakdown: false, weekdayWeekend: false, dayOfWeek: false, monthlyLedger: true };
+                    setMonthlyReportVisibility(minimal);
+                    localStorage.setItem(`${storeCode}_monthly_report_visibility`, JSON.stringify(minimal));
+                  }}
+                  style={{ padding: '5px 10px', fontSize: '0.75rem', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'transparent', color: 'var(--text-muted)', cursor: 'pointer' }}
+                  title="僅保留核心營收與明細表，隱藏大小碗與週間圖表"
+                >
+                  📉 極簡財務模式
+                </button>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowReportConfigModal(false)}
+                style={{ padding: '6px 20px', borderRadius: '6px', border: 'none', backgroundColor: 'var(--primary)', color: 'white', fontWeight: 'bold', fontSize: '0.85rem', cursor: 'pointer' }}
+              >
+                💾 儲存並關閉
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ⚙️ 大單位換算模板設定彈窗 (Batch Template Modal) */}
       {showBatchTemplateModal && (
         <div className="modal-backdrop" style={{ zIndex: 1100 }}>
@@ -6526,6 +6919,57 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
             </div>
 
             <form onSubmit={handleSaveBatchTemplate} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              {/* 🔗 Import from Backend Menu Items */}
+              <div style={{ backgroundColor: 'rgba(234, 88, 12, 0.06)', padding: '10px', borderRadius: '8px', border: '1px dashed var(--primary)' }}>
+                <label style={{ fontSize: '0.78rem', fontWeight: 'bold', color: 'var(--primary)', display: 'block', marginBottom: '4px' }}>
+                  🔗 從後台商品規格快速匯入 (自動帶入小碗/大碗規格與成本)
+                </label>
+                <select
+                  value={selectedImportItemId}
+                  onChange={(e) => {
+                    const itemId = e.target.value;
+                    setSelectedImportItemId(itemId);
+                    if (!itemId) return;
+                    const matched = (menuItems || []).find(m => String(m.id) === String(itemId));
+                    if (!matched) return;
+
+                    setTmplName(matched.name);
+                    setTmplCat(matched.category || 'mee-sua');
+                    if (matched.customizations?.cost_price) {
+                      setTmplCost(String(matched.customizations.cost_price));
+                    }
+
+                    // Auto-parse radio options (e.g. size)
+                    let foundRadio = null;
+                    if (matched.customizations && typeof matched.customizations === 'object') {
+                      Object.values(matched.customizations).forEach(val => {
+                        if (val && val.type === 'radio' && Array.isArray(val.options) && val.options.length >= 2) {
+                          foundRadio = val;
+                        }
+                      });
+                    }
+
+                    if (foundRadio && foundRadio.options.length >= 2) {
+                      setTmplSmallLabel(foundRadio.options[0].label || '小碗');
+                      setTmplBigLabel(foundRadio.options[1].label || '大碗');
+                      const p1 = Number(foundRadio.options[0].priceChange) || 0;
+                      const p2 = Number(foundRadio.options[1].priceChange) || 0;
+                      const baseP = Number(matched.price) || 60;
+                      const ratio = baseP > 0 ? ((baseP + p2) / (baseP + p1)).toFixed(2) : '1.35';
+                      setTmplBigWeight(ratio);
+                    }
+                  }}
+                  style={{ width: '100%', padding: '6px 10px', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-card)', color: 'var(--text-main)', fontSize: '0.8rem' }}
+                >
+                  <option value="">-- 點此挑選後台商品自動帶入規格 --</option>
+                  {(menuItems || []).filter(m => m.category !== 'settings' && m.price > 0).map(m => (
+                    <option key={m.id} value={m.id}>
+                      {m.name} ({m.category}) - NT$ {m.price}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
               <div>
                 <label style={{ fontSize: '0.8rem', fontWeight: 'bold', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>
                   物料名稱
