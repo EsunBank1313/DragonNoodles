@@ -775,7 +775,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
   // ⚙️ Monthly Report Statistical Modules Visibility State
   const [monthlyReportVisibility, setMonthlyReportVisibility] = useState(() => {
     try {
-      const saved = localStorage.getItem(`${storeCode}_monthly_report_visibility`);
+      const saved = localStorage.getItem(`${storeCode}_monthly_report_visibility`) || localStorage.getItem('monthly_report_visibility');
       if (saved) return JSON.parse(saved);
     } catch (e) {}
     return {
@@ -790,15 +790,13 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
   const [showReportConfigModal, setShowReportConfigModal] = useState(false);
   const [selectedSpecGroupName, setSelectedSpecGroupName] = useState('份量大小');
 
-  // ⚙️ Toggle Monthly Report Statistical Modules Visibility (with localStorage & cloud sync)
-  const handleToggleMonthlyModule = (moduleKey, forcedVal = null) => {
+  // ⚙️ Save & Sync Monthly Report Visibility (Instant Auto-Save)
+  const applyAndSaveMonthlyVisibility = (updater) => {
     setMonthlyReportVisibility(prev => {
-      const updated = {
-        ...prev,
-        [moduleKey]: forcedVal !== null ? forcedVal : !prev[moduleKey]
-      };
+      const updated = typeof updater === 'function' ? updater(prev) : updater;
       try {
         localStorage.setItem(`${storeCode}_monthly_report_visibility`, JSON.stringify(updated));
+        localStorage.setItem('monthly_report_visibility', JSON.stringify(updated));
       } catch (e) {}
 
       (async () => {
@@ -817,6 +815,14 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
 
       return updated;
     });
+  };
+
+  // Toggle single module (Instant Auto-Save)
+  const handleToggleMonthlyModule = (moduleKey, forcedVal = null) => {
+    applyAndSaveMonthlyVisibility(prev => ({
+      ...prev,
+      [moduleKey]: forcedVal !== null ? forcedVal : !prev[moduleKey]
+    }));
   };
 
   useEffect(() => {
@@ -2271,6 +2277,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
             const parsed = JSON.parse(reportVisibilityItem.description);
             setMonthlyReportVisibility(prev => ({ ...prev, ...parsed }));
             localStorage.setItem(`${storeCode}_monthly_report_visibility`, JSON.stringify(parsed));
+            localStorage.setItem('monthly_report_visibility', JSON.stringify(parsed));
           } catch (e) {}
         }
 
@@ -4950,11 +4957,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                         <button
                           type="button"
                           onClick={() => {
-                            const allOn = { kpiSummary: true, batchYield: true, specsBreakdown: true, weekdayWeekend: true, dayOfWeek: true, monthlyLedger: true };
-                            setMonthlyReportVisibility(allOn);
-                            try {
-                              localStorage.setItem(`${storeCode}_monthly_report_visibility`, JSON.stringify(allOn));
-                            } catch (e) {}
+                            applyAndSaveMonthlyVisibility({ kpiSummary: true, batchYield: true, specsBreakdown: true, weekdayWeekend: true, dayOfWeek: true, monthlyLedger: true });
                           }}
                           style={{
                             padding: '3px 10px',
@@ -7102,7 +7105,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
             </div>
 
             <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', margin: '0 0 16px 0', lineHeight: '1.5' }}>
-              您可以自由開啟或關閉各項統計卡片。不需要大小碗換算或其他分析的店家可隨時關閉，保持月報表簡潔清晰。設定將自動同步儲存至雲端。
+              💡 <strong>所有勾選變更皆為「即時自動儲存」</strong>。不需按儲存按鈕，下次或在其他裝置進入時會自動保持您設定的模組狀態。
             </p>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '20px' }}>
@@ -7186,9 +7189,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                 <button
                   type="button"
                   onClick={() => {
-                    const allOn = { kpiSummary: true, batchYield: true, specsBreakdown: true, weekdayWeekend: true, dayOfWeek: true, monthlyLedger: true };
-                    setMonthlyReportVisibility(allOn);
-                    localStorage.setItem(`${storeCode}_monthly_report_visibility`, JSON.stringify(allOn));
+                    applyAndSaveMonthlyVisibility({ kpiSummary: true, batchYield: true, specsBreakdown: true, weekdayWeekend: true, dayOfWeek: true, monthlyLedger: true });
                   }}
                   style={{ padding: '5px 10px', fontSize: '0.75rem', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'transparent', color: 'var(--text-main)', cursor: 'pointer', fontWeight: 'bold' }}
                 >
@@ -7197,9 +7198,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                 <button
                   type="button"
                   onClick={() => {
-                    const minimal = { kpiSummary: true, batchYield: false, specsBreakdown: false, weekdayWeekend: false, dayOfWeek: false, monthlyLedger: true };
-                    setMonthlyReportVisibility(minimal);
-                    localStorage.setItem(`${storeCode}_monthly_report_visibility`, JSON.stringify(minimal));
+                    applyAndSaveMonthlyVisibility({ kpiSummary: true, batchYield: false, specsBreakdown: false, weekdayWeekend: false, dayOfWeek: false, monthlyLedger: true });
                   }}
                   style={{ padding: '5px 10px', fontSize: '0.75rem', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'transparent', color: 'var(--text-muted)', cursor: 'pointer' }}
                   title="僅保留核心營收與明細表，隱藏大小碗與週間圖表"
@@ -7208,13 +7207,18 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                 </button>
               </div>
 
-              <button
-                type="button"
-                onClick={() => setShowReportConfigModal(false)}
-                style={{ padding: '6px 20px', borderRadius: '6px', border: 'none', backgroundColor: 'var(--primary)', color: 'white', fontWeight: 'bold', fontSize: '0.85rem', cursor: 'pointer' }}
-              >
-                💾 儲存並關閉
-              </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <span style={{ fontSize: '0.75rem', color: '#16a34a', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <span>✓</span> 即時自動儲存中
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setShowReportConfigModal(false)}
+                  style={{ padding: '6px 18px', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-body)', color: 'var(--text-main)', fontWeight: 'bold', fontSize: '0.82rem', cursor: 'pointer' }}
+                >
+                  關閉
+                </button>
+              </div>
             </div>
           </div>
         </div>
