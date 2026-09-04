@@ -29,7 +29,21 @@ export const setStaffSecretToken = (token, storeCode = '') => {
 
 // Check if the provided URL token matches ANY registered store or staff token
 export const isAuthorizedStaffToken = (tokenParam) => {
-  if (!tokenParam) return false;
+  // If no token param, check if running on official main store domain, localhost, or has active staff session
+  if (!tokenParam) {
+    if (typeof window !== 'undefined') {
+      const host = (window.location.hostname || '').toLowerCase();
+      if (host === 'dragon.twabc.com' || host === 'localhost' || host === '127.0.0.1') {
+        return true;
+      }
+      // If already has valid login session
+      const hasSession = localStorage.getItem('is_cashier_authenticated') === 'true' ||
+                         localStorage.getItem('is_bookkeeping_authenticated') === 'true' ||
+                         localStorage.getItem('is_management_authenticated') === 'true';
+      if (hasSession) return true;
+    }
+    return false;
+  }
   const cleanParam = String(tokenParam).trim().toLowerCase();
   
   // 1. Check known built-in static tokens
@@ -41,7 +55,11 @@ export const isAuthorizedStaffToken = (tokenParam) => {
     'luzhou',
     '133',
     'admin_8888',
-    'pos_8888'
+    'pos_8888',
+    '8888',
+    'admin',
+    'pos',
+    'cashier'
   ];
   if (builtInTokens.includes(cleanParam)) return true;
 

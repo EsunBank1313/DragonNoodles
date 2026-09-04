@@ -34,10 +34,10 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
 
   const systemStartTime = useRef(Date.now());
   const locallyPrintedOrders = useRef(new Set());
-  const [menuItems, setMenuItems] = useState([]);
+  const [menuItems, setMenuItems] = useState(() => storeCode === 'dragon' ? fallbackMenuItems : []);
   const [categories, setCategories] = useState([
     { id: 'mee-sua', name: '招牌麵線', icon: '🍜' },
-    { id: 'specialties', name: '精選推薦', icon: '🔥' }
+    { id: 'specialties', name: '特色產品', icon: '🔥' }
   ]);
   const [activeCategory, setActiveCategory] = useState('mee-sua');
   const [cart, setCart] = useState([]);
@@ -199,7 +199,7 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
 
   // Store Open / Daily Opening Status
   const [storeOpenStatus, setStoreOpenStatus] = useState(null);
-  const isStoreOpenToday = Boolean(storeOpenStatus && storeOpenStatus.is_open && storeOpenStatus.open_date === getTodayLocalDate());
+  const isStoreOpenToday = Boolean(storeOpenStatus && (storeOpenStatus.is_open === true || storeOpenStatus.isOpen === true));
 
   // Closed Dates for Locking
   const [closedDates, setClosedDates] = useState([]);
@@ -869,9 +869,18 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
       console.error("Failed to load menu items in CashierView:", err);
       // Fallback from localStorage or default
       const saved = localStorage.getItem(`${storeCode}_restaurant_menu_items`);
-      if (saved) setMenuItems(JSON.parse(saved));
-      else if (storeCode === 'dragon') setMenuItems(fallbackMenuItems);
-      else setMenuItems([]);
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          setMenuItems(parsed && parsed.length > 0 ? parsed : (storeCode === 'dragon' ? fallbackMenuItems : []));
+        } catch (e) {
+          setMenuItems(storeCode === 'dragon' ? fallbackMenuItems : []);
+        }
+      } else if (storeCode === 'dragon') {
+        setMenuItems(fallbackMenuItems);
+      } else {
+        setMenuItems([]);
+      }
     }
   };
 

@@ -32,16 +32,19 @@ const getInitialRoleAndParams = () => {
   const wantsLogin = params.get('portal') !== null || params.get('login') !== null || params.get('demo') !== null;
 
   if (wantsPos || wantsBookkeeping || wantsAdmin || wantsLogin) {
-    // Strictly require authorized security token!
-    if (!isAuthorized && !isSubdomainStaff) {
-      // 🚫 No secret token provided: Strictly hide backend and show customer menu!
-      return { role: 'customer', table: table || null, isStaffAuthorized: false, storeCode };
+    // Portal / Login screen is always accessible so staff can enter their PIN
+    if (wantsLogin) return { role: 'login', table: null, isStaffAuthorized: true, storeCode };
+
+    // For direct pos/bookkeeping/admin access, allow if authorized or on dragon main domain
+    const isMainStoreHost = hostname === 'dragon.twabc.com' || hostname === 'localhost' || hostname === '127.0.0.1';
+    if (!isAuthorized && !isSubdomainStaff && !isMainStoreHost) {
+      // 🚫 No secret token provided: Redirect to login portal instead of dead customer view
+      return { role: 'login', table: null, isStaffAuthorized: false, storeCode };
     }
 
     if (wantsPos) return { role: 'pos', table: null, isStaffAuthorized: true, storeCode };
     if (wantsBookkeeping) return { role: 'bookkeeping', table: null, isStaffAuthorized: true, storeCode };
     if (wantsAdmin) return { role: 'management', table: null, isStaffAuthorized: true, storeCode };
-    if (wantsLogin) return { role: 'login', table: null, isStaffAuthorized: true, storeCode };
   }
 
   return { role: 'customer', table: table || null, isStaffAuthorized: false, storeCode };

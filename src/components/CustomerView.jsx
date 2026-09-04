@@ -179,8 +179,9 @@ const MenuItemImage = ({ item }) => {
     </div>
   );
 };
-export default function CustomerView({ storeCode: propStoreCode, tableNumber, onBackToDemo }) {
+export default function CustomerView({ storeCode: propStoreCode, tableNumber, onBackToDemo, onSwitchToLogin }) {
   const storeCode = propStoreCode || getActiveStoreCode();
+  const handleSwitchToLogin = onSwitchToLogin || onBackToDemo || (() => { window.location.href = '/?login=true'; });
   const [viewState, setViewState] = useState('menu'); // 'menu', 'checkout', 'tracking'
   const [productCategories, setProductCategories] = useState([
     { id: 'mee-sua', name: '招牌麵線', icon: '🍜' },
@@ -232,7 +233,7 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
   });
 
   const [menuItemsAvailability, setMenuItemsAvailability] = useState({});
-  const [menuItems, setMenuItems] = useState([]);
+  const [menuItems, setMenuItems] = useState(() => storeCode === 'dragon' ? defaultMenuItems : []);
   const [storeName, setStoreName] = useState('龍城麵線');
   const [storeSlogan, setStoreSlogan] = useState('');
   const [showHeroBanner, setShowHeroBanner] = useState(true);
@@ -548,10 +549,17 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
       console.error("Failed to load from Supabase menu_items, using localStorage/default:", err);
       const savedMenuItems = localStorage.getItem('restaurant_menu_items');
       if (savedMenuItems) {
-        setMenuItems(JSON.parse(savedMenuItems).filter(item => item.name !== 'SYSTEM_SETTING_LINE_TOKEN'));
+        try {
+          const parsed = JSON.parse(savedMenuItems).filter(item => item.name !== 'SYSTEM_SETTING_LINE_TOKEN');
+          setMenuItems(parsed.length > 0 ? parsed : defaultMenuItems);
+        } catch (e) {
+          setMenuItems(defaultMenuItems);
+        }
       } else {
         setMenuItems(defaultMenuItems);
       }
+    } finally {
+      setIsInitialLoading(false);
     }
   };
 
@@ -1082,10 +1090,16 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
   const todayStr = getTodayLocalDate();
   const nowTaipei = new Date();
   const currentHour = parseInt(nowTaipei.toLocaleTimeString('en-US', { timeZone: 'Asia/Taipei', hour12: false, hour: '2-digit' }), 10);
-  const isStoreOpenToday = Boolean(storeOpenStatus && storeOpenStatus.is_open && storeOpenStatus.open_date === todayStr);
-  const isPast10PM = currentHour >= 22 || currentHour < 6;
-  // Manual opening today strictly overrides 10PM cutoff unless explicitly marked closed in closedDates
-  const isClosed = closedDates.includes(todayStr) || (!isStoreOpenToday && isPast10PM);
+  
+  // Robust open status checks
+  const isManuallyClosed = Boolean(storeOpenStatus && (storeOpenStatus.is_open === false || storeOpenStatus.isOpen === false));
+  const isManuallyOpened = Boolean(storeOpenStatus && (storeOpenStatus.is_open === true || storeOpenStatus.isOpen === true));
+  const isTodayHoliday = closedDates.includes(todayStr);
+
+  // If explicitly opened by cashier/manager, store is strictly open (overriding nighttime cutoff!)
+  // Store is only closed if today is a scheduled holiday or explicitly closed by staff
+  const isClosed = isTodayHoliday || isManuallyClosed;
+  const isStoreOpenToday = isManuallyOpened || (!isClosed && (currentHour < 23 && currentHour >= 6));
 
   if (!isInitialLoading && !isStoreOpenToday && !isClosed) {
     return (
@@ -1133,24 +1147,41 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
               📍 門市地址：{storeAddress}
             </div>
           )}
-          <button
-            type="button"
-            onClick={() => window.location.reload()}
-            style={{
-              marginTop: '10px',
-              padding: '10px 20px',
-              borderRadius: '8px',
-              border: 'none',
-              backgroundColor: 'var(--primary)',
-              color: 'white',
-              fontSize: '0.9rem',
-              fontWeight: 'bold',
-              cursor: 'pointer',
-              boxShadow: '0 2px 4px rgba(234, 88, 12, 0.3)'
-            }}
-          >
-            🔄 重新整理頁面
-          </button>
+          <div style={{ display: 'flex', gap: '10px', marginTop: '10px', flexWrap: 'wrap', justifyContent: 'center' }}>
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              style={{
+                padding: '10px 18px',
+                borderRadius: '8px',
+                border: 'none',
+                backgroundColor: 'var(--primary)',
+                color: 'white',
+                fontSize: '0.9rem',
+                fontWeight: 'bold',
+                cursor: 'pointer',
+                boxShadow: '0 2px 4px rgba(234, 88, 12, 0.3)'
+              }}
+            >
+              🔄 重新整理頁面
+            </button>
+            <button
+              type="button"
+              onClick={handleSwitchToLogin}
+              style={{
+                padding: '10px 18px',
+                borderRadius: '8px',
+                border: '1px solid var(--border)',
+                backgroundColor: 'var(--bg-card)',
+                color: 'var(--text-main)',
+                fontSize: '0.85rem',
+                fontWeight: 'bold',
+                cursor: 'pointer'
+              }}
+            >
+              🔐 員工/後台登入
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -1226,6 +1257,26 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
         <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', maxWidth: '300px', lineHeight: '1.6' }}>
           【{storeName}】今日營業已打烊收店。歡迎您明天再來點餐，謝謝您的支持！
         </p>
+        <button
+          type="button"
+          onClick={handleSwitchToLogin}
+          style={{
+            marginTop: '20px',
+            padding: '10px 20px',
+            borderRadius: '8px',
+            border: '1px solid var(--border)',
+            backgroundColor: 'var(--bg-card)',
+            color: 'var(--text-main)',
+            fontSize: '0.85rem',
+            fontWeight: 'bold',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px'
+          }}
+        >
+          <span>🔐</span> 店長 / 員工系統入口
+        </button>
       </div>
     );
   }
@@ -1406,6 +1457,35 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
                 );
               })
             )}
+          </div>
+
+          {/* Footer with discreet Staff Portal Link */}
+          <div style={{
+            marginTop: '36px',
+            marginBottom: '70px',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: '6px',
+            color: 'var(--text-muted)',
+            fontSize: '0.75rem'
+          }}>
+            <div>{storeName} ・ 顧客線上掃碼點餐系統</div>
+            <button
+              type="button"
+              onClick={handleSwitchToLogin}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: 'var(--text-muted)',
+                textDecoration: 'underline',
+                cursor: 'pointer',
+                fontSize: '0.75rem',
+                padding: '4px 8px'
+              }}
+            >
+              🔐 店長 / 員工後台系統登入
+            </button>
           </div>
 
           {/* Sticky Floating Cart Bar */}
