@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { menuCategories, menuItems as defaultMenuItems, defaultUpgradeCombos, isComboApplicableToItem } from '../data/menuData';
+import { menuCategories, menuItems as defaultMenuItems, luzhouFallbackMenuItems, defaultUpgradeCombos, isComboApplicableToItem } from '../data/menuData';
 import ItemModal from './ItemModal';
 
 import CartPanel from './CartPanel';
@@ -183,11 +183,21 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
   const storeCode = propStoreCode || getActiveStoreCode();
   const handleSwitchToLogin = onSwitchToLogin || onBackToDemo || (() => { window.location.href = '/?login=true'; });
   const [viewState, setViewState] = useState('menu'); // 'menu', 'checkout', 'tracking'
-  const [productCategories, setProductCategories] = useState([
-    { id: 'mee-sua', name: '招牌麵線', icon: '🍜' },
-    { id: 'specialties', name: '特色產品', icon: '🔥' }
-  ]);
-  const [activeCategory, setActiveCategory] = useState('mee-sua');
+  const [productCategories, setProductCategories] = useState(() => {
+    if (storeCode === 'luzhou' || storeCode === 'luzhou7') {
+      return [{ id: 'specialties', name: '精選推薦', icon: '🔥' }];
+    }
+    return [
+      { id: 'mee-sua', name: '招牌麵線', icon: '🍜' },
+      { id: 'specialties', name: '特色產品', icon: '🔥' }
+    ];
+  });
+  const [activeCategory, setActiveCategory] = useState(() => {
+    if (storeCode === 'luzhou' || storeCode === 'luzhou7') {
+      return 'specialties';
+    }
+    return 'mee-sua';
+  });
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedItem, setSelectedItem] = useState(null);
   const [cart, setCart] = useState([]);
@@ -232,8 +242,22 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
     '辣醬': true
   });
 
-  const [menuItemsAvailability, setMenuItemsAvailability] = useState({});
-  const [menuItems, setMenuItems] = useState(() => storeCode === 'dragon' ? defaultMenuItems : []);
+  const [menuItems, setMenuItems] = useState(() => {
+    try {
+      const saved = localStorage.getItem(`${storeCode}_restaurant_menu_items`);
+      if (saved) {
+        let parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          if (storeCode === 'luzhou' || storeCode === 'luzhou7') {
+            parsed = parsed.filter(i => !i.name?.includes('麵線') && !i.name?.includes('沙士') && !i.name?.includes('氣泡飲') && i.category !== 'mee-sua' && !([146, 147, 148, 149, 150, 151, 152, 153, 154, 155].includes(Number(i.id))));
+          }
+          if (parsed.length > 0) return parsed;
+        }
+      }
+    } catch (e) {}
+    if (storeCode === 'luzhou' || storeCode === 'luzhou7') return luzhouFallbackMenuItems;
+    return storeCode === 'dragon' ? defaultMenuItems : [];
+  });
   const [storeName, setStoreName] = useState('龍城麵線');
   const [storeSlogan, setStoreSlogan] = useState('');
   const [showHeroBanner, setShowHeroBanner] = useState(true);
@@ -318,13 +342,17 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
         if (tokenItem) {
           setLineNotifyToken(tokenItem.description || '');
         }
+        let currentCats = productCategories;
         const categoriesItem = storeItems.find(item => item.name === 'SYSTEM_SETTING_PRODUCT_CATEGORIES');
         if (categoriesItem && categoriesItem.description) {
           try {
             const parsed = JSON.parse(categoriesItem.description);
-            setProductCategories(parsed);
-            if (parsed.length > 0 && !parsed.some(c => c.id === activeCategory)) {
-              setActiveCategory(parsed[0].id);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              currentCats = parsed;
+              setProductCategories(parsed);
+              if (!parsed.some(c => c.id === activeCategory)) {
+                setActiveCategory(parsed[0].id);
+              }
             }
           } catch (e) {}
         }
@@ -451,10 +479,28 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
             return indexA - indexB;
           });
         }
-        if (visibleItems.length === 0 && storeCode === 'dragon') {
-          setMenuItems(defaultMenuItems);
-        } else {
-          setMenuItems(visibleItems);
+        const finalItems = visibleItems.length === 0 
+          ? ((storeCode === 'luzhou' || storeCode === 'luzhou7') ? luzhouFallbackMenuItems : (storeCode === 'dragon' ? defaultMenuItems : []))
+          : visibleItems;
+
+        setMenuItems(finalItems);
+        try {
+          if (visibleItems.length > 0) {
+            localStorage.setItem(`${storeCode}_restaurant_menu_items`, JSON.stringify(visibleItems));
+          }
+        } catch (e) {}
+
+        // Auto-select category with items if activeCategory has 0 items
+        if (finalItems.length > 0) {
+          const hasCurrent = finalItems.some(i => (i.category === activeCategory) || (activeCategory === 'combos' && (i.category === 'combos' || i.customizations?.is_combo)));
+          if (!hasCurrent) {
+            const foundCat = currentCats.find(c => finalItems.some(i => (i.category === c.id) || (c.id === 'combos' && (i.category === 'combos' || i.customizations?.is_combo))));
+            if (foundCat) {
+              setActiveCategory(foundCat.id);
+            } else if (finalItems[0]?.category) {
+              setActiveCategory(finalItems[0].category);
+            }
+          }
         }
       } else {
         // Seed database if empty

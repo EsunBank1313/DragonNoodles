@@ -92,10 +92,16 @@ function App() {
 
   // Cache buster to clear stale local storage states across client devices
   useEffect(() => {
-    const CURRENT_VERSION = "3.0.0";
+    const CURRENT_VERSION = "3.2.0";
     const localVersion = localStorage.getItem('app_version');
     if (localVersion !== CURRENT_VERSION) {
       localStorage.setItem('app_version', CURRENT_VERSION);
+      try {
+        localStorage.removeItem('luzhou_restaurant_menu_items');
+        localStorage.removeItem('luzhou_management_menu_items');
+        localStorage.removeItem('luzhou7_restaurant_menu_items');
+        localStorage.removeItem('luzhou7_management_menu_items');
+      } catch (e) {}
     }
   }, []);
 

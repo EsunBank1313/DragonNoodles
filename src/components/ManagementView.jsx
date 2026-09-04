@@ -6,7 +6,7 @@ import { defaultStoreProfile, defaultReceiptConfig, printViaHiddenIframe } from 
 import { getActiveStoreCode, filterItemsByStore, prefixNameForStore, stripNameForStore, getStoreLinks, syncRegisteredStoresCache, generateRandomStoreToken, getStoreDisplayName } from '../utils/storeContext';
 import { getStaffSecretToken, setStaffSecretToken } from '../utils/securityConfig';
 import ThemeSelector from './ThemeSelector';
-import { menuItems as defaultMenuItems, defaultUpgradeCombos } from '../data/menuData';
+import { menuItems as defaultMenuItems, luzhouFallbackMenuItems, defaultUpgradeCombos } from '../data/menuData';
 import { SYSTEM_MODULES, INDUSTRY_PRESETS, getActiveModuleSettings, saveActiveModuleSettings } from '../utils/moduleContext';
 
 
@@ -322,10 +322,16 @@ export default function ManagementView({ storeCode: propStoreCode, onSwitchStore
     try {
       const cached = localStorage.getItem(`${storeCode}_management_menu_items`);
       if (cached) {
-        const parsed = JSON.parse(cached);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        let parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          if (storeCode === 'luzhou' || storeCode === 'luzhou7') {
+            parsed = parsed.filter(i => !i.name?.includes('麵線') && !i.name?.includes('沙士') && !i.name?.includes('氣泡飲') && i.category !== 'mee-sua' && !([146, 147, 148, 149, 150, 151, 152, 153, 154, 155].includes(Number(i.id))));
+          }
+          if (parsed.length > 0) return parsed;
+        }
       }
     } catch (e) {}
+    if (storeCode === 'luzhou' || storeCode === 'luzhou7') return luzhouFallbackMenuItems;
     return storeCode === 'dragon' ? defaultMenuItems : [];
   });
   const [storeProfile, setStoreProfile] = useState(() => {
@@ -1414,6 +1420,10 @@ const handleSaveGlobalAddons = async (newAddons) => {
 
   // Sync / Clone full master store menu & upgrade combos to current branch store
   const handleSyncFromMasterStore = async () => {
+    if (storeCode === 'luzhou' || storeCode === 'luzhou7') {
+      alert('【蘆洲七號】擁有獨立專屬商品菜單，禁止同步總店麵線品項以防資料污染。如需新增商品，請使用「➕ 新增商品項目」。');
+      return;
+    }
     if (!window.confirm(`確定要從總店同步完整商品菜單與升級套餐至【${storeName}】嗎？\n\n這將會：\n1. 自動同步總店的所有商品（8款招牌麵線、小菜、冷飲等）\n2. 自動同步總店的「加價升級套餐方案」\n3. 自動補齊全域加料與調料選項\n4. 保留分店現有專屬商品`)) {
       return;
     }
@@ -2494,7 +2504,7 @@ const handleSaveGlobalAddons = async (newAddons) => {
                 </div>
 
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-                  {storeCode !== 'dragon' && (
+                  {storeCode !== 'dragon' && storeCode !== 'luzhou' && storeCode !== 'luzhou7' && (
                     <button
                       type="button"
                       onClick={handleSyncFromMasterStore}

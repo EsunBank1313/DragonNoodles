@@ -38,18 +38,33 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
     try {
       const saved = localStorage.getItem(`${storeCode}_restaurant_menu_items`);
       if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        let parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          if (storeCode === 'luzhou' || storeCode === 'luzhou7') {
+            parsed = parsed.filter(i => !i.name?.includes('麵線') && !i.name?.includes('沙士') && !i.name?.includes('氣泡飲') && i.category !== 'mee-sua' && !([146, 147, 148, 149, 150, 151, 152, 153, 154, 155].includes(Number(i.id))));
+          }
+          if (parsed.length > 0) return parsed;
+        }
       }
     } catch (e) {}
     if (storeCode === 'luzhou' || storeCode === 'luzhou7') return luzhouFallbackMenuItems;
     return storeCode === 'dragon' ? fallbackMenuItems : [];
   });
-  const [categories, setCategories] = useState([
-    { id: 'mee-sua', name: '招牌麵線', icon: '🍜' },
-    { id: 'specialties', name: '特色產品', icon: '🔥' }
-  ]);
-  const [activeCategory, setActiveCategory] = useState('mee-sua');
+  const [categories, setCategories] = useState(() => {
+    if (storeCode === 'luzhou' || storeCode === 'luzhou7') {
+      return [{ id: 'specialties', name: '精選推薦', icon: '🔥' }];
+    }
+    return [
+      { id: 'mee-sua', name: '招牌麵線', icon: '🍜' },
+      { id: 'specialties', name: '特色產品', icon: '🔥' }
+    ];
+  });
+  const [activeCategory, setActiveCategory] = useState(() => {
+    if (storeCode === 'luzhou' || storeCode === 'luzhou7') {
+      return 'specialties';
+    }
+    return 'mee-sua';
+  });
   const [cart, setCart] = useState([]);
 
   // Inventory & Watched Items Restock Warning
@@ -776,11 +791,13 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
           try { orderList = JSON.parse(orderItem.description); } catch (e) {}
         }
         
+        let currentCategories = categories;
         const categoriesItem = storeItems.find(item => item.name === 'SYSTEM_SETTING_PRODUCT_CATEGORIES');
         if (categoriesItem && categoriesItem.description) {
           try {
             const parsed = JSON.parse(categoriesItem.description);
             if (Array.isArray(parsed) && parsed.length > 0) {
+              currentCategories = parsed;
               setCategories(parsed);
               if (!parsed.some(c => c.id === activeCategory)) {
                 setActiveCategory(parsed[0].id);
@@ -788,8 +805,9 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
             }
           } catch (e) {}
         } else if (storeCode !== 'dragon') {
-          setCategories([{ id: 'main', name: '全商品', icon: '🍲' }]);
-          setActiveCategory('main');
+          currentCategories = [{ id: 'specialties', name: '精選推薦', icon: '🔥' }];
+          setCategories(currentCategories);
+          setActiveCategory('specialties');
         }
 
                 const weightConfigItem = storeItems.find(item => item.name === 'SYSTEM_SETTING_WEIGHT_CONFIG');
@@ -887,19 +905,30 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
             return indexA - indexB;
           });
         }
+        const finalItems = visibleItems.length === 0 
+          ? ((storeCode === 'luzhou' || storeCode === 'luzhou7') ? luzhouFallbackMenuItems : (storeCode === 'dragon' ? fallbackMenuItems : []))
+          : visibleItems;
+
         if (visibleItems.length === 0) {
-          if (storeCode === 'luzhou' || storeCode === 'luzhou7') {
-            setMenuItems(luzhouFallbackMenuItems);
-          } else if (storeCode === 'dragon') {
-            setMenuItems(fallbackMenuItems);
-          } else {
-            setMenuItems([]);
-          }
+          setMenuItems(finalItems);
         } else {
           setMenuItems(visibleItems);
           try {
             localStorage.setItem(`${storeCode}_restaurant_menu_items`, JSON.stringify(visibleItems));
           } catch (e) {}
+        }
+
+        // Auto-select category that contains items if activeCategory has 0 items
+        if (finalItems.length > 0) {
+          const hasCurrent = finalItems.some(i => (i.category === activeCategory) || (activeCategory === 'combos' && (i.category === 'combos' || i.customizations?.is_combo)));
+          if (!hasCurrent) {
+            const foundCat = currentCategories.find(c => finalItems.some(i => (i.category === c.id) || (c.id === 'combos' && (i.category === 'combos' || i.customizations?.is_combo))));
+            if (foundCat) {
+              setActiveCategory(foundCat.id);
+            } else if (finalItems[0]?.category) {
+              setActiveCategory(finalItems[0].category);
+            }
+          }
         }
       }
     } catch (err) {
@@ -908,10 +937,15 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
       const saved = localStorage.getItem(`${storeCode}_restaurant_menu_items`);
       if (saved) {
         try {
-          const parsed = JSON.parse(saved);
+          let parsed = JSON.parse(saved);
           if (Array.isArray(parsed) && parsed.length > 0) {
-            setMenuItems(parsed);
-            return;
+            if (storeCode === 'luzhou' || storeCode === 'luzhou7') {
+              parsed = parsed.filter(i => !i.name?.includes('麵線') && !i.name?.includes('沙士') && !i.name?.includes('氣泡飲') && i.category !== 'mee-sua' && !([146, 147, 148, 149, 150, 151, 152, 153, 154, 155].includes(Number(i.id))));
+            }
+            if (parsed.length > 0) {
+              setMenuItems(parsed);
+              return;
+            }
           }
         } catch (e) {}
       }
