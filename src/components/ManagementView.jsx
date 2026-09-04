@@ -4108,14 +4108,14 @@ const handleSaveGlobalAddons = async (newAddons) => {
                         key: 'customer',
                         icon: '📱',
                         title: '顧客點餐網址 (印桌貼/海報)',
-                        url: `${origin}/?store=${activeToken}`,
+                        url: storeCode === 'dragon' ? `${origin}/` : `${origin}/?store=${storeCode}`,
                         desc: '客人掃碼直接點餐'
                       },
                       {
                         key: 'pos',
                         icon: '🖥️',
                         title: 'POS 櫃檯收銀機 (店員專用)',
-                        url: `${origin}/?store=${activeToken}&cashier=true`,
+                        url: `${origin}/?store=${activeToken}&pos=true`,
                         desc: '店員平板/電腦點餐出單'
                       },
                       {

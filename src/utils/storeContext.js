@@ -38,6 +38,7 @@ export const resolveStoreCode = (paramValue = '') => {
       const host = (window.location.hostname || '').toLowerCase();
       if (host.includes('luzhou') || host.includes('lz7')) return 'luzhou';
       if (host.includes('133')) return '133';
+      return DEFAULT_STORE_CODE;
     }
   }
   let clean = String(paramValue || '').trim().toLowerCase();
@@ -46,22 +47,64 @@ export const resolveStoreCode = (paramValue = '') => {
   // Normalize aliases
   if (clean === 'luzhou7' || clean === 'lz7') clean = 'luzhou';
 
+  // 1. PIN or Admin Tokens for default store
+  if (
+    clean === '8888' ||
+    clean.includes('admin_8888') ||
+    clean.includes('pos_8888') ||
+    clean === 'admin' ||
+    clean === 'pos' ||
+    clean === 'cashier' ||
+    clean === 'dragon' ||
+    clean.startsWith('dg_')
+  ) {
+    return DEFAULT_STORE_CODE;
+  }
+
   const stores = getRegisteredStores();
-  
-  // Exact match by code
+
+  // 2. Exact match by store code
   const matchCode = stores.find(s => s.code.toLowerCase() === clean);
   if (matchCode) return matchCode.code === 'luzhou7' ? 'luzhou' : matchCode.code;
 
-  // Match by staffToken
+  // 3. Match by staffToken
   const matchToken = stores.find(s => s.staffToken && s.staffToken.toLowerCase() === clean);
   if (matchToken) return matchToken.code === 'luzhou7' ? 'luzhou' : matchToken.code;
 
-  // Prefix matching
-  if (clean.startsWith('dg_') || clean === 'dragon') return 'dragon';
+  // 4. Token prefix matching (e.g. lz_xxx, 133_xxx, storecode_random)
   if (clean.startsWith('lz_') || clean === 'luzhou' || clean.includes('luzhou')) return 'luzhou';
   if (clean.startsWith('133') || clean.includes('133')) return '133';
 
-  return clean;
+  // If token has standard format {storeCode}_{randomHex}, extract prefix
+  if (clean.includes('_')) {
+    const prefix = clean.split('_')[0];
+    const matchPrefix = stores.find(s => s.code.toLowerCase() === prefix);
+    if (matchPrefix) return matchPrefix.code === 'luzhou7' ? 'luzhou' : matchPrefix.code;
+  }
+
+  // 5. Check if clean matches any known custom store token stored in localStorage
+  if (typeof localStorage !== 'undefined') {
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.endsWith('_staff_secret_token')) {
+          const val = (localStorage.getItem(k) || '').trim().toLowerCase();
+          if (val && val === clean) {
+            const sc = k.replace('_staff_secret_token', '');
+            if (sc) return sc;
+          }
+        }
+      }
+    } catch (e) {}
+  }
+
+  // 6. If clean is an already registered store code
+  if (stores.some(s => s.code.toLowerCase() === clean)) {
+    return clean;
+  }
+
+  // 7. Safety fallback: NEVER return an unregistered or unknown code that causes 0 items to be loaded!
+  return DEFAULT_STORE_CODE;
 };
 
 export const getActiveStoreCode = () => {
@@ -113,7 +156,7 @@ export const removeStoreSessionStorage = (key, storeCode = '') => {
 // Filter Supabase items by storeCode
 export const filterItemsByStore = (items = [], storeCode = '') => {
   if (!Array.isArray(items)) return [];
-  let sCode = storeCode || getActiveStoreCode();
+  let sCode = resolveStoreCode(storeCode || getActiveStoreCode());
   if (sCode === 'luzhou7' || sCode === 'lz7') sCode = 'luzhou';
   
   if (sCode === 'dragon') {
@@ -194,7 +237,7 @@ export const generateRandomStoreToken = (storeCode = 'store') => {
 };
 
 export const getStoreLinks = (storeCode = '') => {
-  const sCode = storeCode || getActiveStoreCode();
+  const sCode = resolveStoreCode(storeCode || getActiveStoreCode());
   const token = getStoreStaffToken(sCode);
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
   return {
@@ -202,6 +245,12 @@ export const getStoreLinks = (storeCode = '') => {
     login: `${origin}/?store=${token}&login=true`,
     pos: `${origin}/?store=${token}&pos=true`,
     bookkeeping: `${origin}/?store=${token}&bookkeeping=true`,
-    admin: `${origin}/?store=${token}&admin=true`
+    admin: `${origin}/?store=${token}&admin=true`,
+    // Compatibility aliases for ManagementView
+    customerUrl: `${origin}/?store=${sCode}`,
+    posUrl: `${origin}/?store=${token}&pos=true`,
+    bookkeepingUrl: `${origin}/?store=${token}&bookkeeping=true`,
+    adminUrl: `${origin}/?store=${token}&admin=true`,
+    publicToken: token
   };
 };

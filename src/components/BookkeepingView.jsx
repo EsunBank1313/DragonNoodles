@@ -5,7 +5,7 @@ import { menuItems as defaultMenuItems } from '../data/menuData';
 import { printDailyClosingReport, defaultStoreProfile, defaultReceiptConfig } from '../utils/printHelpers';
 import ModuleCenterModal from './ModuleCenterModal';
 import { getActiveModuleSettings, isModuleEnabled } from '../utils/moduleContext';
-import { getActiveStoreCode, filterItemsByStore, filterOrdersByStore, prefixNameForStore, stripNameForStore, getStoreStorage, setStoreStorage } from '../utils/storeContext';
+import { resolveStoreCode, getActiveStoreCode, filterItemsByStore, filterOrdersByStore, prefixNameForStore, stripNameForStore, getStoreStorage, setStoreStorage } from '../utils/storeContext';
 
 // Dynamic Item & Addon Cost Calculation Engine
 export const calculateItemCost = (item) => {
@@ -247,7 +247,7 @@ const defaultBatchTemplates = [
 ];
 
 export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo, onLogout, parentClosedDates, parentSetClosedDates }) {
-  const storeCode = propStoreCode || getActiveStoreCode();
+  const storeCode = resolveStoreCode(propStoreCode || getActiveStoreCode());
     const [condimentsAvailability, setCondimentsAvailability] = useState({});
   const [menuItems, setMenuItems] = useState([]);
   const [selectedManageType, setSelectedManageType] = useState('general');
@@ -2214,10 +2214,33 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
         const invItem = storeItems.find(i => i.name === 'SYSTEM_SETTING_INVENTORY');
         if (invItem && invItem.description) {
           try {
-            setInventory(JSON.parse(invItem.description));
+            const parsed = JSON.parse(invItem.description);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              setInventory(parsed);
+            } else if (storeCode !== 'dragon') {
+              const masterInv = data.find(i => i.name === 'SYSTEM_SETTING_INVENTORY');
+              if (masterInv && masterInv.description) {
+                setInventory(JSON.parse(masterInv.description));
+              } else {
+                setInventory([]);
+              }
+            } else {
+              setInventory(parsed);
+            }
           } catch (e) { setInventory([]); }
         } else {
-          setInventory([]);
+          // Check localStorage or master store fallback
+          const localInv = localStorage.getItem(`${storeCode}_restaurant_inventory`);
+          if (localInv) {
+            try { setInventory(JSON.parse(localInv)); } catch (e) { setInventory([]); }
+          } else {
+            const masterInv = data.find(i => i.name === 'SYSTEM_SETTING_INVENTORY');
+            if (masterInv && masterInv.description) {
+              try { setInventory(JSON.parse(masterInv.description)); } catch (e) { setInventory([]); }
+            } else {
+              setInventory([]);
+            }
+          }
         }
 
         const logsItem = storeItems.find(i => i.name === 'SYSTEM_SETTING_INVENTORY_LOGS');
@@ -2307,12 +2330,33 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
         if (vendorsItem && vendorsItem.description) {
           try {
             const parsed = JSON.parse(vendorsItem.description);
-            setVendors(parsed);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              setVendors(parsed);
+            } else if (storeCode !== 'dragon') {
+              const masterVendors = data.find(i => i.name === 'SYSTEM_SETTING_VENDORS_V2');
+              if (masterVendors && masterVendors.description) {
+                setVendors(JSON.parse(masterVendors.description));
+              } else {
+                setVendors([]);
+              }
+            } else {
+              setVendors(parsed);
+            }
           } catch (e) {
             setVendors([]);
           }
         } else {
-          setVendors([]);
+          const localVendors = localStorage.getItem(`${storeCode}_restaurant_vendors`);
+          if (localVendors) {
+            try { setVendors(JSON.parse(localVendors)); } catch (e) { setVendors([]); }
+          } else {
+            const masterVendors = data.find(i => i.name === 'SYSTEM_SETTING_VENDORS_V2');
+            if (masterVendors && masterVendors.description) {
+              try { setVendors(JSON.parse(masterVendors.description)); } catch (e) { setVendors([]); }
+            } else {
+              setVendors([]);
+            }
+          }
         }
       }
     } catch (e) {
@@ -2348,6 +2392,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
   useEffect(() => {
     if (!isInventoryLoaded) return;
     localStorage.setItem(`${storeCode}_restaurant_inventory`, JSON.stringify(inventory));
+    if (!inventory || inventory.length === 0) return;
     const syncInv = async () => {
       try {
         const invKey = prefixNameForStore('SYSTEM_SETTING_INVENTORY', storeCode);

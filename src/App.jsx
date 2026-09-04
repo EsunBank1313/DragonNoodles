@@ -7,7 +7,7 @@ import UnifiedLoginScreen from './components/UnifiedLoginScreen';
 import SetupWizardModal from './components/SetupWizardModal';
 import { supabase } from './supabaseClient';
 import { isAuthorizedStaffToken, getPinLockoutStatus, recordFailedPinAttempt, resetPinAttempts } from './utils/securityConfig';
-import { resolveStoreCode, getActiveStoreCode } from './utils/storeContext';
+import { resolveStoreCode, getActiveStoreCode, syncRegisteredStoresCache } from './utils/storeContext';
 import { getActiveModuleSettings, isModuleEnabled } from './utils/moduleContext';
 
 const getInitialRoleAndParams = () => {
@@ -26,7 +26,7 @@ const getInitialRoleAndParams = () => {
   // Subdomain support (pos.domain.com, admin.domain.com, bookkeeping.domain.com)
   const isSubdomainStaff = hostname.startsWith('pos.') || hostname.startsWith('admin.') || hostname.startsWith('bookkeeping.');
 
-  const wantsPos = params.get('pos') !== null || hostname.startsWith('pos.');
+  const wantsPos = params.get('pos') !== null || params.get('cashier') !== null || hostname.startsWith('pos.');
   const wantsBookkeeping = params.get('bookkeeping') !== null || hostname.startsWith('bookkeeping.');
   const wantsAdmin = params.get('admin') !== null || params.get('management') !== null || hostname.startsWith('admin.');
   const wantsLogin = params.get('portal') !== null || params.get('login') !== null || params.get('demo') !== null;
@@ -132,6 +132,17 @@ function App() {
               localStorage.setItem('app_staff_secret_token', cleanToken);
               localStorage.setItem(`${storeCode}_staff_secret_token`, cleanToken);
             }
+          }
+
+          // Sync registered stores from cloud into local cache for all devices
+          const regItem = data.find(i => i.name === 'SYSTEM_SETTING_REGISTERED_STORES');
+          if (regItem && regItem.description) {
+            try {
+              const parsed = JSON.parse(regItem.description);
+              if (Array.isArray(parsed) && parsed.length > 0) {
+                syncRegisteredStoresCache(parsed);
+              }
+            } catch (e) {}
           }
         }
       } catch (err) {}

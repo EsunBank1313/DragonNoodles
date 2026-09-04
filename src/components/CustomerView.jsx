@@ -450,7 +450,11 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
             return indexA - indexB;
           });
         }
-        setMenuItems(visibleItems);
+        if (visibleItems.length === 0 && storeCode === 'dragon') {
+          setMenuItems(defaultMenuItems);
+        } else {
+          setMenuItems(visibleItems);
+        }
       } else {
         // Seed database if empty
         const defaultWithNullCustomizations = defaultMenuItems.map(item => ({
@@ -1078,11 +1082,12 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
   const todayStr = getTodayLocalDate();
   const nowTaipei = new Date();
   const currentHour = parseInt(nowTaipei.toLocaleTimeString('en-US', { timeZone: 'Asia/Taipei', hour12: false, hour: '2-digit' }), 10);
-  const isPast10PM = currentHour >= 22 || currentHour < 6;
-  const isClosed = closedDates.includes(todayStr) || isPast10PM;
   const isStoreOpenToday = Boolean(storeOpenStatus && storeOpenStatus.is_open && storeOpenStatus.open_date === todayStr);
+  const isPast10PM = currentHour >= 22 || currentHour < 6;
+  // Manual opening today strictly overrides 10PM cutoff unless explicitly marked closed in closedDates
+  const isClosed = closedDates.includes(todayStr) || (!isStoreOpenToday && isPast10PM);
 
-  if (!isInitialLoading && !isStoreOpenToday && !closedDates.includes(todayStr) && !isPast10PM) {
+  if (!isInitialLoading && !isStoreOpenToday && !isClosed) {
     return (
       <div style={{
         display: 'flex',

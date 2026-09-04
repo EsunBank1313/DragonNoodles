@@ -1,16 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 import { formatSupabaseOrder } from './CustomerView';
-import { defaultUpgradeCombos, isComboApplicableToItem } from '../data/menuData';
+import { menuItems as fallbackMenuItems, defaultUpgradeCombos, isComboApplicableToItem } from '../data/menuData';
 import ItemModal from './ItemModal';
 import ThermalPrintPortal from './ThermalPrintPortal';
 import { defaultStoreProfile, defaultReceiptConfig, printThermalReceipt, printDailyClosingReport } from '../utils/printHelpers';
 import ModuleCenterModal from './ModuleCenterModal';
 import { getActiveModuleSettings, isModuleEnabled } from '../utils/moduleContext';
-import { getActiveStoreCode, filterItemsByStore, filterOrdersByStore, prefixNameForStore, stripNameForStore, getStoreStorage, setStoreStorage, getStoreSessionStorage, setStoreSessionStorage, removeStoreSessionStorage } from '../utils/storeContext';
+import { resolveStoreCode, getActiveStoreCode, filterItemsByStore, filterOrdersByStore, prefixNameForStore, stripNameForStore, getStoreStorage, setStoreStorage, getStoreSessionStorage, setStoreSessionStorage, removeStoreSessionStorage } from '../utils/storeContext';
 
 export default function CashierView({ storeCode: propStoreCode, cashierName, sessionId: propSessionId, onLogout }) {
-  const storeCode = propStoreCode || getActiveStoreCode();
+  const storeCode = resolveStoreCode(propStoreCode || getActiveStoreCode());
 
   const getTodayLocalDate = () => {
     try {
@@ -49,8 +49,12 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
   useEffect(() => {
     const fetchInventory = async () => {
       try {
-        const invKey = 'SYSTEM_SETTING_INVENTORY';
-        const { data } = await supabase.from('menu_items').select('*').eq('name', invKey);
+        const invKey = prefixNameForStore('SYSTEM_SETTING_INVENTORY', storeCode);
+        let { data } = await supabase.from('menu_items').select('*').eq('name', invKey);
+        if ((!data || data.length === 0) && storeCode !== 'dragon') {
+          const fallbackRes = await supabase.from('menu_items').select('*').eq('name', 'SYSTEM_SETTING_INVENTORY');
+          data = fallbackRes.data;
+        }
         if (data && data.length > 0) {
           const parsed = JSON.parse(data[0].description);
           if (Array.isArray(parsed)) {
@@ -63,8 +67,9 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
     };
     fetchInventory();
 
-    const channel = supabase.channel('pos-inventory-realtime')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'menu_items', filter: 'name=eq.SYSTEM_SETTING_INVENTORY' }, () => {
+    const invKey = prefixNameForStore('SYSTEM_SETTING_INVENTORY', storeCode);
+    const channel = supabase.channel(`pos-inventory-realtime-${storeCode}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'menu_items', filter: `name=eq.${invKey}` }, () => {
         fetchInventory();
       })
       .subscribe();
@@ -72,7 +77,7 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
     return () => {
       supabase.removeChannel(channel);
     };
-  }, []);
+  }, [storeCode]);
 
   const watchedLowStockItems = inventory.filter(item => {
     const isWatched = item.isWatched !== false;
@@ -854,14 +859,18 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
             return indexA - indexB;
           });
         }
-        setMenuItems(visibleItems);
+        if (visibleItems.length === 0 && storeCode === 'dragon') {
+          setMenuItems(fallbackMenuItems);
+        } else {
+          setMenuItems(visibleItems);
+        }
       }
     } catch (err) {
       console.error("Failed to load menu items in CashierView:", err);
       // Fallback from localStorage or default
       const saved = localStorage.getItem(`${storeCode}_restaurant_menu_items`);
       if (saved) setMenuItems(JSON.parse(saved));
-      else if (storeCode === 'dragon') setMenuItems(defaultMenuItems);
+      else if (storeCode === 'dragon') setMenuItems(fallbackMenuItems);
       else setMenuItems([]);
     }
   };
