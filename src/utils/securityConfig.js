@@ -5,20 +5,25 @@ export const DEFAULT_STAFF_SECRET_TOKEN = 'dg_8f2a1c';
 export const DEFAULT_ADMIN_PIN = '8888';
 export const DEFAULT_CASHIER_PIN = '1234';
 
-export const getStaffSecretToken = () => {
+export const getStaffSecretToken = (storeCode = '') => {
   if (typeof window === 'undefined') return DEFAULT_STAFF_SECRET_TOKEN;
+  const sCode = storeCode || (typeof window !== 'undefined' ? (new URLSearchParams(window.location.search).get('store') || '') : '');
   return (
-    import.meta.env.VITE_STAFF_SECRET_TOKEN ||
+    (sCode ? localStorage.getItem(`${sCode}_staff_secret_token`) : null) ||
     localStorage.getItem('app_staff_secret_token') ||
+    import.meta.env.VITE_STAFF_SECRET_TOKEN ||
     DEFAULT_STAFF_SECRET_TOKEN
   );
 };
 
-export const setStaffSecretToken = (token) => {
+export const setStaffSecretToken = (token, storeCode = '') => {
   if (typeof window === 'undefined') return;
   const clean = String(token).trim();
   if (clean) {
     localStorage.setItem('app_staff_secret_token', clean);
+    if (storeCode) {
+      localStorage.setItem(`${storeCode}_staff_secret_token`, clean);
+    }
   }
 };
 
@@ -51,6 +56,19 @@ export const isAuthorizedStaffToken = (tokenParam) => {
   // 3. Check custom stored token
   const customToken = String(getStaffSecretToken()).trim().toLowerCase();
   if (customToken && customToken === cleanParam) return true;
+
+  // Also check all stored tokens in localStorage
+  if (typeof localStorage !== 'undefined') {
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && (k.endsWith('_staff_secret_token') || k === 'app_staff_secret_token')) {
+          const val = (localStorage.getItem(k) || '').trim().toLowerCase();
+          if (val && val === cleanParam) return true;
+        }
+      }
+    } catch (e) {}
+  }
 
   // 4. Accept any token with standard prefix format (e.g. 133_xxx, store_xxx, dg_xxx, lz_xxx)
   if (/^[a-z0-9]+_[a-z0-9]+$/i.test(cleanParam)) return true;

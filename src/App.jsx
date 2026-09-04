@@ -123,6 +123,16 @@ function App() {
               localStorage.setItem('app_enabled_modules', moduleItem.description);
             } catch (e) {}
           }
+
+          // Load staff secret token from cloud
+          const tokenItem = data.find(i => i.name === 'SYSTEM_SETTING_STAFF_TOKEN' || i.name === `${storeCode}_SYSTEM_SETTING_STAFF_TOKEN`);
+          if (tokenItem && tokenItem.description) {
+            const cleanToken = String(tokenItem.description).trim();
+            if (cleanToken) {
+              localStorage.setItem('app_staff_secret_token', cleanToken);
+              localStorage.setItem(`${storeCode}_staff_secret_token`, cleanToken);
+            }
+          }
         }
       } catch (err) {}
     };
