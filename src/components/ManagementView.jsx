@@ -740,13 +740,38 @@ const [closedDates, setClosedDates] = useState(() => {
           { id: 'mee-sua', name: '招牌麵線', icon: '🍜' },
           { id: 'specialties', name: '精選推薦', icon: '🔥' }
         ];
-        initialItems = [
-          { name: prefix + "綜合麵線", price: 70, category: 'mee-sua', description: '招牌大腸、肉羹、貢丸雙料', customizations: { is_available: true, is_published: true, cost_price: 25 } },
-          { name: prefix + "大腸麵線", price: 65, category: 'mee-sua', description: '獨家滷汁滷透大腸', customizations: { is_available: true, is_published: true, cost_price: 22 } },
-          { name: prefix + "清麵線", price: 40, category: 'mee-sua', description: '純高湯熬煮手工紅麵線', customizations: { is_available: true, is_published: true, cost_price: 11 } },
-          { name: prefix + "特製小菜", price: 35, category: 'specialties', description: '店內主廚精選小菜', customizations: { is_available: true, is_published: true, cost_price: 12 } },
-          { name: prefix + "清涼冷飲", price: 30, category: 'specialties', description: '古早味手工熬煮飲品', customizations: { is_available: true, is_published: true, cost_price: 8 } }
-        ];
+
+        // Fetch all active master dishes from Supabase to clone 100% full menu
+        try {
+          const { data: currentDbItems } = await supabase.from('menu_items').select('*');
+          const masterItems = (currentDbItems || []).filter(i => (!i.name.startsWith('[') || i.name.startsWith('[dragon] ')) && !i.name.startsWith('SYSTEM_SETTING_'));
+          
+          if (masterItems.length > 0) {
+            initialItems = masterItems.map(m => {
+              const rawName = m.name.replace(/^\[dragon\]\s*/, '');
+              return {
+                name: prefix + rawName,
+                price: m.price,
+                category: m.category,
+                description: m.description || '',
+                image: m.image || '',
+                customizations: m.customizations || null
+              };
+            });
+          }
+        } catch (e) {
+          console.warn("Failed fetching master items for cloning:", e);
+        }
+
+        if (initialItems.length === 0) {
+          initialItems = [
+            { name: prefix + "綜合麵線", price: 70, category: 'mee-sua', description: '招牌大腸、肉羹、貢丸雙料', customizations: { is_available: true, is_published: true, cost_price: 25 } },
+            { name: prefix + "大腸麵線", price: 65, category: 'mee-sua', description: '獨家滷汁滷透大腸', customizations: { is_available: true, is_published: true, cost_price: 22 } },
+            { name: prefix + "清麵線", price: 40, category: 'mee-sua', description: '純高湯熬煮手工紅麵線', customizations: { is_available: true, is_published: true, cost_price: 11 } },
+            { name: prefix + "特製小菜", price: 35, category: 'specialties', description: '店內主廚精選小菜', customizations: { is_available: true, is_published: true, cost_price: 12 } },
+            { name: prefix + "清涼冷飲", price: 30, category: 'specialties', description: '古早味手工熬煮飲品', customizations: { is_available: true, is_published: true, cost_price: 8 } }
+          ];
+        }
       } else if (newClientTemplate === 'general') {
         initialItems = [
           { name: prefix + "招牌排骨飯", price: 110, category: 'main', description: '金黃酥脆厚切排骨', customizations: { is_available: true, is_published: true, cost_price: 45 } },
@@ -783,6 +808,11 @@ const [closedDates, setClosedDates] = useState(() => {
         { name: prefix + "SYSTEM_SETTING_INVENTORY", price: 0, category: 'settings', description: '[]' },
         { name: prefix + "SYSTEM_SETTING_INVENTORY_LOGS", price: 0, category: 'settings', description: '[]' },
         { name: prefix + "SYSTEM_SETTING_CONDIMENTS_AVAILABILITY", price: 0, category: 'settings', description: '{}' },
+        { name: prefix + "SYSTEM_SETTING_UPGRADE_COMBOS", price: 0, category: 'settings', description: JSON.stringify(upgradeCombos && upgradeCombos.length > 0 ? upgradeCombos : defaultUpgradeCombos) },
+        { name: prefix + "SYSTEM_SETTING_GLOBAL_ADDONS", price: 0, category: 'system', description: JSON.stringify(globalAddons) },
+        { name: prefix + "SYSTEM_SETTING_GLOBAL_CONDIMENTS", price: 0, category: 'system', description: JSON.stringify(globalCondiments) },
+        { name: prefix + "SYSTEM_SETTING_STORE_OPEN_STATUS", price: 0, category: 'settings', description: JSON.stringify({ isOpen: true, businessHours: '10:30 - 20:30', note: '' }) },
+        { name: prefix + "SYSTEM_SETTING_ENABLED_MODULES", price: 0, category: 'settings', description: JSON.stringify({ cashier: true, bookkeeping: true, management: true }) },
         { name: prefix + "SYSTEM_SETTING_CLOSED_DATES", price: 0, category: 'settings', description: '[]' },
         { name: prefix + "SYSTEM_SETTING_PROCESSED_ORDERS", price: 0, category: 'settings', description: '[]' },
         ...initialItems
@@ -800,14 +830,14 @@ const [closedDates, setClosedDates] = useState(() => {
       // 4. Use specified or auto-generated Secret Staff Token for this new store!
       const randomStaffToken = (newClientStaffToken.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '') || generateRandomStoreToken(rawCode));
 
-      // Save secret staff token row
-      const tokenRow = {
-        name: prefix + "SYSTEM_SETTING_STORE_STAFF_TOKEN",
-        price: 0,
-        category: 'settings',
-        description: randomStaffToken
-      };
-      await supabase.from('menu_items').upsert([tokenRow], { onConflict: 'name' });
+      // Save secret staff token row (save both key variants to ensure universal compatibility)
+      const tokenRows = [
+        { name: prefix + "SYSTEM_SETTING_STAFF_TOKEN", price: 0, category: 'settings', description: randomStaffToken },
+        { name: prefix + "SYSTEM_SETTING_STORE_STAFF_TOKEN", price: 0, category: 'settings', description: randomStaffToken }
+      ];
+      for (const tRow of tokenRows) {
+        await supabase.from('menu_items').upsert([tRow], { onConflict: 'name' });
+      }
 
       // Update registered stores list in cloud
       const newStoreEntry = {
@@ -1353,6 +1383,91 @@ const handleSaveGlobalAddons = async (newAddons) => {
     }
   };
 
+  // Sync / Clone full master store menu & upgrade combos to current branch store
+  const handleSyncFromMasterStore = async () => {
+    if (!window.confirm(`確定要從總店同步完整商品菜單與升級套餐至【${storeName}】嗎？\n\n這將會：\n1. 自動同步總店的所有商品（8款招牌麵線、小菜、冷飲等）\n2. 自動同步總店的「加價升級套餐方案」\n3. 自動補齊全域加料與調料選項\n4. 保留分店現有專屬商品`)) {
+      return;
+    }
+
+    try {
+      const { data: allItems, error } = await supabase.from('menu_items').select('*');
+      if (error) throw error;
+
+      const dragonItems = allItems.filter(i => !i.name.startsWith('[') || i.name.startsWith('[dragon] '));
+      const masterDishes = dragonItems.filter(i => !i.name.startsWith('SYSTEM_SETTING_'));
+      
+      let clonedCount = 0;
+      for (const dish of masterDishes) {
+        const rawName = dish.name.replace(/^\[dragon\]\s*/, '');
+        const targetName = prefixNameForStore(rawName, storeCode);
+        const payload = {
+          name: targetName,
+          price: dish.price,
+          category: dish.category,
+          description: dish.description || '',
+          image: dish.image || '',
+          customizations: dish.customizations || null
+        };
+
+        const { data: exist } = await supabase.from('menu_items').select('id').eq('name', targetName);
+        if (exist && exist.length > 0) {
+          await supabase.from('menu_items').update(payload).eq('name', targetName);
+        } else {
+          await supabase.from('menu_items').insert([payload]);
+        }
+        clonedCount++;
+      }
+
+      // Sync UPGRADE_COMBOS
+      const masterCombo = dragonItems.find(i => i.name === 'SYSTEM_SETTING_UPGRADE_COMBOS');
+      if (masterCombo && masterCombo.description) {
+        const comboKey = prefixNameForStore('SYSTEM_SETTING_UPGRADE_COMBOS', storeCode);
+        const { data: exist } = await supabase.from('menu_items').select('id').eq('name', comboKey);
+        if (exist && exist.length > 0) {
+          await supabase.from('menu_items').update({ description: masterCombo.description }).eq('name', comboKey);
+        } else {
+          await supabase.from('menu_items').insert([{ name: comboKey, price: 0, category: 'settings', description: masterCombo.description }]);
+        }
+      }
+
+      // Sync categories if missing
+      const masterCats = dragonItems.find(i => i.name === 'SYSTEM_SETTING_PRODUCT_CATEGORIES');
+      if (masterCats && masterCats.description) {
+        const catKey = prefixNameForStore('SYSTEM_SETTING_PRODUCT_CATEGORIES', storeCode);
+        const { data: exist } = await supabase.from('menu_items').select('id').eq('name', catKey);
+        if (!exist || exist.length === 0) {
+          await supabase.from('menu_items').insert([{ name: catKey, price: 0, category: 'settings', description: masterCats.description }]);
+        }
+      }
+
+      // Sync addons if missing
+      const masterAddons = dragonItems.find(i => i.name === 'SYSTEM_SETTING_GLOBAL_ADDONS');
+      if (masterAddons && masterAddons.description) {
+        const addonKey = prefixNameForStore('SYSTEM_SETTING_GLOBAL_ADDONS', storeCode);
+        const { data: exist } = await supabase.from('menu_items').select('id').eq('name', addonKey);
+        if (!exist || exist.length === 0) {
+          await supabase.from('menu_items').insert([{ name: addonKey, price: 0, category: 'system', description: masterAddons.description }]);
+        }
+      }
+
+      // Sync condiments if missing
+      const masterCondiments = dragonItems.find(i => i.name === 'SYSTEM_SETTING_GLOBAL_CONDIMENTS');
+      if (masterCondiments && masterCondiments.description) {
+        const condKey = prefixNameForStore('SYSTEM_SETTING_GLOBAL_CONDIMENTS', storeCode);
+        const { data: exist } = await supabase.from('menu_items').select('id').eq('name', condKey);
+        if (!exist || exist.length === 0) {
+          await supabase.from('menu_items').insert([{ name: condKey, price: 0, category: 'system', description: masterCondiments.description }]);
+        }
+      }
+
+      alert(`🎉 總店完整菜單與套餐已成功同步至【${storeName}】！共同步 ${clonedCount} 樣商品。`);
+      fetchMenuItems();
+    } catch (err) {
+      console.error("Failed to sync from master store:", err);
+      alert("同步失敗，請檢查網路連線或稍後再試。");
+    }
+  };
+
   useEffect(() => {
     fetchMenuItems();
     fetchStaffList();
@@ -1878,45 +1993,60 @@ const handleSaveGlobalAddons = async (newAddons) => {
                     當顧客在線上點餐或收銀員在 POS 機點選招牌麵線/主餐時，可選擇以下套餐方案以特惠價加購小菜與冷飲。
                   </p>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const current = tempUpgradeCombos.length > 0 ? tempUpgradeCombos : (upgradeCombos || defaultUpgradeCombos);
-                    setTempUpgradeCombos([...current, {
-                      id: 'upgrade_' + Date.now().toString(36),
-                      name: '新自選升級套餐',
-                      tag: '⭐ 推薦',
-                      price: 45,
-                      description: '精選小菜 ＋ 沁涼特調冷飲 1杯',
-                      slots: [
-                        {
-                          id: 'side',
-                          title: '🥬 開胃小菜 (選 1)',
-                          options: [
-                            { name: '特製黃金辣泡菜', priceChange: 0, default: true },
-                            { name: '熱騰騰招牌大肉包 (1顆)', priceChange: 0 }
-                          ]
-                        },
-                        {
-                          id: 'drink',
-                          title: '🥤 沁涼冷飲 (選 1)',
-                          hasDrinkOptions: true,
-                          options: [
-                            { name: '古早味冰紅茶 (500cc)', priceChange: 0, default: true },
-                            { name: '鮮檸冬瓜露', priceChange: 5 }
-                          ]
-                        }
-                      ]
-                    }]);
-                  }}
-                  style={{
-                    padding: '10px 16px', backgroundColor: '#10b981', color: 'white', border: 'none',
-                    borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.85rem',
-                    display: 'flex', alignItems: 'center', gap: '4px', boxShadow: '0 2px 6px rgba(16, 185, 129, 0.25)'
-                  }}
-                >
-                  ➕ 新增升級方案
-                </button>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  {storeCode !== 'dragon' && (
+                    <button
+                      type="button"
+                      onClick={handleSyncFromMasterStore}
+                      style={{
+                        padding: '10px 16px', backgroundColor: '#3b82f6', color: 'white', border: 'none',
+                        borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.85rem',
+                        display: 'flex', alignItems: 'center', gap: '4px', boxShadow: '0 2px 6px rgba(59, 130, 246, 0.25)'
+                      }}
+                    >
+                      🔄 從總店同步套餐與菜單
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const current = tempUpgradeCombos.length > 0 ? tempUpgradeCombos : (upgradeCombos || defaultUpgradeCombos);
+                      setTempUpgradeCombos([...current, {
+                        id: 'upgrade_' + Date.now().toString(36),
+                        name: '新自選升級套餐',
+                        tag: '⭐ 推薦',
+                        price: 45,
+                        description: '精選小菜 ＋ 沁涼特調冷飲 1杯',
+                        slots: [
+                          {
+                            id: 'side',
+                            title: '🥬 開胃小菜 (選 1)',
+                            options: [
+                              { name: '特製黃金辣泡菜', priceChange: 0, default: true },
+                              { name: '熱騰騰招牌大肉包 (1顆)', priceChange: 0 }
+                            ]
+                          },
+                          {
+                            id: 'drink',
+                            title: '🥤 沁涼冷飲 (選 1)',
+                            hasDrinkOptions: true,
+                            options: [
+                              { name: '古早味冰紅茶 (500cc)', priceChange: 0, default: true },
+                              { name: '鮮檸冬瓜露', priceChange: 5 }
+                            ]
+                          }
+                        ]
+                      }]);
+                    }}
+                    style={{
+                      padding: '10px 16px', backgroundColor: '#10b981', color: 'white', border: 'none',
+                      borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.85rem',
+                      display: 'flex', alignItems: 'center', gap: '4px', boxShadow: '0 2px 6px rgba(16, 185, 129, 0.25)'
+                    }}
+                  >
+                    ➕ 新增升級方案
+                  </button>
+                </div>
               </div>
 
               {/* Package cards list */}
@@ -2335,6 +2465,19 @@ const handleSaveGlobalAddons = async (newAddons) => {
                 </div>
 
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                  {storeCode !== 'dragon' && (
+                    <button
+                      type="button"
+                      onClick={handleSyncFromMasterStore}
+                      style={{
+                        padding: '8px 14px', backgroundColor: '#3b82f6', color: 'white', border: 'none',
+                        borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.85rem',
+                        display: 'flex', alignItems: 'center', gap: '4px', boxShadow: '0 2px 6px rgba(59, 130, 246, 0.25)'
+                      }}
+                    >
+                      🔄 從總店同步菜單與套餐
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => {
