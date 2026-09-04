@@ -1,13 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 import { formatSupabaseOrder } from './CustomerView';
-import { menuItems as fallbackMenuItems, defaultUpgradeCombos, isComboApplicableToItem } from '../data/menuData';
+import { menuItems as fallbackMenuItems, luzhouFallbackMenuItems, defaultUpgradeCombos, isComboApplicableToItem } from '../data/menuData';
 import ItemModal from './ItemModal';
 import ThermalPrintPortal from './ThermalPrintPortal';
 import { defaultStoreProfile, defaultReceiptConfig, printThermalReceipt, printDailyClosingReport } from '../utils/printHelpers';
 import ModuleCenterModal from './ModuleCenterModal';
 import { getActiveModuleSettings, isModuleEnabled } from '../utils/moduleContext';
-import { resolveStoreCode, getActiveStoreCode, filterItemsByStore, filterOrdersByStore, prefixNameForStore, stripNameForStore, getStoreStorage, setStoreStorage, getStoreSessionStorage, setStoreSessionStorage, removeStoreSessionStorage } from '../utils/storeContext';
+import { resolveStoreCode, getActiveStoreCode, filterItemsByStore, filterOrdersByStore, prefixNameForStore, stripNameForStore, getStoreStorage, setStoreStorage, getStoreSessionStorage, setStoreSessionStorage, removeStoreSessionStorage, getStoreDisplayName } from '../utils/storeContext';
 
 export default function CashierView({ storeCode: propStoreCode, cashierName, sessionId: propSessionId, onLogout }) {
   const storeCode = resolveStoreCode(propStoreCode || getActiveStoreCode());
@@ -34,7 +34,17 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
 
   const systemStartTime = useRef(Date.now());
   const locallyPrintedOrders = useRef(new Set());
-  const [menuItems, setMenuItems] = useState(() => storeCode === 'dragon' ? fallbackMenuItems : []);
+  const [menuItems, setMenuItems] = useState(() => {
+    try {
+      const saved = localStorage.getItem(`${storeCode}_restaurant_menu_items`);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch (e) {}
+    if (storeCode === 'luzhou' || storeCode === 'luzhou7') return luzhouFallbackMenuItems;
+    return storeCode === 'dragon' ? fallbackMenuItems : [];
+  });
   const [categories, setCategories] = useState([
     { id: 'mee-sua', name: '招牌麵線', icon: '🍜' },
     { id: 'specialties', name: '特色產品', icon: '🔥' }
@@ -198,7 +208,13 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
   const [searchQuery, setSearchQuery] = useState('');
 
   // Store Open / Daily Opening Status
-  const [storeOpenStatus, setStoreOpenStatus] = useState(null);
+  const [storeOpenStatus, setStoreOpenStatus] = useState(() => {
+    try {
+      const saved = localStorage.getItem(`${storeCode}_store_open_status`);
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    return null;
+  });
   const isStoreOpenToday = Boolean(storeOpenStatus && (storeOpenStatus.is_open === true || storeOpenStatus.isOpen === true));
 
   // Closed Dates for Locking
@@ -257,7 +273,13 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
   // Orders state and printing integration
   const [orders, setOrders] = useState([]);
   const [storeProfile, setStoreProfile] = useState(defaultStoreProfile);
-  const [storeName, setStoreName] = useState(storeCode === 'dragon' ? '龍城麵線' : (storeCode === 'luzhou' ? '蘆洲七號麵線' : `門市 [${storeCode}]`));
+  const [storeName, setStoreName] = useState(() => {
+    try {
+      const cached = localStorage.getItem(`${storeCode}_store_name`);
+      if (cached) return cached;
+    } catch (e) {}
+    return getStoreDisplayName(storeCode);
+  });
   const [adminPin, setAdminPin] = useState('8888');
   const [receiptConfig, setReceiptConfig] = useState(defaultReceiptConfig);
   const [upgradeCombos, setUpgradeCombos] = useState(defaultUpgradeCombos);
@@ -713,14 +735,18 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
           try {
             const parsed = JSON.parse(storeProfileItem.description);
             setStoreProfile(parsed);
-            if (parsed.storeName) setStoreName(parsed.storeName);
+            if (parsed.storeName) {
+              setStoreName(parsed.storeName);
+              try { localStorage.setItem(`${storeCode}_store_name`, parsed.storeName); } catch (e) {}
+            }
           } catch (e) {}
         } else {
           const storeNameItem = storeItems.find(item => item.name === 'SYSTEM_SETTING_STORE_NAME');
           if (storeNameItem && storeNameItem.description) {
             setStoreName(storeNameItem.description);
+            try { localStorage.setItem(`${storeCode}_store_name`, storeNameItem.description); } catch (e) {}
           } else {
-            setStoreName(storeCode === 'dragon' ? '龍城麵線' : (storeCode === 'luzhou' ? '蘆洲七號麵線' : `門市 [${storeCode}]`));
+            setStoreName(getStoreDisplayName(storeCode));
           }
         }
 
@@ -785,7 +811,9 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
         const openStatusItem = storeItems.find(item => item.name === 'SYSTEM_SETTING_STORE_OPEN_STATUS');
         if (openStatusItem && openStatusItem.description) {
           try {
-            setStoreOpenStatus(JSON.parse(openStatusItem.description));
+            const parsedStatus = JSON.parse(openStatusItem.description);
+            setStoreOpenStatus(parsedStatus);
+            try { localStorage.setItem(`${storeCode}_store_open_status`, JSON.stringify(parsedStatus)); } catch (e) {}
           } catch (e) {}
         }
 
@@ -859,10 +887,19 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
             return indexA - indexB;
           });
         }
-        if (visibleItems.length === 0 && storeCode === 'dragon') {
-          setMenuItems(fallbackMenuItems);
+        if (visibleItems.length === 0) {
+          if (storeCode === 'luzhou' || storeCode === 'luzhou7') {
+            setMenuItems(luzhouFallbackMenuItems);
+          } else if (storeCode === 'dragon') {
+            setMenuItems(fallbackMenuItems);
+          } else {
+            setMenuItems([]);
+          }
         } else {
           setMenuItems(visibleItems);
+          try {
+            localStorage.setItem(`${storeCode}_restaurant_menu_items`, JSON.stringify(visibleItems));
+          } catch (e) {}
         }
       }
     } catch (err) {
@@ -872,10 +909,14 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
       if (saved) {
         try {
           const parsed = JSON.parse(saved);
-          setMenuItems(parsed && parsed.length > 0 ? parsed : (storeCode === 'dragon' ? fallbackMenuItems : []));
-        } catch (e) {
-          setMenuItems(storeCode === 'dragon' ? fallbackMenuItems : []);
-        }
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setMenuItems(parsed);
+            return;
+          }
+        } catch (e) {}
+      }
+      if (storeCode === 'luzhou' || storeCode === 'luzhou7') {
+        setMenuItems(luzhouFallbackMenuItems);
       } else if (storeCode === 'dragon') {
         setMenuItems(fallbackMenuItems);
       } else {
@@ -1188,6 +1229,7 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
         closed_by: cashierName || '櫃檯人員'
       };
       setStoreOpenStatus(newStatus);
+      try { localStorage.setItem(`${storeCode}_store_open_status`, JSON.stringify(newStatus)); } catch (e) {}
       try {
         const { data: existOpen } = await supabase.from('menu_items').select('*').eq('name', openStatusKey);
         if (existOpen && existOpen.length > 0) {
@@ -1233,6 +1275,7 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
         closed_by: cashierName || '櫃檯人員'
       };
       setStoreOpenStatus(newStatus);
+      try { localStorage.setItem(`${storeCode}_store_open_status`, JSON.stringify(newStatus)); } catch (e) {}
       try {
         const { data: exist } = await supabase.from('menu_items').select('*').eq('name', openStatusKey);
         if (exist && exist.length > 0) {
@@ -1255,6 +1298,7 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
         opened_by: cashierName || '櫃檯人員'
       };
       setStoreOpenStatus(newStatus);
+      try { localStorage.setItem(`${storeCode}_store_open_status`, JSON.stringify(newStatus)); } catch (e) {}
 
       // If today was marked closed in closedDates, automatically unlock!
       if (closedDates.includes(todayStr)) {

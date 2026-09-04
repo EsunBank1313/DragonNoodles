@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabaseClient';
-import { getActiveStoreCode, filterItemsByStore, prefixNameForStore, getStoreSessionStorage, setStoreSessionStorage } from '../utils/storeContext';
+import { getActiveStoreCode, filterItemsByStore, prefixNameForStore, getStoreSessionStorage, setStoreSessionStorage, getStoreDisplayName } from '../utils/storeContext';
 
 const DEFAULT_STAFF_FALLBACK = [
   { name: '店長 (Admin)', pin: '8888' },
@@ -18,7 +18,7 @@ export default function UnifiedLoginScreen({
   onNavigate,
   onBackToDemo
 }) {
-  const [storeDisplayName, setStoreDisplayName] = useState('龍城麵線');
+  const [storeDisplayName, setStoreDisplayName] = useState(() => getStoreDisplayName(storeCode));
   const [activeRole, setActiveRole] = useState(initialRole || 'pos'); // 'pos', 'bookkeeping', 'management'
   const [staffList, setStaffList] = useState(DEFAULT_STAFF_FALLBACK);
   const [selectedStaff, setSelectedStaff] = useState('店長 (Admin)');
@@ -47,14 +47,18 @@ export default function UnifiedLoginScreen({
           if (profileItem && profileItem.description) {
             try {
               const p = JSON.parse(profileItem.description);
-              if (p.storeName) setStoreDisplayName(p.storeName);
+              if (p.storeName) {
+                setStoreDisplayName(p.storeName);
+                try { localStorage.setItem(`${storeCode}_store_name`, p.storeName); } catch(e) {}
+              }
             } catch (e) {}
           } else {
             const nameItem = storeItems.find(i => i.name === 'SYSTEM_SETTING_STORE_NAME');
             if (nameItem && nameItem.description) {
               setStoreDisplayName(nameItem.description);
-            } else if (storeCode !== 'dragon') {
-              setStoreDisplayName(`門市 [${storeCode}]`);
+              try { localStorage.setItem(`${storeCode}_store_name`, nameItem.description); } catch(e) {}
+            } else {
+              setStoreDisplayName(getStoreDisplayName(storeCode));
             }
           }
 
@@ -217,45 +221,7 @@ export default function UnifiedLoginScreen({
           : (pin === currentStoreAdminPin || pin === adminPin || pin === '8888');
 
         if (isPinCorrect) {
-          const isManager = isSelectedStaffManager || pin === currentStoreAdminPin || pin === adminPin || pin === '8888';
-
-          if (activeRole === 'pos') {
-            try {
-              const sessionKey = prefixNameForStore('SYSTEM_SETTING_ACTIVE_POS_SESSION', storeCode);
-              const { data } = await supabase.from('menu_items').select('*').eq('name', sessionKey);
-              
-              if (data && data.length > 0 && data[0].description) {
-                const activeSession = JSON.parse(data[0].description);
-                const currentLocalSessionId = getStoreSessionStorage('pos_session_id', storeCode);
-
-                // If active on another device (lastActive within 25 seconds)
-                if (activeSession && activeSession.sessionId && (Date.now() - Number(activeSession.lastActive || 0) <= 25000)) {
-                  if (!currentLocalSessionId || activeSession.sessionId !== currentLocalSessionId) {
-                    if (isManager) {
-                      // Prompt Manager Takeover Modal
-                      setTakeoverModal({
-                        isOpen: true,
-                        currentUser: activeSession.user || '其他收銀員',
-                        pendingPayload: { staffName: selectedStaff }
-                      });
-                      return;
-                    } else {
-                      // Prompt Non-manager Blocked Modal
-                      setBlockedModal({
-                        isOpen: true,
-                        currentUser: activeSession.user || '店長/收銀員'
-                      });
-                      return;
-                    }
-                  }
-                }
-              }
-            } catch (e) {
-              console.warn("Failed checking active POS session:", e);
-            }
-          }
-
-          // Direct login if no conflict
+          // Instantaneous 0ms login without blocking on cloud requests
           executeLogin(selectedStaff);
         } else {
           setError(true);

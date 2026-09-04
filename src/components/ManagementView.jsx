@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { supabase } from '../supabaseClient';
 import QRCode from 'qrcode';
 import { defaultStoreProfile, defaultReceiptConfig, printViaHiddenIframe } from '../utils/printHelpers';
-import { getActiveStoreCode, filterItemsByStore, prefixNameForStore, stripNameForStore, getStoreLinks, syncRegisteredStoresCache, generateRandomStoreToken } from '../utils/storeContext';
+import { getActiveStoreCode, filterItemsByStore, prefixNameForStore, stripNameForStore, getStoreLinks, syncRegisteredStoresCache, generateRandomStoreToken, getStoreDisplayName } from '../utils/storeContext';
 import { getStaffSecretToken, setStaffSecretToken } from '../utils/securityConfig';
 import ThemeSelector from './ThemeSelector';
 import { menuItems as defaultMenuItems, defaultUpgradeCombos } from '../data/menuData';
@@ -318,10 +318,25 @@ export default function ManagementView({ storeCode: propStoreCode, onSwitchStore
   const [editStoreCode, setEditStoreCode] = useState('');
   const [editStaffToken, setEditStaffToken] = useState('');
   const [editAdminPin, setEditAdminPin] = useState('8888');
-  const [menuItems, setMenuItems] = useState([]);
-  const [storeProfile, setStoreProfile] = useState(defaultStoreProfile);
-  const [storeName, setStoreName] = useState('龍城麵線');
-  const [newStoreName, setNewStoreName] = useState('');
+  const [menuItems, setMenuItems] = useState(() => {
+    try {
+      const cached = localStorage.getItem(`${storeCode}_management_menu_items`);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch (e) {}
+    return storeCode === 'dragon' ? defaultMenuItems : [];
+  });
+  const [storeProfile, setStoreProfile] = useState(() => {
+    try {
+      const cached = localStorage.getItem(`${storeCode}_store_profile`);
+      if (cached) return JSON.parse(cached);
+    } catch (e) {}
+    return defaultStoreProfile;
+  });
+  const [storeName, setStoreName] = useState(() => getStoreDisplayName(storeCode));
+  const [newStoreName, setNewStoreName] = useState(() => getStoreDisplayName(storeCode));
   const [storeAddress, setStoreAddress] = useState('');
   const [newStoreAddress, setNewStoreAddress] = useState('');
   const [storePhone, setStorePhone] = useState('');
@@ -893,6 +908,10 @@ const [closedDates, setClosedDates] = useState(() => {
             if (p.storeName) {
               setStoreName(p.storeName);
               setNewStoreName(p.storeName);
+              try {
+                localStorage.setItem(`${storeCode}_store_name`, p.storeName);
+                localStorage.setItem(`${storeCode}_store_profile`, JSON.stringify(p));
+              } catch (e) {}
             }
             if (p.storeTaxId) {
               setStoreTaxId(p.storeTaxId);
@@ -952,8 +971,13 @@ const [closedDates, setClosedDates] = useState(() => {
         if (storeNameItem && storeNameItem.description) {
           setStoreName(storeNameItem.description);
           setNewStoreName(storeNameItem.description);
+          try {
+            localStorage.setItem(`${storeCode}_store_name`, storeNameItem.description);
+          } catch (e) {}
         } else if (!profileItem) {
-          setNewStoreName(storeCode === 'dragon' ? '龍城麵線' : `門市 [${storeCode}]`);
+          const fallbackName = getStoreDisplayName(storeCode);
+          setStoreName(fallbackName);
+          setNewStoreName(fallbackName);
         }
 
         // Load Staff Secret Token from cloud
@@ -1099,6 +1123,11 @@ const [closedDates, setClosedDates] = useState(() => {
           };
         });
         setMenuItems(visibleItems);
+        if (visibleItems && visibleItems.length > 0) {
+          try {
+            localStorage.setItem(`${storeCode}_management_menu_items`, JSON.stringify(visibleItems));
+          } catch (e) {}
+        }
 
         
         // Load upgrade combos setting

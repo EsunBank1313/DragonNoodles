@@ -245,7 +245,6 @@ export const getStoreLinks = (storeCode = '') => {
     login: `${origin}/?store=${token}&login=true`,
     pos: `${origin}/?store=${token}&pos=true`,
     bookkeeping: `${origin}/?store=${token}&bookkeeping=true`,
-    admin: `${origin}/?store=${token}&admin=true`,
     // Compatibility aliases for ManagementView
     customerUrl: `${origin}/?store=${sCode}`,
     posUrl: `${origin}/?store=${token}&pos=true`,
@@ -254,3 +253,19 @@ export const getStoreLinks = (storeCode = '') => {
     publicToken: token
   };
 };
+
+export const getStoreDisplayName = (storeCode = '') => {
+  let sCode = resolveStoreCode(storeCode || getActiveStoreCode());
+  if (sCode === 'luzhou' || sCode === 'luzhou7' || sCode === 'lz7') return '蘆洲七號麵線';
+  if (sCode === '133') return '133那個麵';
+  if (sCode === 'dragon') return '龍城麵線';
+  try {
+    const cached = localStorage.getItem(`${sCode}_store_name`);
+    if (cached) return cached;
+  } catch (e) {}
+  const stores = getRegisteredStores();
+  const matched = stores.find(s => s.code === sCode);
+  return matched?.name || (sCode === 'dragon' ? '龍城麵線' : `門市 [${sCode}]`);
+};
+
+

@@ -5,7 +5,7 @@ import { menuItems as defaultMenuItems } from '../data/menuData';
 import { printDailyClosingReport, defaultStoreProfile, defaultReceiptConfig } from '../utils/printHelpers';
 import ModuleCenterModal from './ModuleCenterModal';
 import { getActiveModuleSettings, isModuleEnabled } from '../utils/moduleContext';
-import { resolveStoreCode, getActiveStoreCode, filterItemsByStore, filterOrdersByStore, prefixNameForStore, stripNameForStore, getStoreStorage, setStoreStorage } from '../utils/storeContext';
+import { resolveStoreCode, getActiveStoreCode, filterItemsByStore, filterOrdersByStore, prefixNameForStore, stripNameForStore, getStoreStorage, setStoreStorage, getStoreDisplayName } from '../utils/storeContext';
 
 // Dynamic Item & Addon Cost Calculation Engine
 export const calculateItemCost = (item) => {
@@ -764,8 +764,13 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
   const [editInvIsWatched, setEditInvIsWatched] = useState(true);
   const [newInvIsWatched, setNewInvIsWatched] = useState(true);
   const [storeProfile, setStoreProfile] = useState(defaultStoreProfile);
-  const defaultInitialStoreName = false ? '蘆洲七號店' : (storeCode !== 'dragon' ? `門市 [${storeCode}]` : '龍城麵線');
-  const [storeName, setStoreName] = useState(defaultInitialStoreName);
+  const [storeName, setStoreName] = useState(() => {
+    try {
+      const cached = localStorage.getItem(`${storeCode}_store_name`);
+      if (cached) return cached;
+    } catch (e) {}
+    return getStoreDisplayName(storeCode);
+  });
   const [receiptConfig, setReceiptConfig] = useState(defaultReceiptConfig);
 
   // Financial report date range filtering
@@ -2256,14 +2261,18 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
           try {
             const parsed = JSON.parse(profileItem.description);
             setStoreProfile(parsed);
-            if (parsed.storeName) setStoreName(parsed.storeName);
+            if (parsed.storeName) {
+              setStoreName(parsed.storeName);
+              try { localStorage.setItem(`${storeCode}_store_name`, parsed.storeName); } catch (e) {}
+            }
           } catch (e) {}
         } else {
           const nameItem = storeItems.find(i => i.name === 'SYSTEM_SETTING_STORE_NAME');
           if (nameItem && nameItem.description) {
             setStoreName(nameItem.description);
+            try { localStorage.setItem(`${storeCode}_store_name`, nameItem.description); } catch (e) {}
           } else {
-            setStoreName(storeCode === 'dragon' ? '龍城麵線' : (storeCode === 'luzhou' ? '蘆洲七號麵線' : `門市 [${storeCode}]`));
+            setStoreName(getStoreDisplayName(storeCode));
           }
         }
 

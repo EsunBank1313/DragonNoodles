@@ -1031,3 +1031,183 @@ export const isComboApplicableToItem = (combo, item) => {
 
   return true;
 };
+
+export const luzhouFallbackMenuItems = [
+  {
+    id: 153,
+    category: "mee-sua",
+    name: "綜合麵線",
+    description: "招牌綜合麵線，包含大腸、蚵仔、肉羹等豐富配料。",
+    price: 70,
+    image: "/images/taiwanese_mee_sua.jpg",
+    customizations: {
+      is_available: true,
+      is_published: true,
+      size: { type: "radio", title: "份量", default: "小碗", options: [{ label: "小碗", priceChange: 0 }, { label: "大碗", priceChange: 15 }] }
+    }
+  },
+  {
+    id: 151,
+    category: "mee-sua",
+    name: "雙腸麵線",
+    description: "嚴選滷大腸，香Q入味。",
+    price: 60,
+    image: "/images/taiwanese_mee_sua.jpg",
+    customizations: {
+      is_available: true,
+      is_published: true,
+      size: { type: "radio", title: "份量", default: "小碗", options: [{ label: "小碗", priceChange: 0 }, { label: "大碗", priceChange: 15 }] }
+    }
+  },
+  {
+    id: 150,
+    category: "mee-sua",
+    name: "蚵仔麵線",
+    description: "產地直送新鮮鮮蚵，顆顆肥美飽滿。",
+    price: 60,
+    image: "/images/taiwanese_mee_sua.jpg",
+    customizations: {
+      is_available: true,
+      is_published: true,
+      size: { type: "radio", title: "份量", default: "小碗", options: [{ label: "小碗", priceChange: 0 }, { label: "大碗", priceChange: 15 }] }
+    }
+  },
+  {
+    id: 149,
+    category: "mee-sua",
+    name: "肉羹麵線",
+    description: "扎實有嚼勁的肉羹，經典美味。",
+    price: 60,
+    image: "/images/taiwanese_mee_sua.jpg",
+    customizations: {
+      is_available: true,
+      is_published: true,
+      size: { type: "radio", title: "份量", default: "小碗", options: [{ label: "小碗", priceChange: 0 }, { label: "大碗", priceChange: 15 }] }
+    }
+  },
+  {
+    id: 146,
+    category: "mee-sua",
+    name: "花枝羹麵線",
+    description: "脆口鮮甜的花枝羹，海陸雙重享受。",
+    price: 60,
+    image: "/images/taiwanese_mee_sua.jpg",
+    customizations: {
+      is_available: true,
+      is_published: true,
+      size: { type: "radio", title: "份量", default: "小碗", options: [{ label: "小碗", priceChange: 0 }, { label: "大碗", priceChange: 15 }] }
+    }
+  },
+  {
+    id: 147,
+    category: "mee-sua",
+    name: "貢丸麵線",
+    description: "彈牙貢丸搭配經典柴魚手工麵線。",
+    price: 60,
+    image: "/images/taiwanese_mee_sua.jpg",
+    customizations: {
+      is_available: true,
+      is_published: true,
+      size: { type: "radio", title: "份量", default: "小碗", options: [{ label: "小碗", priceChange: 0 }, { label: "大碗", priceChange: 15 }] }
+    }
+  },
+  {
+    id: 148,
+    category: "mee-sua",
+    name: "豬肚麵線",
+    description: "爽脆豬肚絲，口感豐富。",
+    price: 60,
+    image: "/images/taiwanese_mee_sua.jpg",
+    customizations: {
+      is_available: true,
+      is_published: true,
+      size: { type: "radio", title: "份量", default: "小碗", options: [{ label: "小碗", priceChange: 0 }, { label: "大碗", priceChange: 15 }] }
+    }
+  },
+  {
+    id: 155,
+    category: "mee-sua",
+    name: "清麵線",
+    description: "純粹的手工紅麵線，品嘗高湯的甘甜精華。",
+    price: 40,
+    image: "/images/taiwanese_mee_sua.jpg",
+    customizations: {
+      is_available: true,
+      is_published: true,
+      size: { type: "radio", title: "份量", default: "小碗", options: [{ label: "小碗", priceChange: 0 }, { label: "大碗", priceChange: 15 }] }
+    }
+  },
+  {
+    id: 107,
+    category: "specialties",
+    name: "辣泡菜",
+    description: "獨家手作黃金開胃辣泡菜，酸香微辣超解膩。",
+    price: 210,
+    image: "/images/taiwanese_mee_sua.jpg",
+    customizations: { is_available: true, is_published: true }
+  },
+  {
+    id: 108,
+    category: "specialties",
+    name: "肉包",
+    description: "熱騰騰現蒸手工招牌大肉包，肉汁豐潤。",
+    price: 25,
+    image: "/images/taiwanese_mee_sua.jpg",
+    customizations: { is_available: true, is_published: true }
+  },
+  {
+    id: 109,
+    category: "specialties",
+    name: "肉包(量販包)",
+    description: "冷凍外帶家庭量販包，在家也能享受美味。",
+    price: 200,
+    image: "/images/taiwanese_mee_sua.jpg",
+    customizations: { is_available: true, is_published: true }
+  },
+  {
+    id: 110,
+    category: "specialties",
+    name: "要你命1000",
+    description: "特製地獄特調辣醬 (入門級挑戰)。",
+    price: 120,
+    image: "/images/taiwanese_mee_sua.jpg",
+    customizations: { is_available: true, is_published: true }
+  },
+  {
+    id: 111,
+    category: "specialties",
+    name: "要你命2000",
+    description: "特製地獄特調辣醬 (進階狂辣版)。",
+    price: 150,
+    image: "/images/taiwanese_mee_sua.jpg",
+    customizations: { is_available: true, is_published: true }
+  },
+  {
+    id: 112,
+    category: "specialties",
+    name: "要你命3000",
+    description: "極限地獄死神特調辣醬 (魔王終極挑戰)。",
+    price: 180,
+    image: "/images/taiwanese_mee_sua.jpg",
+    customizations: { is_available: true, is_published: true }
+  },
+  {
+    id: 152,
+    category: "specialties",
+    name: "優格氣泡飲",
+    description: "清爽解辣的優格乳酸氣泡飲品。",
+    price: 30,
+    image: "/images/taiwanese_mee_sua.jpg",
+    customizations: { is_available: true, is_published: true }
+  },
+  {
+    id: 154,
+    category: "specialties",
+    name: "A&W 麥根沙士",
+    description: "美式經典麥根沙士，沁涼暢快。",
+    price: 35,
+    image: "/images/taiwanese_mee_sua.jpg",
+    customizations: { is_available: true, is_published: true }
+  }
+];
+

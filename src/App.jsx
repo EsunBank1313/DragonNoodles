@@ -7,7 +7,7 @@ import UnifiedLoginScreen from './components/UnifiedLoginScreen';
 import SetupWizardModal from './components/SetupWizardModal';
 import { supabase } from './supabaseClient';
 import { isAuthorizedStaffToken, getPinLockoutStatus, recordFailedPinAttempt, resetPinAttempts } from './utils/securityConfig';
-import { resolveStoreCode, getActiveStoreCode, syncRegisteredStoresCache } from './utils/storeContext';
+import { resolveStoreCode, getActiveStoreCode, syncRegisteredStoresCache, getStoreDisplayName } from './utils/storeContext';
 import { getActiveModuleSettings, isModuleEnabled } from './utils/moduleContext';
 
 const getInitialRoleAndParams = () => {
@@ -35,7 +35,7 @@ const getInitialRoleAndParams = () => {
     // Strictly require authorized secret token (亂碼)!
     // 沒有亂碼的非顧客使用網址都沒有任何作用，直接留在顧客點餐畫面
     if (!isAuthorized && !isSubdomainStaff) {
-      return { role: 'customer', table: table || null, isStaffAuthorized: false, storeCode: 'dragon' };
+      return { role: 'customer', table: table || null, isStaffAuthorized: false, storeCode: storeCode || resolveStoreCode('') };
     }
 
     if (wantsLogin) return { role: 'login', table: null, isStaffAuthorized: true, storeCode };
@@ -52,7 +52,13 @@ function App() {
   const [role, setRole] = useState(initial.role);
   const [storeCode, setStoreCode] = useState(initial.storeCode || 'dragon');
   const [tableNumber, setTableNumber] = useState(initial.table);
-  const [storeName, setStoreName] = useState(() => localStorage.getItem('app_store_name') || '龍城麵線');
+  const [storeName, setStoreName] = useState(() => {
+    try {
+      const cached = localStorage.getItem(`${initial.storeCode || 'dragon'}_store_name`);
+      if (cached) return cached;
+    } catch (e) {}
+    return getStoreDisplayName(initial.storeCode || 'dragon');
+  });
   const [adminPin, setAdminPin] = useState(() => localStorage.getItem('app_admin_pin') || '8888');
   const [showSetupWizard, setShowSetupWizard] = useState(false);
 
@@ -105,17 +111,19 @@ function App() {
           // Data exists! Existing store -> ensure wizard is never shown
           localStorage.setItem('app_setup_wizard_completed', 'true');
           setShowSetupWizard(false);
-          const profileItem = data.find(i => i.name === 'SYSTEM_SETTING_STORE_PROFILE');
+          const profileKey = storeCode === 'dragon' ? 'SYSTEM_SETTING_STORE_PROFILE' : `[${storeCode}] SYSTEM_SETTING_STORE_PROFILE`;
+          const profileItem = data.find(i => i.name === profileKey) || (storeCode === 'dragon' ? data.find(i => i.name === 'SYSTEM_SETTING_STORE_PROFILE') : null);
           if (profileItem && profileItem.description) {
             try {
               const p = JSON.parse(profileItem.description);
-              if (p.name) {
-                setStoreName(p.name);
-                localStorage.setItem('app_store_name', p.name);
+              const storeDisplayName = p.storeName || p.name;
+              if (storeDisplayName) {
+                setStoreName(storeDisplayName);
+                localStorage.setItem(`${storeCode}_store_name`, storeDisplayName);
               }
               if (p.pin) {
                 setAdminPin(p.pin);
-                localStorage.setItem('app_admin_pin', p.pin);
+                localStorage.setItem(`${storeCode}_admin_pin`, p.pin);
               }
             } catch (e) {}
           }
