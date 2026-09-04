@@ -1418,94 +1418,7 @@ const handleSaveGlobalAddons = async (newAddons) => {
     }
   };
 
-  // Sync / Clone full master store menu & upgrade combos to current branch store
-  const handleSyncFromMasterStore = async () => {
-    if (storeCode === 'luzhou' || storeCode === 'luzhou7') {
-      alert('【蘆洲七號】擁有獨立專屬商品菜單，禁止同步總店麵線品項以防資料污染。如需新增商品，請使用「➕ 新增商品項目」。');
-      return;
-    }
-    if (!window.confirm(`確定要從總店同步完整商品菜單與升級套餐至【${storeName}】嗎？\n\n這將會：\n1. 自動同步總店的所有商品（8款招牌麵線、小菜、冷飲等）\n2. 自動同步總店的「加價升級套餐方案」\n3. 自動補齊全域加料與調料選項\n4. 保留分店現有專屬商品`)) {
-      return;
-    }
 
-    try {
-      const { data: allItems, error } = await supabase.from('menu_items').select('*');
-      if (error) throw error;
-
-      const dragonItems = allItems.filter(i => !i.name.startsWith('[') || i.name.startsWith('[dragon] '));
-      const masterDishes = dragonItems.filter(i => !i.name.startsWith('SYSTEM_SETTING_'));
-      
-      let clonedCount = 0;
-      for (const dish of masterDishes) {
-        const rawName = dish.name.replace(/^\[dragon\]\s*/, '');
-        const targetName = prefixNameForStore(rawName, storeCode);
-        const payload = {
-          name: targetName,
-          price: dish.price,
-          category: dish.category,
-          description: dish.description || '',
-          image: dish.image || '',
-          customizations: dish.customizations || null
-        };
-
-        const { data: exist } = await supabase.from('menu_items').select('id').eq('name', targetName);
-        if (exist && exist.length > 0) {
-          await supabase.from('menu_items').update(payload).eq('name', targetName);
-        } else {
-          await supabase.from('menu_items').insert([payload]);
-        }
-        clonedCount++;
-      }
-
-      // Sync UPGRADE_COMBOS
-      const masterCombo = dragonItems.find(i => i.name === 'SYSTEM_SETTING_UPGRADE_COMBOS');
-      if (masterCombo && masterCombo.description) {
-        const comboKey = prefixNameForStore('SYSTEM_SETTING_UPGRADE_COMBOS', storeCode);
-        const { data: exist } = await supabase.from('menu_items').select('id').eq('name', comboKey);
-        if (exist && exist.length > 0) {
-          await supabase.from('menu_items').update({ description: masterCombo.description }).eq('name', comboKey);
-        } else {
-          await supabase.from('menu_items').insert([{ name: comboKey, price: 0, category: 'settings', description: masterCombo.description }]);
-        }
-      }
-
-      // Sync categories if missing
-      const masterCats = dragonItems.find(i => i.name === 'SYSTEM_SETTING_PRODUCT_CATEGORIES');
-      if (masterCats && masterCats.description) {
-        const catKey = prefixNameForStore('SYSTEM_SETTING_PRODUCT_CATEGORIES', storeCode);
-        const { data: exist } = await supabase.from('menu_items').select('id').eq('name', catKey);
-        if (!exist || exist.length === 0) {
-          await supabase.from('menu_items').insert([{ name: catKey, price: 0, category: 'settings', description: masterCats.description }]);
-        }
-      }
-
-      // Sync addons if missing
-      const masterAddons = dragonItems.find(i => i.name === 'SYSTEM_SETTING_GLOBAL_ADDONS');
-      if (masterAddons && masterAddons.description) {
-        const addonKey = prefixNameForStore('SYSTEM_SETTING_GLOBAL_ADDONS', storeCode);
-        const { data: exist } = await supabase.from('menu_items').select('id').eq('name', addonKey);
-        if (!exist || exist.length === 0) {
-          await supabase.from('menu_items').insert([{ name: addonKey, price: 0, category: 'system', description: masterAddons.description }]);
-        }
-      }
-
-      // Sync condiments if missing
-      const masterCondiments = dragonItems.find(i => i.name === 'SYSTEM_SETTING_GLOBAL_CONDIMENTS');
-      if (masterCondiments && masterCondiments.description) {
-        const condKey = prefixNameForStore('SYSTEM_SETTING_GLOBAL_CONDIMENTS', storeCode);
-        const { data: exist } = await supabase.from('menu_items').select('id').eq('name', condKey);
-        if (!exist || exist.length === 0) {
-          await supabase.from('menu_items').insert([{ name: condKey, price: 0, category: 'system', description: masterCondiments.description }]);
-        }
-      }
-
-      alert(`🎉 總店完整菜單與套餐已成功同步至【${storeName}】！共同步 ${clonedCount} 樣商品。`);
-      fetchMenuItems();
-    } catch (err) {
-      console.error("Failed to sync from master store:", err);
-      alert("同步失敗，請檢查網路連線或稍後再試。");
-    }
-  };
 
   useEffect(() => {
     fetchMenuItems();
@@ -2033,19 +1946,7 @@ const handleSaveGlobalAddons = async (newAddons) => {
                   </p>
                 </div>
                 <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                  {storeCode !== 'dragon' && (
-                    <button
-                      type="button"
-                      onClick={handleSyncFromMasterStore}
-                      style={{
-                        padding: '10px 16px', backgroundColor: '#3b82f6', color: 'white', border: 'none',
-                        borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.85rem',
-                        display: 'flex', alignItems: 'center', gap: '4px', boxShadow: '0 2px 6px rgba(59, 130, 246, 0.25)'
-                      }}
-                    >
-                      🔄 從總店同步套餐與菜單
-                    </button>
-                  )}
+
                   <button
                     type="button"
                     onClick={() => {
@@ -2504,19 +2405,7 @@ const handleSaveGlobalAddons = async (newAddons) => {
                 </div>
 
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-                  {storeCode !== 'dragon' && storeCode !== 'luzhou' && storeCode !== 'luzhou7' && (
-                    <button
-                      type="button"
-                      onClick={handleSyncFromMasterStore}
-                      style={{
-                        padding: '8px 14px', backgroundColor: '#3b82f6', color: 'white', border: 'none',
-                        borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.85rem',
-                        display: 'flex', alignItems: 'center', gap: '4px', boxShadow: '0 2px 6px rgba(59, 130, 246, 0.25)'
-                      }}
-                    >
-                      🔄 從總店同步菜單與套餐
-                    </button>
-                  )}
+
                   <button
                     type="button"
                     onClick={() => {
