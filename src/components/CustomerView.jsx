@@ -1002,6 +1002,7 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
         items: {
           source: 'customer',
           store_code: storeCode,
+          storeCode: storeCode,
           cart: cart,
           customerName: tableNumber ? `內用 ${tableNumber} 號桌` : custName,
           customerPhone: tableNumber ? '' : custPhone,

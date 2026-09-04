@@ -2019,17 +2019,28 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
       const { data, error } = await supabase.from('orders').select('*').order('created_at', { ascending: false });
       if (error) throw error;
       if (data) {
+        const currentCode = (storeCode || 'dragon').toLowerCase();
         const storeOrders = data.filter(o => {
-          const itemsData = typeof o.items === 'string' ? JSON.parse(o.items) : o.items;
-          if (storeCode === 'dragon') {
-            return !itemsData?.storeCode || itemsData?.storeCode === 'dragon';
+          let itemsData = o.items;
+          if (typeof itemsData === 'string') {
+            try { itemsData = JSON.parse(itemsData); } catch (e) { itemsData = {}; }
           }
-          return itemsData?.storeCode === storeCode;
+          const sc = String(itemsData?.store_code || itemsData?.storeCode || o.store_code || '').trim().toLowerCase();
+          if (currentCode === 'dragon') {
+            return !sc || sc === 'dragon';
+          }
+          if (currentCode === 'luzhou' || currentCode === 'luzhou7') {
+            return sc === 'luzhou' || sc === 'luzhou7' || sc.startsWith('lz_');
+          }
+          return sc === currentCode;
         });
 
         // Filter out SYSTEM_STORE_CLOSE
         const clientOrders = storeOrders.filter(o => {
-          const itemsData = typeof o.items === 'string' ? JSON.parse(o.items) : o.items;
+          let itemsData = o.items;
+          if (typeof itemsData === 'string') {
+            try { itemsData = JSON.parse(itemsData); } catch (e) { itemsData = {}; }
+          }
           return itemsData?.customerName !== 'SYSTEM_STORE_CLOSE';
         });
         setOrders(clientOrders.map(formatSupabaseOrder).filter(Boolean));
@@ -2037,7 +2048,10 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
         // Extract SYSTEM_STORE_CLOSE dates
         const cloudClosedDates = storeOrders
           .filter(o => {
-            const itemsData = typeof o.items === 'string' ? JSON.parse(o.items) : o.items;
+            let itemsData = o.items;
+            if (typeof itemsData === 'string') {
+              try { itemsData = JSON.parse(itemsData); } catch (e) { itemsData = {}; }
+            }
             return itemsData?.customerName === 'SYSTEM_STORE_CLOSE';
           })
           .map(o => new Date(o.created_at).toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' }));
@@ -2060,11 +2074,15 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
       const { data, error } = await supabase.from('purchases').select('*').order('created_at', { ascending: false });
       if (error) throw error;
       if (data) {
+        const currentCode = (storeCode || 'dragon').toLowerCase();
         const storePurchases = data.filter(p => {
-          if (true) {
+          if (currentCode === 'dragon') {
             return !p.item_name?.startsWith('[') || p.item_name?.startsWith('[dragon] ');
           }
-          return p.item_name?.startsWith(`[${storeCode}] `);
+          if (currentCode === 'luzhou' || currentCode === 'luzhou7') {
+            return p.item_name?.startsWith('[luzhou] ') || p.item_name?.startsWith('[luzhou7] ');
+          }
+          return p.item_name?.startsWith(`[${currentCode}] `);
         });
 
         const mapped = storePurchases.map(p => ({
@@ -2072,7 +2090,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
           date: p.date,
           time: p.time,
           vendor: p.vendor,
-          itemName: p.item_name,
+          itemName: stripNameForStore(p.item_name, storeCode),
           quantity: p.quantity,
           cost: Number(p.cost),
           status: p.status
@@ -2114,16 +2132,20 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
       const { data, error } = await supabase.from('fixed_costs').select('*').order('created_at', { ascending: false });
       if (error) throw error;
       if (data) {
+        const currentCode = (storeCode || 'dragon').toLowerCase();
         const storeFixedCosts = data.filter(fc => {
-          if (true) {
+          if (currentCode === 'dragon') {
             return !fc.name?.startsWith('[') || fc.name?.startsWith('[dragon] ');
           }
-          return fc.name?.startsWith(`[${storeCode}] `);
+          if (currentCode === 'luzhou' || currentCode === 'luzhou7') {
+            return fc.name?.startsWith('[luzhou] ') || fc.name?.startsWith('[luzhou7] ');
+          }
+          return fc.name?.startsWith(`[${currentCode}] `);
         });
 
         const mapped = storeFixedCosts.map(fc => ({
           id: String(fc.id),
-          name: fc.name,
+          name: stripNameForStore(fc.name, storeCode),
           cost: Number(fc.cost),
           expiryDate: fc.expiry_date
         }));

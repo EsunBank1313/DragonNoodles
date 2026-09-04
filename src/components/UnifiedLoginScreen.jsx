@@ -2,6 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabaseClient';
 import { getActiveStoreCode, filterItemsByStore, prefixNameForStore, getStoreSessionStorage, setStoreSessionStorage } from '../utils/storeContext';
 
+const DEFAULT_STAFF_FALLBACK = [
+  { name: '店長 (Admin)', pin: '8888' },
+  { name: '收銀員-小明', pin: '1111' },
+  { name: '收銀員-小華', pin: '2222' }
+];
+
 export default function UnifiedLoginScreen({ 
   storeCode = 'dragon',
   onSwitchStore,
@@ -14,8 +20,8 @@ export default function UnifiedLoginScreen({
 }) {
   const [storeDisplayName, setStoreDisplayName] = useState('龍城麵線');
   const [activeRole, setActiveRole] = useState(initialRole || 'pos'); // 'pos', 'bookkeeping', 'management'
-  const [staffList, setStaffList] = useState([]);
-  const [selectedStaff, setSelectedStaff] = useState('');
+  const [staffList, setStaffList] = useState(DEFAULT_STAFF_FALLBACK);
+  const [selectedStaff, setSelectedStaff] = useState('店長 (Admin)');
   const [pin, setPin] = useState('');
   const [error, setError] = useState(false);
   const [currentStoreAdminPin, setCurrentStoreAdminPin] = useState(adminPin || '8888');
@@ -33,13 +39,6 @@ export default function UnifiedLoginScreen({
           .from('menu_items')
           .select('*');
         if (error) throw error;
-
-        const defaultStaff = [
-          { name: '店長 (Admin)', pin: '8888' },
-          { name: '收銀員-小明', pin: '1111' },
-          { name: '收銀員-小華', pin: '2222' },
-          { name: '收銀員-阿強', pin: '3333' }
-        ];
 
         if (data && data.length > 0) {
           const storeItems = filterItemsByStore(data, storeCode);
@@ -70,17 +69,21 @@ export default function UnifiedLoginScreen({
               const parsed = JSON.parse(staffItem.description);
               if (Array.isArray(parsed) && parsed.length > 0) {
                 setStaffList(parsed);
-                setSelectedStaff(parsed[0]?.name || '店長 (Admin)');
+                setSelectedStaff(prev => {
+                  return parsed.some(s => s.name === prev) ? prev : (parsed[0]?.name || '店長 (Admin)');
+                });
                 return;
               }
             } catch (e) {}
           }
         }
         
-        setStaffList(defaultStaff);
-        setSelectedStaff(defaultStaff[0].name);
+        setStaffList(DEFAULT_STAFF_FALLBACK);
+        setSelectedStaff(DEFAULT_STAFF_FALLBACK[0].name);
       } catch (err) {
         console.error("Failed to load staff list from Supabase:", err);
+        setStaffList(DEFAULT_STAFF_FALLBACK);
+        setSelectedStaff(DEFAULT_STAFF_FALLBACK[0].name);
       }
     };
     fetchStaff();

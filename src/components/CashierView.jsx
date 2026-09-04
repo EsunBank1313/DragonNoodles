@@ -878,10 +878,27 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
       if (error) throw error;
       if (data) {
         const todayStr = getTodayLocalDate();
-        const storeOrders = data;
+        const currentCode = (storeCode || 'dragon').toLowerCase();
+        const storeOrders = data.filter(o => {
+          let itemsData = o.items;
+          if (typeof itemsData === 'string') {
+            try { itemsData = JSON.parse(itemsData); } catch (e) { itemsData = {}; }
+          }
+          const sc = String(itemsData?.store_code || itemsData?.storeCode || o.store_code || '').trim().toLowerCase();
+          if (currentCode === 'dragon') {
+            return !sc || sc === 'dragon';
+          }
+          if (currentCode === 'luzhou' || currentCode === 'luzhou7') {
+            return sc === 'luzhou' || sc === 'luzhou7' || sc.startsWith('lz_');
+          }
+          return sc === currentCode;
+        });
         const clientOrders = storeOrders.filter(o => {
           const orderDate = new Date(o.created_at).toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' });
-          const itemsData = typeof o.items === 'string' ? JSON.parse(o.items) : o.items;
+          let itemsData = o.items;
+          if (typeof itemsData === 'string') {
+            try { itemsData = JSON.parse(itemsData); } catch (e) { itemsData = {}; }
+          }
           return orderDate === todayStr && itemsData?.customerName !== 'SYSTEM_STORE_CLOSE' && o.status !== 'deleted';
         });
         const mapped = clientOrders.map(formatSupabaseOrder).filter(Boolean);
@@ -980,13 +997,23 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
 
         if (error) throw error;
         if (newOrders && newOrders.length > 0) {
+          const currentCode = (storeCode || 'dragon').toLowerCase();
           const unprintedOrders = newOrders.filter(o => {
             const orderId = String(o.id);
             const orderNum = o.order_number;
             if (locallyPrintedOrders.current.has(orderId) || locallyPrintedOrders.current.has(orderNum)) {
               return false;
             }
-            const itemsData = typeof o.items === 'string' ? JSON.parse(o.items) : o.items;
+            let itemsData = o.items;
+            if (typeof itemsData === 'string') {
+              try { itemsData = JSON.parse(itemsData); } catch (e) { itemsData = {}; }
+            }
+            const sc = String(itemsData?.store_code || itemsData?.storeCode || o.store_code || '').trim().toLowerCase();
+            const isMatch = (currentCode === 'dragon')
+              ? (!sc || sc === 'dragon')
+              : (sc === currentCode || (currentCode === 'luzhou' && (sc === 'luzhou' || sc === 'luzhou7' || sc.startsWith('lz_'))));
+            if (!isMatch) return false;
+
             return !itemsData || !itemsData.is_printed;
           });
 
@@ -1433,6 +1460,8 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
         order_number: serialNum,
         items: {
           source: 'pos',
+          store_code: storeCode,
+          storeCode: storeCode,
           cart: cart.map(c => ({
             id: c.id,
             name: c.name,

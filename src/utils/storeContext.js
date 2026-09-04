@@ -27,24 +27,34 @@ export const syncRegisteredStoresCache = (storesList) => {
   } catch (e) {}
 };
 
-// Resolve storeCode from URL param (?store=xxx or ?staff=xxx)
+// Resolve storeCode from URL param (?store=xxx or ?staff=xxx) or Domain Hostname
 export const resolveStoreCode = (paramValue = '') => {
   if (!paramValue && typeof window !== 'undefined') {
     const params = new URLSearchParams(window.location.search);
     paramValue = params.get('store') || params.get('staff') || '';
+
+    // Domain / Hostname auto-detection if no ?store= param
+    if (!paramValue) {
+      const host = (window.location.hostname || '').toLowerCase();
+      if (host.includes('luzhou') || host.includes('lz7')) return 'luzhou';
+      if (host.includes('133')) return '133';
+    }
   }
-  const clean = String(paramValue || '').trim().toLowerCase();
+  let clean = String(paramValue || '').trim().toLowerCase();
   if (!clean) return DEFAULT_STORE_CODE;
+
+  // Normalize aliases
+  if (clean === 'luzhou7' || clean === 'lz7') clean = 'luzhou';
 
   const stores = getRegisteredStores();
   
   // Exact match by code
   const matchCode = stores.find(s => s.code.toLowerCase() === clean);
-  if (matchCode) return matchCode.code;
+  if (matchCode) return matchCode.code === 'luzhou7' ? 'luzhou' : matchCode.code;
 
   // Match by staffToken
   const matchToken = stores.find(s => s.staffToken && s.staffToken.toLowerCase() === clean);
-  if (matchToken) return matchToken.code;
+  if (matchToken) return matchToken.code === 'luzhou7' ? 'luzhou' : matchToken.code;
 
   // Prefix matching
   if (clean.startsWith('dg_') || clean === 'dragon') return 'dragon';
@@ -103,7 +113,8 @@ export const removeStoreSessionStorage = (key, storeCode = '') => {
 // Filter Supabase items by storeCode
 export const filterItemsByStore = (items = [], storeCode = '') => {
   if (!Array.isArray(items)) return [];
-  const sCode = storeCode || getActiveStoreCode();
+  let sCode = storeCode || getActiveStoreCode();
+  if (sCode === 'luzhou7' || sCode === 'lz7') sCode = 'luzhou';
   
   if (sCode === 'dragon') {
     // Default main store: items without [prefix] or with [dragon] prefix
@@ -118,23 +129,41 @@ export const filterItemsByStore = (items = [], storeCode = '') => {
 
   // Branch stores: items with [sCode] prefix
   return items
-    .filter(item => item.name && item.name.startsWith(`[${sCode}] `))
+    .filter(item => item.name && (item.name.startsWith(`[${sCode}] `) || (sCode === 'luzhou' && item.name.startsWith('[luzhou7] '))))
     .map(item => ({
       ...item,
       originalDbName: item.name,
-      name: item.name ? item.name.replace(new RegExp(`^\\[${sCode}\\]\\s*`), '') : ''
+      name: item.name ? item.name.replace(new RegExp(`^\\[(${sCode}|luzhou7)\\]\\s*`), '') : ''
     }));
 };
 
 export const filterOrdersByStore = (orders = [], storeCode = '') => {
   if (!Array.isArray(orders)) return [];
-  const sCode = storeCode || getActiveStoreCode();
-  if (sCode === 'dragon') return orders;
-  return orders;
+  let sCode = (storeCode || getActiveStoreCode() || 'dragon').toLowerCase();
+  if (sCode === 'luzhou7' || sCode === 'lz7') sCode = 'luzhou';
+
+  return orders.filter(o => {
+    let itemsData = o.items;
+    if (typeof itemsData === 'string') {
+      try { itemsData = JSON.parse(itemsData); } catch (e) { itemsData = {}; }
+    }
+    const orderStore = String(itemsData?.store_code || itemsData?.storeCode || o.store_code || '').trim().toLowerCase();
+
+    if (sCode === 'dragon') {
+      return !orderStore || orderStore === 'dragon';
+    }
+
+    if (sCode === 'luzhou') {
+      return orderStore === 'luzhou' || orderStore === 'luzhou7' || orderStore.startsWith('lz_');
+    }
+
+    return orderStore === sCode;
+  });
 };
 
 export const prefixNameForStore = (name = '', storeCode = '') => {
-  const sCode = storeCode || getActiveStoreCode();
+  let sCode = storeCode || getActiveStoreCode();
+  if (sCode === 'luzhou7' || sCode === 'lz7') sCode = 'luzhou';
   if (sCode === 'dragon') return name;
   if (name.startsWith(`[${sCode}] `)) return name;
   return `[${sCode}] ${name}`;
