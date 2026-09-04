@@ -144,26 +144,10 @@ export default function UnifiedLoginScreen({
     setError(false);
   };
 
-  // Execute actual login & cloud session registration
-  const executeLogin = async (staffName, customSessionId = '') => {
-    setIsProcessing(true);
+  // Execute actual login & cloud session registration (Instant 0ms feedback)
+  const executeLogin = (staffName, customSessionId = '') => {
     const sid = customSessionId || `${staffName}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     setStoreSessionStorage('pos_session_id', sid, storeCode);
-
-    try {
-      if (activeRole === 'pos') {
-        const sessionKey = prefixNameForStore('SYSTEM_SETTING_ACTIVE_POS_SESSION', storeCode);
-        const sessionPayload = { user: staffName, sessionId: sid, lastActive: Date.now() };
-        const { data: exist } = await supabase.from('menu_items').select('*').eq('name', sessionKey);
-        if (exist && exist.length > 0) {
-          await supabase.from('menu_items').update({ description: JSON.stringify(sessionPayload) }).eq('name', sessionKey);
-        } else {
-          await supabase.from('menu_items').insert([{ name: sessionKey, price: 0, category: 'settings', description: JSON.stringify(sessionPayload) }]);
-        }
-      }
-    } catch (e) {
-      console.warn("Session update error:", e);
-    }
 
     setTakeoverModal({ isOpen: false, currentUser: '', pendingPayload: null });
     setBlockedModal({ isOpen: false, currentUser: '' });
@@ -202,6 +186,21 @@ export default function UnifiedLoginScreen({
       onSuccess(activeRole, activeRole === 'pos' ? { staffName, sessionId: sid } : true);
     } else if (onNavigate) {
       onNavigate(activeRole, staffName, sid);
+    }
+
+    // Sync cloud session asynchronously in background without blocking navigation
+    if (activeRole === 'pos') {
+      try {
+        const sessionKey = prefixNameForStore('SYSTEM_SETTING_ACTIVE_POS_SESSION', storeCode);
+        const sessionPayload = { user: staffName, sessionId: sid, lastActive: Date.now() };
+        supabase.from('menu_items').select('*').eq('name', sessionKey).then(({ data: exist }) => {
+          if (exist && exist.length > 0) {
+            supabase.from('menu_items').update({ description: JSON.stringify(sessionPayload) }).eq('name', sessionKey);
+          } else {
+            supabase.from('menu_items').insert([{ name: sessionKey, price: 0, category: 'settings', description: JSON.stringify(sessionPayload) }]);
+          }
+        }).catch(e => console.warn("Session update error:", e));
+      } catch (e) {}
     }
   };
 

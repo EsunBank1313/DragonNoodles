@@ -1147,41 +1147,24 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
               📍 門市地址：{storeAddress}
             </div>
           )}
-          <div style={{ display: 'flex', gap: '10px', marginTop: '10px', flexWrap: 'wrap', justifyContent: 'center' }}>
-            <button
-              type="button"
-              onClick={() => window.location.reload()}
-              style={{
-                padding: '10px 18px',
-                borderRadius: '8px',
-                border: 'none',
-                backgroundColor: 'var(--primary)',
-                color: 'white',
-                fontSize: '0.9rem',
-                fontWeight: 'bold',
-                cursor: 'pointer',
-                boxShadow: '0 2px 4px rgba(234, 88, 12, 0.3)'
-              }}
-            >
-              🔄 重新整理頁面
-            </button>
-            <button
-              type="button"
-              onClick={handleSwitchToLogin}
-              style={{
-                padding: '10px 18px',
-                borderRadius: '8px',
-                border: '1px solid var(--border)',
-                backgroundColor: 'var(--bg-card)',
-                color: 'var(--text-main)',
-                fontSize: '0.85rem',
-                fontWeight: 'bold',
-                cursor: 'pointer'
-              }}
-            >
-              🔐 員工/後台登入
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            style={{
+              marginTop: '10px',
+              padding: '10px 20px',
+              borderRadius: '8px',
+              border: 'none',
+              backgroundColor: 'var(--primary)',
+              color: 'white',
+              fontSize: '0.9rem',
+              fontWeight: 'bold',
+              cursor: 'pointer',
+              boxShadow: '0 2px 4px rgba(234, 88, 12, 0.3)'
+            }}
+          >
+            🔄 重新整理頁面
+          </button>
         </div>
       </div>
     );
@@ -1257,26 +1240,6 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
         <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', maxWidth: '300px', lineHeight: '1.6' }}>
           【{storeName}】今日營業已打烊收店。歡迎您明天再來點餐，謝謝您的支持！
         </p>
-        <button
-          type="button"
-          onClick={handleSwitchToLogin}
-          style={{
-            marginTop: '20px',
-            padding: '10px 20px',
-            borderRadius: '8px',
-            border: '1px solid var(--border)',
-            backgroundColor: 'var(--bg-card)',
-            color: 'var(--text-main)',
-            fontSize: '0.85rem',
-            fontWeight: 'bold',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '6px'
-          }}
-        >
-          <span>🔐</span> 店長 / 員工系統入口
-        </button>
       </div>
     );
   }
@@ -1459,7 +1422,7 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
             )}
           </div>
 
-          {/* Footer with discreet Staff Portal Link */}
+          {/* Footer */}
           <div style={{
             marginTop: '36px',
             marginBottom: '70px',
@@ -1471,21 +1434,6 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
             fontSize: '0.75rem'
           }}>
             <div>{storeName} ・ 顧客線上掃碼點餐系統</div>
-            <button
-              type="button"
-              onClick={handleSwitchToLogin}
-              style={{
-                background: 'none',
-                border: 'none',
-                color: 'var(--text-muted)',
-                textDecoration: 'underline',
-                cursor: 'pointer',
-                fontSize: '0.75rem',
-                padding: '4px 8px'
-              }}
-            >
-              🔐 店長 / 員工後台系統登入
-            </button>
           </div>
 
           {/* Sticky Floating Cart Bar */}

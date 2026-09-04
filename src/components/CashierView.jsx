@@ -886,16 +886,17 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
 
   const fetchOrders = async () => {
     try {
-      // Query latest 500 orders descending by ID so newest orders are NEVER truncated by Supabase 1000 limit!
+      const todayStr = getTodayLocalDate();
+      const todayTaipeiISO = new Date(`${todayStr}T00:00:00+08:00`).toISOString();
       const { data, error } = await supabase
         .from('orders')
         .select('*')
+        .gte('created_at', todayTaipeiISO)
         .order('id', { ascending: false })
-        .limit(500);
+        .limit(200);
 
       if (error) throw error;
       if (data) {
-        const todayStr = getTodayLocalDate();
         const currentCode = (storeCode || 'dragon').toLowerCase();
         const storeOrders = data.filter(o => {
           let itemsData = o.items;
@@ -1282,18 +1283,19 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
 
   // Update Order Status (received -> ready -> completed / deleted)
   const handleUpdateOrderStatus = async (orderId, newStatus) => {
-    try {
-      setOrders(prev => prev.map(o => (String(o.id) === String(orderId)) ? { ...o, status: newStatus } : o));
+    // 1. Optimistic instant UI update (0ms feedback)
+    setOrders(prev => prev.map(o => (String(o.id) === String(orderId)) ? { ...o, status: newStatus } : o));
 
+    try {
       const { error } = await supabase
         .from('orders')
         .update({ status: newStatus })
         .eq('id', orderId);
 
       if (error) throw error;
-      fetchOrders();
     } catch (err) {
       console.error("Failed to update order status:", err);
+      fetchOrders();
       alert("更新訂單狀態失敗，請確認網路連線。");
     }
   };
@@ -1450,25 +1452,39 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
       const todayTaipeiISO = new Date(`${taipeiDateStr}T00:00:00+08:00`).toISOString();
 
       let maxNum = 0;
-      try {
-        const { data: todayOrders } = await supabase
-          .from('orders')
-          .select('order_number')
-          .gte('created_at', todayTaipeiISO)
-          .eq('type', orderType);
+      // 1. Fast in-memory check from existing loaded orders (0ms, no network delay)
+      if (orders && orders.length > 0) {
+        orders.forEach(o => {
+          const numStr = String(o.serialNum || o.order_number || '');
+          if (numStr.startsWith(prefix + '-')) {
+            const num = parseInt(numStr.replace(/[^0-9]/g, ''), 10);
+            if (!isNaN(num) && num > maxNum) maxNum = num;
+          }
+        });
+      }
 
-        if (todayOrders && todayOrders.length > 0) {
-          todayOrders.forEach(o => {
-            if (o.order_number && o.order_number.startsWith(prefix + '-')) {
-              const num = parseInt(o.order_number.replace(/[^0-9]/g, ''), 10);
-              if (!isNaN(num) && num > maxNum) {
-                maxNum = num;
+      // 2. Only query Supabase if not yet found in memory
+      if (maxNum === 0) {
+        try {
+          const { data: todayOrders } = await supabase
+            .from('orders')
+            .select('order_number')
+            .gte('created_at', todayTaipeiISO)
+            .eq('type', orderType);
+
+          if (todayOrders && todayOrders.length > 0) {
+            todayOrders.forEach(o => {
+              if (o.order_number && o.order_number.startsWith(prefix + '-')) {
+                const num = parseInt(o.order_number.replace(/[^0-9]/g, ''), 10);
+                if (!isNaN(num) && num > maxNum) {
+                  maxNum = num;
+                }
               }
-            }
-          });
+            });
+          }
+        } catch (err) {
+          console.warn("Failed to get today max order num:", err);
         }
-      } catch (err) {
-        console.warn("Failed to get today max order num:", err);
       }
 
       const serialNum = `${prefix}-${String(maxNum + 1).padStart(3, '0')}`;
