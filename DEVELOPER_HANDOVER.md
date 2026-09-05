@@ -240,7 +240,7 @@ node sync_to_branch.js
 cd c:/Users/ASUS/Desktop/龍城麵線/restaurant_ordering_system
 git add .
 git commit -m "feat/fix: 更新說明"
-git push origin master
+git push origin main
 ```
 *GitHub 儲存庫：`https://github.com/EsunBank1313/DragonNoodles.git`*
 
@@ -266,7 +266,7 @@ npx vercel alias set [產生的最新部署網址] luzhou7.vercel.app --scope=ya
 
 1. **GitHub 儲存庫**：
    * 專案網址：`https://github.com/EsunBank1313/DragonNoodles`
-   * 預設分支：`master`
+   * 預設分支：`main`
 2. **Supabase 雲端資料庫**：
    * 請至 [Supabase Dashboard](https://supabase.com/dashboard) 獲取專案 `Project URL` 與 `anon public key`。
    * 查看資料庫請至 **Table Editor**，即時推播狀態請至 **Realtime** 檢查。
