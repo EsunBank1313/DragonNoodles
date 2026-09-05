@@ -31,4 +31,6 @@
 ## 📂 安裝手冊位置 (Documentation)
 
 * 📖 **完整安裝與快速上線指南**：[DEPLOYMENT_GUIDE.md](./DEPLOYMENT_GUIDE.md)
-* 🖨️ **POS 機台與出單機設定指南**：[POS機台設定.md](./POS機台設定.md)
+* 🖨️ **POS 機台列印設定指南**：[POS機台列印設定.md](./POS機台列印設定.md)
+* 👨‍💻 **開發者完整交接手冊**：[DEVELOPER_HANDOVER.md](./DEVELOPER_HANDOVER.md)
+* ☁️ **Vercel 雲端部署交接指南**：[vercel_deployment_handover_guide.md](./vercel_deployment_handover_guide.md)

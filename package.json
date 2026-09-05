@@ -8,7 +8,8 @@
     "build": "vite build",
     "lint": "oxlint",
     "preview": "vite preview",
-    "sync-branch": "node ../sync_to_branch.js"
+    "backup": "node backup_database.js",
+    "sync-branch": "node sync_to_branch.cjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.110.1",

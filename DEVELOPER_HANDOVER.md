@@ -62,8 +62,8 @@
 ```text
 龍城麵線/
 ├── DEPLOYMENT_GUIDE.md               # 店長快速部署圖解指南
-├── DEVELOPER_HANDOVER.md             # ⭐【本檔】開發者完整交接手冊
-├── POS機台設定.md                    # 出單機與錢箱硬體設定說明
+├── POS機台列印設定.md                # 出單機與錢箱硬體設定說明
+├── vercel_deployment_handover_guide.md # Vercel 雲端部署與連線交接指南
 ├── supabase_schema_universal.sql     # Supabase 全域資料表建置 SQL 腳本
 │
 ├── restaurant_ordering_system/       # ⭐ 總店主系統原始碼 (主要開發目錄)
@@ -230,7 +230,8 @@ npm run build
 在專案根目錄執行同步指令，將主專案之所有變更同步至蘆洲分店專案：
 ```bash
 # 在專案根目錄下 (c:/Users/ASUS/Desktop/龍城麵線)
-node scratch/sync_full_to_lz7.js
+node sync_to_branch.js
+# 或在 restaurant_ordering_system 目錄下執行: npm run sync-branch
 ```
 *腳本會自動同步 `src/` 下之組件、工具庫、公開設定檔與文件，並確保兩店版本完全一致。*
 
