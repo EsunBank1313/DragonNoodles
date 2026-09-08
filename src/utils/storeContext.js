@@ -30,11 +30,21 @@ export const syncRegisteredStoresCache = (storesList) => {
 // Resolve storeCode from URL param (?store=xxx or ?staff=xxx)
 export const resolveStoreCode = (paramValue = '') => {
   if (!paramValue && typeof window !== 'undefined') {
+    const hostname = window.location.hostname;
+    if (hostname.startsWith('133.')) return '133';
+    if (hostname.startsWith('luzhou.') || hostname.startsWith('luzhou7.')) return 'luzhou';
     const params = new URLSearchParams(window.location.search);
     paramValue = params.get('store') || params.get('staff') || '';
   }
   const clean = String(paramValue || '').trim().toLowerCase();
-  if (!clean) return DEFAULT_STORE_CODE;
+  if (!clean) {
+    if (typeof window !== 'undefined') {
+      const hostname = window.location.hostname;
+      if (hostname.startsWith('133.')) return '133';
+      if (hostname.startsWith('luzhou.') || hostname.startsWith('luzhou7.')) return 'luzhou';
+    }
+    return DEFAULT_STORE_CODE;
+  }
 
   const stores = getRegisteredStores();
   
