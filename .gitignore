@@ -2,3 +2,4 @@ node_modules
 dist
 .vercel
 .env*
+sync_today_from_old_store.cjs

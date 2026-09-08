@@ -1,9 +1,9 @@
 # 🐉 龍城麵線餐飲雲端點餐與財務管理系統
 ## 👨‍💻 系統開發交接技術手冊 (Developer Handover Manual)
 
-> **文件版本**：v2.4.0 (2026 最新正式版)  
+> **文件版本**：v2.5.0 (2026/09 移轉至獨立 Vercel 與 Supabase 正式版)  
 > **交接對象**：接手本系統之前端工程師、全端開發者、系統維運人員  
-> **系統狀態**：雙門市正式運營中（龍城總店 ＋ 蘆洲七號分店）
+> **系統狀態**：正式運營中（龍城總店 dragon.twabc.com 正常營運）
 
 ---
 
@@ -267,15 +267,19 @@ npx vercel alias set [產生的最新部署網址] luzhou7.vercel.app --scope=ya
    * 專案網址：`https://github.com/EsunBank1313/DragonNoodles`
    * 預設分支：`master`
 2. **Supabase 雲端資料庫**：
-   * 請至 [Supabase Dashboard](https://supabase.com/dashboard) 獲取專案 `Project URL` 與 `anon public key`。
-   * 查看資料庫請至 **Table Editor**，即時推播狀態請至 **Realtime** 檢查。
+   * 正式專案 ID：`ctenchhzlnewhivauumk`（專案名稱：`DragonNoodles`）
+   * 專案網址：`https://ctenchhzlnewhivauumk.supabase.co`
+   * 控制台：[https://supabase.com/dashboard/project/ctenchhzlnewhivauumk](https://supabase.com/dashboard/project/ctenchhzlnewhivauumk)
+   * 包含資料表：`menu_items`、`orders`、`purchases`、`fixed_costs`、`system_settings`
+   * Realtime 即時推播：已對所有表啟用 `supabase_realtime` Publication。
 3. **Vercel 專案託管**：
-   * 組織團隊：`yanchang9487-8890s-projects`
-   * 專案 1：`dragon-noodles`（對應網域 `dragon.twabc.com`）
-   * 專案 2：`luzhou7_system`（對應網域 `luzhou7.vercel.app`）
+   * 組織團隊：`eddie-chang-s-projects`
+   * 專案：`dragon-noodles`
+   * 正式運營網域：`https://dragon.twabc.com`
+   * 網域 DNS 託管於 GoDaddy (`twabc.com`)，包含 `_vercel` TXT 驗證記錄與 Vercel CNAME 指向。
 4. **系統管理員通行鑰匙**：
    * POS 預設解鎖 PIN 碼：`8888`
-   * 網址防護密鑰（`VITE_STAFF_SECRET_TOKEN`）：存放於環境變數，防止未授權顧客直接探測記帳或收銀介面。
+   * 網址防護密鑰（`VITE_STAFF_SECRET_TOKEN`）：`dg_8f2a1c`，用於防止未授權顧客直接探測記帳或收銀介面。
 
 ---
 
