@@ -2017,15 +2017,8 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
   const fetchOrders = async () => {
     try {
       const { data, error } = await supabase.from('orders').select('*').order('created_at', { ascending: false });
-      if (error) throw error;
       if (data) {
-        const storeOrders = data.filter(o => {
-          const itemsData = typeof o.items === 'string' ? JSON.parse(o.items) : o.items;
-          if (storeCode === 'dragon') {
-            return !itemsData?.storeCode || itemsData?.storeCode === 'dragon';
-          }
-          return itemsData?.storeCode === storeCode;
-        });
+        const storeOrders = filterOrdersByStore(data, storeCode);
 
         // Filter out SYSTEM_STORE_CLOSE
         const clientOrders = storeOrders.filter(o => {

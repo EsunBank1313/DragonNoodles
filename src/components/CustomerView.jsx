@@ -1001,6 +1001,7 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
         order_number: serialNum,
         items: {
           source: 'customer',
+          storeCode: storeCode,
           store_code: storeCode,
           cart: cart,
           customerName: tableNumber ? `內用 ${tableNumber} 號桌` : custName,

@@ -878,7 +878,7 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
       if (error) throw error;
       if (data) {
         const todayStr = getTodayLocalDate();
-        const storeOrders = data;
+        const storeOrders = filterOrdersByStore(data, storeCode);
         const clientOrders = storeOrders.filter(o => {
           const orderDate = new Date(o.created_at).toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' });
           const itemsData = typeof o.items === 'string' ? JSON.parse(o.items) : o.items;
@@ -980,7 +980,8 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
 
         if (error) throw error;
         if (newOrders && newOrders.length > 0) {
-          const unprintedOrders = newOrders.filter(o => {
+          const storeNewOrders = filterOrdersByStore(newOrders, storeCode);
+          const unprintedOrders = storeNewOrders.filter(o => {
             const orderId = String(o.id);
             const orderNum = o.order_number;
             if (locallyPrintedOrders.current.has(orderId) || locallyPrintedOrders.current.has(orderNum)) {
@@ -1433,6 +1434,8 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
         order_number: serialNum,
         items: {
           source: 'pos',
+          storeCode: storeCode,
+          store_code: storeCode,
           cart: cart.map(c => ({
             id: c.id,
             name: c.name,

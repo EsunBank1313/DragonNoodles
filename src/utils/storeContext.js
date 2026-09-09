@@ -139,8 +139,18 @@ export const filterItemsByStore = (items = [], storeCode = '') => {
 export const filterOrdersByStore = (orders = [], storeCode = '') => {
   if (!Array.isArray(orders)) return [];
   const sCode = storeCode || getActiveStoreCode();
-  if (sCode === 'dragon') return orders;
-  return orders;
+  return orders.filter(o => {
+    try {
+      const itemsData = typeof o.items === 'string' ? JSON.parse(o.items || '{}') : (o.items || {});
+      const orderStore = itemsData.storeCode || itemsData.store_code || o.store_code;
+      if (sCode === 'dragon') {
+        return !orderStore || orderStore === 'dragon';
+      }
+      return orderStore === sCode;
+    } catch (e) {
+      return sCode === 'dragon';
+    }
+  });
 };
 
 export const prefixNameForStore = (name = '', storeCode = '') => {
