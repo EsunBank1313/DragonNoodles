@@ -1,7 +1,7 @@
 // Security Configuration & Anti-Brute-Force Authentication Manager
 import { getRegisteredStores } from './storeContext';
 
-export const DEFAULT_STAFF_SECRET_TOKEN = 'dg_8f2a1c';
+export const DEFAULT_STAFF_SECRET_TOKEN = import.meta.env.VITE_STAFF_SECRET_TOKEN || 'dg_8f2a1c';
 export const DEFAULT_ADMIN_PIN = '8888';
 export const DEFAULT_CASHIER_PIN = '1234';
 
