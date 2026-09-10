@@ -75,8 +75,9 @@ export const printThermalReceipt = (order, storeProfile = defaultStoreProfile, r
   const orderNumStr = order.serialNum || order.orderNumber || order.order_number || '';
   const totalNum = order.total || 0;
   const dateStr = order.timestamp || order.createdAt || order.created_at || new Date().toISOString();
+  const isUber = order.type === 'uber' || order.type === 'ubereats' || String(orderNumStr).startsWith('U-');
   const isDineIn = order.type === 'dine-in';
-  const typeStr = isDineIn ? '內用' : '外帶';
+  const typeStr = isUber ? '🛵 Uber Eats 外送' : (isDineIn ? '內用' : '外帶');
   const tableNameStr = order.tableName || order.table_number || '';
 
   const is58mm = (receiptConfig?.paperWidth === '58mm');
@@ -114,7 +115,7 @@ export const printThermalReceipt = (order, storeProfile = defaultStoreProfile, r
         <div class="center subtitle" style="margin-top: 2px;">=== 交易收據明細 ===</div>
         <div class="divider"></div>
         <div style="font-size: 14px; font-weight: bold; margin-bottom: 2px;">單號: ${orderNumStr}</div>
-        ${(receiptConfig.printType !== false) ? `<div>類型: ${typeStr} ${tableNameStr ? `(${tableNameStr}桌)` : ''}</div>` : ''}
+        ${(receiptConfig.printType !== false) ? `<div style="font-weight: bold; color: ${isUber ? '#059669' : '#000'};">類型: ${typeStr} ${tableNameStr ? `(${tableNameStr}桌)` : ''}</div>` : ''}
         ${(receiptConfig.printDateTime !== false) ? `<div style="font-size: 11px;">時間: ${new Date(dateStr).toLocaleString('zh-TW', { hour12: false })}</div>` : ''}
         <div class="divider"></div>
         ${cartItems.map(item => {
@@ -136,7 +137,12 @@ export const printThermalReceipt = (order, storeProfile = defaultStoreProfile, r
           <span>應收總計:</span>
           <span>$${totalNum}</span>
         </div>
-        ${(receiptConfig.printReceivedAndChange !== false && order.cashReceived !== undefined && order.cashReceived !== null) ? `
+        ${isUber ? `
+          <div class="row" style="font-size: 13px; font-weight: bold; color: #059669;">
+            <span>付款方式:</span>
+            <span>🛵 平台線上結清</span>
+          </div>
+        ` : ((receiptConfig.printReceivedAndChange !== false && order.cashReceived !== undefined && order.cashReceived !== null) ? `
           <div class="row" style="font-size: 13px; font-weight: bold;">
             <span>實收金額:</span>
             <span>$${order.cashReceived}</span>
@@ -145,7 +151,7 @@ export const printThermalReceipt = (order, storeProfile = defaultStoreProfile, r
             <span>找零:</span>
             <span>$${order.changeAmount}</span>
           </div>
-        ` : ''}
+        ` : '')}
         ${(receiptConfig.showWifi !== false && storeProfile.storeWifi) ? `
           <div class="divider"></div>
           <div style="font-size: 10px; text-align: center;">📶 店內 Wi-Fi: ${storeProfile.storeWifi}</div>
@@ -168,8 +174,9 @@ export const printKitchenTicket = (order, storeProfile = defaultStoreProfile, re
   const cartItems = getCartItemsFromOrder(order);
   const orderNumStr = order.serialNum || order.orderNumber || order.order_number || '';
   const dateStr = order.timestamp || order.createdAt || order.created_at || new Date().toISOString();
+  const isUber = order.type === 'uber' || order.type === 'ubereats' || String(orderNumStr).startsWith('U-');
   const isDineIn = order.type === 'dine-in';
-  const typeStr = isDineIn ? '【內用】' : '【外帶】';
+  const typeStr = isUber ? '【🛵 Uber Eats 外送】' : (isDineIn ? '【內用】' : '【外帶】');
   const tableNameStr = order.tableName || order.table_number || '';
   const custNameStr = order.customerName || order.custName || '';
   const remarksStr = order.remarks || order.note || '';
@@ -256,8 +263,10 @@ export const printDualReceipts = (order, storeProfile = defaultStoreProfile, rec
   const orderNumStr = order.serialNum || order.orderNumber || order.order_number || '';
   const totalNum = order.total || 0;
   const dateStr = order.timestamp || order.createdAt || order.created_at || new Date().toISOString();
+  const isUber = order.type === 'uber' || order.type === 'ubereats' || String(orderNumStr).startsWith('U-');
   const isDineIn = order.type === 'dine-in';
-  const typeStr = isDineIn ? '內用' : '外帶';
+  const typeStr = isUber ? '🛵 Uber Eats 外送' : (isDineIn ? '內用' : '外帶');
+  const kitchenTypeStr = isUber ? '【🛵 Uber Eats 外送】' : (isDineIn ? '【內用】' : '【外帶】');
   const tableNameStr = order.tableName || order.table_number || '';
   const custNameStr = order.customerName || order.custName || '';
   const remarksStr = order.remarks || order.note || '';
@@ -328,7 +337,12 @@ export const printDualReceipts = (order, storeProfile = defaultStoreProfile, rec
             <span>應收總計:</span>
             <span>$${totalNum}</span>
           </div>
-          ${(receiptConfig.printReceivedAndChange !== false && order.cashReceived !== undefined && order.cashReceived !== null) ? `
+          ${isUber ? `
+            <div class="row" style="font-size: 13px; font-weight: bold; color: #059669;">
+              <span>付款方式:</span>
+              <span>🛵 平台線上結清</span>
+            </div>
+          ` : ((receiptConfig.printReceivedAndChange !== false && order.cashReceived !== undefined && order.cashReceived !== null) ? `
             <div class="row" style="font-size: 13px; font-weight: bold;">
               <span>實收金額:</span>
               <span>$${order.cashReceived}</span>
@@ -337,7 +351,7 @@ export const printDualReceipts = (order, storeProfile = defaultStoreProfile, rec
               <span>找零:</span>
               <span>$${order.changeAmount}</span>
             </div>
-          ` : ''}
+          ` : '')}
           ${(receiptConfig.showWifi !== false && storeProfile.storeWifi) ? `
             <div class="divider"></div>
             <div style="font-size: 10px; text-align: center;">📶 店內 Wi-Fi: ${storeProfile.storeWifi}</div>
@@ -358,7 +372,7 @@ export const printDualReceipts = (order, storeProfile = defaultStoreProfile, rec
         <div class="kitchen-ticket-section">
           <div class="center bold" style="font-size: 16px;">=== 廚房備餐單 ===</div>
           <div class="center badge">
-            ${isDineIn ? '【內用】' : '【外帶】'} ${tableNameStr ? tableNameStr + '桌' : ''}
+            ${kitchenTypeStr} ${tableNameStr ? tableNameStr + '桌' : ''}
           </div>
           <div class="row bold" style="font-size: 15px;">
             <span>單號: #${orderNumStr}</span>
@@ -451,6 +465,12 @@ export const printDailyClosingReport = (dailyData, storeProfile = defaultStorePr
           <span>└ 線上/電子:</span>
           <span>$${dailyData.onlineRevenue || 0}</span>
         </div>
+        ${dailyData.uberRevenue ? `
+          <div class="row" style="padding-left: 6px;">
+            <span>└ 🛵 Uber Eats:</span>
+            <span>$${dailyData.uberRevenue || 0}</span>
+          </div>
+        ` : ''}
         ${dailyData.manualRevenue ? `
           <div class="row" style="padding-left: 6px;">
             <span>└ 手動補登:</span>
@@ -472,6 +492,12 @@ export const printDailyClosingReport = (dailyData, storeProfile = defaultStorePr
           <span>└ 現場外帶:</span>
           <span>${dailyData.takeoutCount || 0} 筆</span>
         </div>
+        ${dailyData.uberCount ? `
+          <div class="row" style="padding-left: 6px;">
+            <span>└ 🛵 Uber Eats:</span>
+            <span>${dailyData.uberCount || 0} 筆</span>
+          </div>
+        ` : ''}
         <div class="row" style="padding-left: 6px;">
           <span>└ 平均客單價:</span>
           <span>$${dailyData.avgOrderValue || 0}</span>
@@ -490,7 +516,8 @@ export const printDailyClosingReport = (dailyData, storeProfile = defaultStorePr
 
         <div class="double-divider"></div>
         <div style="margin-top: 14px; margin-bottom: 8px;">
-          <div>錢箱現金核對: [  ] 相符</div>
+          <div>錢箱現金核對: [  ] 相符 (應為 $${dailyData.cashRevenue || 0})</div>
+          <div style="font-size: 11px; color: #444; margin-top: 2px;">* Uber Eats 等線上款項不入錢箱現金</div>
           <div style="margin-top: 12px;">店長/結帳人員簽名:</div>
           <div style="border-bottom: 1px solid #000; margin-top: 25px;"></div>
         </div>
@@ -577,6 +604,12 @@ export const printShiftHandoverReport = (shiftData, storeProfile = defaultStoreP
             <span>NT$ ${(shiftData.onlineRevenue || 0).toLocaleString()}</span>
           </div>
         ` : ''}
+        ${shiftData.uberRevenue ? `
+          <div class="row" style="padding-left: 6px;">
+            <span>└ 🛵 Uber Eats:</span>
+            <span>NT$ ${(shiftData.uberRevenue || 0).toLocaleString()}</span>
+          </div>
+        ` : ''}
 
         <div class="divider"></div>
         <div class="section-title">=== 當班訂單統計 ===</div>
@@ -592,6 +625,12 @@ export const printShiftHandoverReport = (shiftData, storeProfile = defaultStoreP
           <span>└ 外帶筆數:</span>
           <span>${shiftData.takeoutCount || 0} 筆</span>
         </div>
+        ${shiftData.uberCount ? `
+          <div class="row" style="padding-left: 6px;">
+            <span>└ 🛵 Uber Eats:</span>
+            <span>${shiftData.uberCount || 0} 筆</span>
+          </div>
+        ` : ''}
         <div class="row" style="padding-left: 6px;">
           <span>└ 平均客單價:</span>
           <span>NT$ ${shiftData.avgOrderValue || 0}</span>
@@ -600,6 +639,7 @@ export const printShiftHandoverReport = (shiftData, storeProfile = defaultStoreP
         <div class="double-divider"></div>
         <div style="margin-top: 14px; margin-bottom: 8px;">
           <div style="font-weight: bold;">💰 錢櫃實點現金應為: NT$ ${(shiftData.cashRevenue || 0).toLocaleString()}</div>
+          <div style="font-size: 10px; color: #555; margin-top: 2px;">* 僅含實收現金，已扣除 Uber 等線上平台款</div>
           <div style="margin-top: 12px;">交班人員簽名:</div>
           <div style="border-bottom: 1px solid #000; margin-top: 22px;"></div>
           <div style="margin-top: 12px;">接班人員簽名:</div>

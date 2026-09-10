@@ -181,7 +181,7 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
   const [posPaymentMethods, setPosPaymentMethods] = useState(['現金', '信用卡', 'LINE Pay']);
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState('現金');
   
-  const isCash = selectedPaymentMethod && (
+  const isCash = orderType !== 'uber' && orderType !== 'ubereats' && selectedPaymentMethod && (
     selectedPaymentMethod === '現金' ||
     selectedPaymentMethod.includes('現金') ||
     selectedPaymentMethod.toLowerCase().includes('cash')
@@ -259,7 +259,20 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
 
   const [showDailyOpenPromptModal, setShowDailyOpenPromptModal] = useState(false);
   const [showModuleCenterModal, setShowModuleCenterModal] = useState(false);
+  const [showUberModal, setShowUberModal] = useState(false);
   const [activeModules, setActiveModules] = useState(() => getActiveModuleSettings());
+
+  const handleCopyText = (text, label) => {
+    if (navigator?.clipboard?.writeText) {
+      navigator.clipboard.writeText(text).then(() => {
+        alert(`已複製${label}：${text}`);
+      }).catch(() => {
+        prompt(`請手動複製${label}：`, text);
+      });
+    } else {
+      prompt(`請手動複製${label}：`, text);
+    }
+  };
 
   // Barcode / SKU quick input state
   const [quickSkuInput, setQuickSkuInput] = useState('');
@@ -637,9 +650,27 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
     });
 
     let onlinePaymentTotal = 0;
+    let uberRevenue = 0;
+    let uberCount = 0;
+    let dineInCount = 0;
+    let takeoutCount = 0;
 
     targetOrders.forEach(o => {
       const orderTotal = Number(o.total) || 0;
+      const isUber = o.type === 'uber' || o.type === 'ubereats' || o.paymentMethod === 'ubereats' || String(o.serialNum || o.order_number || '').startsWith('U-');
+
+      if (isUber) {
+        uberRevenue += orderTotal;
+        uberCount += 1;
+        return;
+      }
+
+      if (o.type === 'dine-in') {
+        dineInCount += 1;
+      } else {
+        takeoutCount += 1;
+      }
+
       const rawPay = o.paymentMethod || '現金';
 
       if (rawPay === 'online' || rawPay === '線上付' || rawPay === '線上點餐') {
@@ -664,8 +695,6 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
     });
 
     const cashRev = paymentBreakdown['現金'] || paymentBreakdown['cash'] || 0;
-    const dineInCount = targetOrders.filter(o => o.type === 'dine-in').length;
-    const takeoutCount = targetOrders.length - dineInCount;
     const avgOrderVal = targetOrders.length > 0 ? Math.round(totalRev / targetOrders.length) : 0;
 
     return {
@@ -677,6 +706,8 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
       cashRevenue: cashRev,
       paymentBreakdown,
       onlineRevenue: onlinePaymentTotal,
+      uberRevenue,
+      uberCount,
       dineInCount,
       takeoutCount,
       avgOrderValue: avgOrderVal
@@ -1384,7 +1415,7 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
         cashier: editingPosOrder.cashier,
         remarks: editOrderRemarks.trim(),
         pickupTime: editingPosOrder.pickupTime,
-        customerName: editOrderCust.trim() || (editOrderType === 'dine-in' && editOrderTable ? `內用 ${editOrderTable} 號桌` : '現場外帶'),
+        customerName: editOrderCust.trim() || (editOrderType === 'dine-in' && editOrderTable ? `內用 ${editOrderTable} 號桌` : (editOrderType === 'uber' || editOrderType === 'ubereats' ? '🛵 Uber Eats 外送' : '現場外帶')),
         customerPhone: editingPosOrder.customerPhone,
         paymentMethod: editOrderPayment.trim()
       };
@@ -1504,8 +1535,8 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
     setIsSubmittingOrder(true);
 
     try {
-      // 1. Generate serial number (I-001 or O-001 daily format, max number + 1 logic)
-      const prefix = orderType === 'dine-in' ? 'I' : 'O';
+      // 1. Generate serial number (I-001, O-001 or U-001 daily format, max number + 1 logic)
+      const prefix = orderType === 'dine-in' ? 'I' : (orderType === 'uber' || orderType === 'ubereats' ? 'U' : 'O');
       const now = new Date();
       const taipeiDateStr = now.toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' });
       const todayTaipeiISO = new Date(`${taipeiDateStr}T00:00:00+08:00`).toISOString();
@@ -1563,10 +1594,14 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
             totalPrice: c.totalPrice,
             specs: c.specs
           })),
-          customerName: orderType === 'dine-in' ? (tableNumber ? `內用 ${tableNumber} 號桌 (POS)` : '內用點餐 (POS)') : (custName.trim() || '現場外帶 (POS)'),
+          customerName: orderType === 'dine-in' 
+            ? (tableNumber ? `內用 ${tableNumber} 號桌 (POS)` : '內用點餐 (POS)') 
+            : ((orderType === 'uber' || orderType === 'ubereats')
+                ? (custName.trim() ? `Uber Eats (${custName.trim()})` : '🛵 Uber Eats 外送')
+                : (custName.trim() || '現場外帶 (POS)')),
           customerPhone: '',
           pickupTime: '',
-          paymentMethod: isCash ? 'cash' : selectedPaymentMethod,
+          paymentMethod: (orderType === 'uber' || orderType === 'ubereats') ? 'ubereats' : (isCash ? 'cash' : selectedPaymentMethod),
           remarks: "",
           cashier: cashierName || localStorage.getItem('cashier_name') || '店長 (Admin)'
         },
@@ -1635,13 +1670,18 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
     } catch (err) {
       console.warn("Supabase order submit failed, falling back to local offline queue:", err);
       
-      const fallbackSerial = `${orderType === 'dine-in' ? 'I' : 'O'}-${Date.now().toString().slice(-4)}`;
+      const prefix = orderType === 'dine-in' ? 'I' : (orderType === 'uber' || orderType === 'ubereats' ? 'U' : 'O');
+      const fallbackSerial = `${prefix}-${Date.now().toString().slice(-4)}`;
       const offlineOrder = {
         order_number: fallbackSerial,
         items: {
           cart: cart,
-          customerName: orderType === 'dine-in' ? '內用點餐 (POS)' : (custName.trim() || '現場外帶'),
-          paymentMethod: isCash ? 'cash' : selectedPaymentMethod,
+          customerName: orderType === 'dine-in' 
+            ? '內用點餐 (POS)' 
+            : ((orderType === 'uber' || orderType === 'ubereats')
+                ? (custName.trim() ? `Uber Eats (${custName.trim()})` : '🛵 Uber Eats 外送')
+                : (custName.trim() || '現場外帶')),
+          paymentMethod: (orderType === 'uber' || orderType === 'ubereats') ? 'ubereats' : (isCash ? 'cash' : selectedPaymentMethod),
           cashier: cashierName || '店長 (Admin)'
         },
         total: finalTotal,
@@ -1880,11 +1920,17 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                     <span>NT$ {shiftData.onlineRevenue.toLocaleString()}</span>
                   </div>
                 )}
+                {shiftData.uberRevenue > 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', paddingLeft: '10px', color: '#06C167', fontWeight: 'bold' }}>
+                    <span>└ 🛵 Uber Eats:</span>
+                    <span>NT$ {shiftData.uberRevenue.toLocaleString()}</span>
+                  </div>
+                )}
                 <div style={{ height: '1px', backgroundColor: 'var(--border)', margin: '4px 0' }} />
 
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold' }}>
                   <span>🧾 成交訂單筆數:</span>
-                  <span>{shiftData.orderCount} 筆 (內用 {shiftData.dineInCount} / 外帶 {shiftData.takeoutCount})</span>
+                  <span>{shiftData.orderCount} 筆 (內用 {shiftData.dineInCount} / 外帶 {shiftData.takeoutCount}{shiftData.uberCount > 0 ? ` / Uber ${shiftData.uberCount}` : ''})</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <span style={{ color: 'var(--text-muted)' }}>平均客單價:</span>
@@ -1935,6 +1981,151 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
           </div>
         );
       })()}
+
+      {/* 🛵 Uber Eats Quick Launcher Modal */}
+      {showUberModal && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.75)', backdropFilter: 'blur(5px)',
+          display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 9999, padding: '20px'
+        }}>
+          <div style={{
+            maxWidth: '460px', width: '100%', backgroundColor: 'var(--bg-card)',
+            border: '2px solid #06C167', borderRadius: '16px', padding: '28px 24px',
+            textAlign: 'left', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border)', paddingBottom: '12px', marginBottom: '16px' }}>
+              <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 'bold', color: '#06C167', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                🛵 Uber Eats 商家接單中心
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowUberModal(false)}
+                style={{ border: 'none', background: 'none', fontSize: '1.2rem', cursor: 'pointer', color: 'var(--text-muted)' }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', fontSize: '0.9rem' }}>
+              <div style={{
+                backgroundColor: 'rgba(6, 193, 103, 0.08)',
+                padding: '12px',
+                borderRadius: '8px',
+                border: '1px solid rgba(6, 193, 103, 0.25)'
+              }}>
+                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '4px' }}>🏪 接單前台登入帳號</div>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                  <code style={{ fontSize: '0.95rem', fontWeight: 'bold', color: 'var(--text-main)' }}>apricot-149968@ubereats.com</code>
+                  <button
+                    type="button"
+                    onClick={() => handleCopyText('apricot-149968@ubereats.com', '帳號')}
+                    style={{
+                      padding: '4px 10px',
+                      fontSize: '0.78rem',
+                      borderRadius: '6px',
+                      border: '1px solid var(--border)',
+                      backgroundColor: 'var(--bg-card)',
+                      color: 'var(--text-main)',
+                      cursor: 'pointer',
+                      fontWeight: 'bold',
+                      whiteSpace: 'nowrap'
+                    }}
+                  >
+                    📋 複製
+                  </button>
+                </div>
+              </div>
+
+              <div style={{
+                backgroundColor: 'rgba(6, 193, 103, 0.08)',
+                padding: '12px',
+                borderRadius: '8px',
+                border: '1px solid rgba(6, 193, 103, 0.25)'
+              }}>
+                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '4px' }}>🔑 接單前台密碼</div>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                  <code style={{ fontSize: '1.1rem', fontWeight: 'bold', letterSpacing: '1px', color: 'var(--text-main)' }}>6fae673b</code>
+                  <button
+                    type="button"
+                    onClick={() => handleCopyText('6fae673b', '密碼')}
+                    style={{
+                      padding: '4px 10px',
+                      fontSize: '0.78rem',
+                      borderRadius: '6px',
+                      border: '1px solid var(--border)',
+                      backgroundColor: 'var(--bg-card)',
+                      color: 'var(--text-main)',
+                      cursor: 'pointer',
+                      fontWeight: 'bold',
+                      whiteSpace: 'nowrap'
+                    }}
+                  >
+                    📋 複製
+                  </button>
+                </div>
+              </div>
+
+              <a
+                href="https://merchants.ubereats.com/orders"
+                target="_blank"
+                rel="noreferrer"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '8px',
+                  backgroundColor: '#06C167',
+                  color: 'white',
+                  textDecoration: 'none',
+                  padding: '14px',
+                  borderRadius: '10px',
+                  fontWeight: 'bold',
+                  fontSize: '1.05rem',
+                  boxShadow: '0 4px 12px rgba(6, 193, 103, 0.35)',
+                  transition: 'opacity 0.2s',
+                  marginTop: '4px'
+                }}
+              >
+                🚀 開啟 Uber Eats 接單前台 (新分頁)
+              </a>
+
+              <div style={{
+                backgroundColor: 'var(--bg-body)',
+                border: '1px solid var(--border)',
+                borderRadius: '8px',
+                padding: '12px',
+                fontSize: '0.8rem',
+                color: 'var(--text-muted)',
+                lineHeight: '1.5'
+              }}>
+                <div style={{ fontWeight: 'bold', color: 'var(--text-main)', marginBottom: '4px' }}>💡 POS 現場搭配說明：</div>
+                <div>1. 於 Uber Eats 收到訂單後，收銀結帳請切換為 <strong style={{ color: '#06C167' }}>🛵 Uber Eats</strong> 單號類型。</div>
+                <div>2. 單號自動編碼為 <strong>U-001</strong> 等專用序號，免收現並自動列印廚房單。</div>
+                <div>3. 日結與換班報表將自動把 Uber Eats 營業額與抽屜現金完全分開，對帳零誤差。</div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowUberModal(false)}
+                style={{
+                  width: '100%',
+                  padding: '10px',
+                  fontSize: '0.85rem',
+                  fontWeight: 'bold',
+                  backgroundColor: 'transparent',
+                  color: 'var(--text-muted)',
+                  border: '1px solid var(--border)',
+                  borderRadius: '8px',
+                  cursor: 'pointer'
+                }}
+              >
+                關閉視窗
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* In-UI Kickout Full-Screen Overlay */}
       {kickoutState.isKickedOut && (
@@ -2154,6 +2345,31 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
             }}
           >
             🔄 換班交接
+          </button>
+
+          {/* 🛵 Uber Eats Quick Launcher */}
+          <button
+            type="button"
+            onClick={() => setShowUberModal(true)}
+            style={{
+              height: '36px',
+              padding: '0 12px',
+              fontSize: '0.82rem',
+              borderRadius: '6px',
+              border: '1px solid #06C167',
+              backgroundColor: 'rgba(6, 193, 103, 0.12)',
+              color: '#06C167',
+              cursor: 'pointer',
+              fontWeight: '900',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+              whiteSpace: 'nowrap',
+              boxShadow: '0 2px 6px rgba(6, 193, 103, 0.2)'
+            }}
+            title="開啟 Uber Eats 商家接單中心與前台登入資訊"
+          >
+            🛵 Uber Eats
           </button>
 
           {/* 6. Restock Alert (補貨提醒) */}
@@ -2821,16 +3037,36 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                                 單號: {order.serialNum}
                               </span>
 
-                              <span style={{
-                                padding: '2px 8px',
-                                borderRadius: '6px',
-                                fontSize: '0.75rem',
-                                fontWeight: 'bold',
-                                backgroundColor: order.type === 'dine-in' ? 'rgba(59, 130, 246, 0.12)' : 'rgba(249, 115, 22, 0.12)',
-                                color: order.type === 'dine-in' ? '#2563eb' : '#ea580c'
-                              }}>
-                                {order.type === 'dine-in' ? (order.tableName ? `🪑 內用 ${order.tableName} 桌` : '🪑 內用') : '🥡 外帶'}
-                              </span>
+                              {(() => {
+                                const isUber = order.type === 'uber' || order.type === 'ubereats' || order.paymentMethod === 'ubereats' || String(order.serialNum || order.order_number || '').startsWith('U-');
+                                if (isUber) {
+                                  return (
+                                    <span style={{
+                                      padding: '2px 8px',
+                                      borderRadius: '6px',
+                                      fontSize: '0.75rem',
+                                      fontWeight: 'bold',
+                                      backgroundColor: 'rgba(6, 193, 103, 0.15)',
+                                      color: '#06C167',
+                                      border: '1px solid #06C167'
+                                    }}>
+                                      🛵 Uber Eats 外送
+                                    </span>
+                                  );
+                                }
+                                return (
+                                  <span style={{
+                                    padding: '2px 8px',
+                                    borderRadius: '6px',
+                                    fontSize: '0.75rem',
+                                    fontWeight: 'bold',
+                                    backgroundColor: order.type === 'dine-in' ? 'rgba(59, 130, 246, 0.12)' : 'rgba(249, 115, 22, 0.12)',
+                                    color: order.type === 'dine-in' ? '#2563eb' : '#ea580c'
+                                  }}>
+                                    {order.type === 'dine-in' ? (order.tableName ? `🪑 內用 ${order.tableName} 桌` : '🪑 內用') : '🥡 外帶'}
+                                  </span>
+                                );
+                              })()}
 
                               {/* Status Tag */}
                               {isCustomerOrder ? (
@@ -3273,23 +3509,26 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
               <div style={{ display: 'flex', gap: '6px', marginBottom: '2px', width: '100%' }}>
                 <button
                   type="button"
-                  onClick={() => setOrderType('dine-in')}
+                  onClick={() => {
+                    setOrderType('dine-in');
+                    if (posPaymentMethods.length > 0) setSelectedPaymentMethod(posPaymentMethods[0]);
+                  }}
                   style={{
                     flex: 1,
                     height: posUiScale === 'large' ? '50px' : posUiScale === 'medium' ? '42px' : '36px',
-                    padding: '4px 8px',
+                    padding: '4px 6px',
                     borderRadius: '8px',
                     border: orderType === 'dine-in' ? '2px solid var(--primary)' : '1px solid var(--border)',
                     backgroundColor: orderType === 'dine-in' ? 'var(--primary)' : 'var(--bg-card)',
                     color: orderType === 'dine-in' ? 'white' : 'var(--text-main)',
                     fontWeight: '900',
                     cursor: 'pointer',
-                    fontSize: posUiScale === 'large' ? '1.15rem' : posUiScale === 'medium' ? '1.05rem' : '0.95rem',
+                    fontSize: posUiScale === 'large' ? '1.1rem' : posUiScale === 'medium' ? '1rem' : '0.9rem',
                     transition: 'all 0.15s',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    gap: '6px',
+                    gap: '4px',
                     boxShadow: orderType === 'dine-in' ? '0 2px 8px rgba(255, 107, 53, 0.25)' : 'none'
                   }}
                 >
@@ -3297,30 +3536,91 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                 </button>
                 <button
                   type="button"
-                  onClick={() => setOrderType('takeout')}
+                  onClick={() => {
+                    setOrderType('takeout');
+                    if (posPaymentMethods.length > 0) setSelectedPaymentMethod(posPaymentMethods[0]);
+                  }}
                   style={{
                     flex: 1,
                     height: posUiScale === 'large' ? '50px' : posUiScale === 'medium' ? '42px' : '36px',
-                    padding: '4px 8px',
+                    padding: '4px 6px',
                     borderRadius: '8px',
                     border: orderType === 'takeout' ? '2px solid #dc2626' : '1px solid var(--border)',
                     backgroundColor: orderType === 'takeout' ? '#dc2626' : 'var(--bg-card)',
                     color: orderType === 'takeout' ? 'white' : 'var(--text-main)',
                     fontWeight: '900',
                     cursor: 'pointer',
-                    fontSize: posUiScale === 'large' ? '1.15rem' : posUiScale === 'medium' ? '1.05rem' : '0.95rem',
+                    fontSize: posUiScale === 'large' ? '1.1rem' : posUiScale === 'medium' ? '1rem' : '0.9rem',
                     transition: 'all 0.15s',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    gap: '6px',
+                    gap: '4px',
                     boxShadow: orderType === 'takeout' ? '0 2px 8px rgba(220, 38, 38, 0.25)' : 'none'
                   }}
                 >
                   🥡 外帶
                 </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOrderType('uber');
+                    setSelectedPaymentMethod('ubereats');
+                    setCashReceived(String(finalTotal));
+                  }}
+                  style={{
+                    flex: 1.25,
+                    height: posUiScale === 'large' ? '50px' : posUiScale === 'medium' ? '42px' : '36px',
+                    padding: '4px 6px',
+                    borderRadius: '8px',
+                    border: orderType === 'uber' ? '2px solid #06C167' : '1px solid var(--border)',
+                    backgroundColor: orderType === 'uber' ? '#06C167' : 'var(--bg-card)',
+                    color: orderType === 'uber' ? 'white' : '#06C167',
+                    fontWeight: '900',
+                    cursor: 'pointer',
+                    fontSize: posUiScale === 'large' ? '1.1rem' : posUiScale === 'medium' ? '1rem' : '0.9rem',
+                    transition: 'all 0.15s',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '4px',
+                    boxShadow: orderType === 'uber' ? '0 2px 8px rgba(6, 193, 103, 0.3)' : 'none'
+                  }}
+                >
+                  🛵 Uber Eats
+                </button>
               </div>
 
+              {orderType === 'uber' && (
+                <div style={{
+                  padding: '8px 10px',
+                  backgroundColor: 'rgba(6, 193, 103, 0.08)',
+                  borderRadius: '8px',
+                  border: '1px solid rgba(6, 193, 103, 0.3)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '4px'
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: '0.78rem', fontWeight: 'bold', color: '#06C167' }}>🛵 Uber Eats 單號 / 備註 (選填)</span>
+                    <span style={{ fontSize: '0.72rem', color: '#059669', fontWeight: 'bold' }}>免收現 · 自動出單</span>
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="例: Uber 單號 4 碼或外送員備註"
+                    value={custName}
+                    onChange={(e) => setCustName(e.target.value)}
+                    style={{
+                      padding: '6px 8px',
+                      fontSize: '0.85rem',
+                      borderRadius: '6px',
+                      border: '1px solid var(--border)',
+                      backgroundColor: 'var(--bg-card)',
+                      color: 'var(--text-main)'
+                    }}
+                  />
+                </div>
+              )}
 
               {/* Total & Discount display */}
               <div style={{
@@ -3366,38 +3666,56 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
               </div>
 
               {/* POS Payment Methods Selection */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                <label style={{ fontSize: '0.75rem', fontWeight: 'bold', color: 'var(--text-muted)' }}>選擇支付方式</label>
-                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                  {posPaymentMethods.map((method) => (
-                    <button
-                      key={method}
-                      type="button"
-                      onClick={() => {
-                        setSelectedPaymentMethod(method);
-                        if (method !== '現金') {
-                          setCashReceived(String(finalTotal));
-                        } else {
-                          setCashReceived('');
-                        }
-                      }}
-                      style={{
-                        padding: '6px 12px',
-                        fontSize: '0.75rem',
-                        borderRadius: '6px',
-                        border: selectedPaymentMethod === method ? '2px solid var(--primary)' : '1px solid var(--border)',
-                        backgroundColor: selectedPaymentMethod === method ? 'var(--primary)' : 'var(--bg-card)',
-                        color: selectedPaymentMethod === method ? 'white' : 'var(--text-main)',
-                        fontWeight: 'bold',
-                        cursor: 'pointer',
-                        transition: 'all 0.2s'
-                      }}
-                    >
-                      {method}
-                    </button>
-                  ))}
+              {orderType === 'uber' ? (
+                <div style={{
+                  padding: '10px 12px',
+                  borderRadius: '8px',
+                  backgroundColor: 'rgba(6, 193, 103, 0.1)',
+                  border: '1px solid #06C167',
+                  color: '#06C167',
+                  fontSize: '0.82rem',
+                  fontWeight: 'bold',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}>
+                  <span>🛵 結帳方式:</span>
+                  <span style={{ color: '#059669', fontWeight: '900' }}>Uber Eats 平台線上結清（免收現）</span>
                 </div>
-              </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label style={{ fontSize: '0.75rem', fontWeight: 'bold', color: 'var(--text-muted)' }}>選擇支付方式</label>
+                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                    {posPaymentMethods.map((method) => (
+                      <button
+                        key={method}
+                        type="button"
+                        onClick={() => {
+                          setSelectedPaymentMethod(method);
+                          if (method !== '現金') {
+                            setCashReceived(String(finalTotal));
+                          } else {
+                            setCashReceived('');
+                          }
+                        }}
+                        style={{
+                          padding: '6px 12px',
+                          fontSize: '0.75rem',
+                          borderRadius: '6px',
+                          border: selectedPaymentMethod === method ? '2px solid var(--primary)' : '1px solid var(--border)',
+                          backgroundColor: selectedPaymentMethod === method ? 'var(--primary)' : 'var(--bg-card)',
+                          color: selectedPaymentMethod === method ? 'white' : 'var(--text-main)',
+                          fontWeight: 'bold',
+                          cursor: 'pointer',
+                          transition: 'all 0.2s'
+                        }}
+                      >
+                        {method}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {isCash ? (
                 <>
@@ -3584,6 +3902,21 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                     </button>
                   </div>
                 </>
+              ) : orderType === 'uber' ? (
+                <div style={{
+                  padding: '14px',
+                  borderRadius: '8px',
+                  border: '1px solid #06C167',
+                  backgroundColor: 'rgba(6, 193, 103, 0.08)',
+                  color: '#06C167',
+                  fontSize: '0.85rem',
+                  fontWeight: 'bold',
+                  textAlign: 'center',
+                  lineHeight: '1.5'
+                }}>
+                  🛵 Uber Eats 平台線上已結清（免收現）<br />
+                  <span style={{ fontSize: '0.75rem', color: '#059669' }}>點擊下方按鈕即可送單並印出客收據與廚房聯</span>
+                </div>
               ) : (
                 <div style={{
                   padding: '16px',
@@ -3799,6 +4132,7 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                   >
                     <option value="dine-in">🍽️ 內用</option>
                     <option value="takeout">🛍️ 外帶</option>
+                    <option value="uber">🛵 Uber Eats</option>
                   </select>
                 </div>
 
