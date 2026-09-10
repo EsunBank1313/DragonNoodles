@@ -27,16 +27,19 @@ export const formatSupabaseOrder = (dbOrder) => {
 
   // Determine Type accurately:
   // If order_number starts with 'U-', it is uber (Uber Eats 外送)
-  // If order_number starts with 'O-', it is takeout (外帶)
+  // If order_number starts with 'P-', it is foodpanda (熊貓外送)
+  // If order_number starts with 'O-', it is takeout (現場外帶)
   // If order_number starts with 'I-', it is dine-in (內用)
   const orderNumStr = String(dbOrder.order_number || '');
-  let finalType = dbOrder.type === 'dine-in' ? 'dine-in' : (dbOrder.type === 'uber' || dbOrder.type === 'ubereats' ? 'uber' : 'takeout');
+  let finalType = 'takeout';
   if (orderNumStr.startsWith('U-') || orderNumStr.startsWith('U') || dbOrder.type === 'uber' || dbOrder.type === 'ubereats') {
     finalType = 'uber';
-  } else if (orderNumStr.startsWith('O-') || orderNumStr.startsWith('O')) {
-    finalType = 'takeout';
-  } else if (orderNumStr.startsWith('I-') || orderNumStr.startsWith('I')) {
+  } else if (orderNumStr.startsWith('P-') || orderNumStr.startsWith('P') || dbOrder.type === 'foodpanda' || dbOrder.type === 'panda') {
+    finalType = 'foodpanda';
+  } else if (orderNumStr.startsWith('I-') || orderNumStr.startsWith('I') || dbOrder.type === 'dine-in') {
     finalType = 'dine-in';
+  } else {
+    finalType = 'takeout';
   }
 
   const tableName = dbOrder.table_number || itemsData.table_number || null;
@@ -44,6 +47,8 @@ export const formatSupabaseOrder = (dbOrder) => {
   if (!customerName) {
     if (finalType === 'uber') {
       customerName = '🛵 Uber Eats 外送';
+    } else if (finalType === 'foodpanda') {
+      customerName = '🐼 熊貓外送';
     } else {
       customerName = finalType === 'dine-in' ? (tableName ? `內用 ${tableName} 號桌` : '內用點餐') : '現場外帶';
     }

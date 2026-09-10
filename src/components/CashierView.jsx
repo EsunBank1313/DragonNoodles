@@ -181,7 +181,9 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
   const [posPaymentMethods, setPosPaymentMethods] = useState(['現金', '信用卡', 'LINE Pay']);
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState('現金');
   
-  const isCash = orderType !== 'uber' && orderType !== 'ubereats' && selectedPaymentMethod && (
+  const [orderHistoryFilter, setOrderHistoryFilter] = useState('all'); // 'all', 'dine-in', 'takeout', 'uber', 'foodpanda'
+
+  const isCash = orderType !== 'uber' && orderType !== 'ubereats' && orderType !== 'foodpanda' && orderType !== 'panda' && selectedPaymentMethod && (
     selectedPaymentMethod === '現金' ||
     selectedPaymentMethod.includes('現金') ||
     selectedPaymentMethod.toLowerCase().includes('cash')
@@ -383,8 +385,15 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
     if (!order) return '';
     let parts = [];
 
+    const isUber = order.type === 'uber' || order.type === 'ubereats' || order.paymentMethod === 'ubereats' || String(order.serialNum || order.order_number || '').startsWith('U-');
+    const isPanda = order.type === 'foodpanda' || order.type === 'panda' || order.paymentMethod === 'foodpanda' || String(order.serialNum || order.order_number || '').startsWith('P-');
     const isTakeout = order.type === 'takeout' || order.type === '自取' || order.type === '外帶';
-    if (isTakeout) {
+
+    if (isUber) {
+      parts.push('收到新 Uber Eats 外送訂單！');
+    } else if (isPanda) {
+      parts.push('收到新熊貓外送訂單！');
+    } else if (isTakeout) {
       parts.push('收到新外帶訂單！');
     } else {
       const tableStr = order.table_number || order.tableNumber ? `${order.table_number || order.tableNumber}號桌。` : '';
@@ -497,11 +506,31 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
   const handlePrintDailyClosing = () => {
     const todayStr = getTodayLocalDate();
     const todayOrders = orders.filter(o => o.status === 'completed' || o.status === 'received');
-    const totalRev = todayOrders.reduce((sum, o) => sum + o.total, 0);
-    const onlineRev = todayOrders.filter(o => o.paymentMethod === 'online').reduce((sum, o) => sum + o.total, 0);
-    const cashRev = totalRev - onlineRev;
-    const dineInCount = todayOrders.filter(o => o.type === 'dine-in').length;
-    const takeoutCount = todayOrders.length - dineInCount;
+    const totalRev = todayOrders.reduce((sum, o) => sum + (Number(o.total) || 0), 0);
+
+    const isUberOrder = (o) => (
+      o.type === 'uber' || o.type === 'ubereats' || o.paymentMethod === 'ubereats' || String(o.serialNum || o.order_number || '').startsWith('U-')
+    );
+    const isPandaOrder = (o) => (
+      o.type === 'foodpanda' || o.type === 'panda' || o.paymentMethod === 'foodpanda' || String(o.serialNum || o.order_number || '').startsWith('P-')
+    );
+    const isDelivery = (o) => isUberOrder(o) || isPandaOrder(o);
+
+    const uberOrders = todayOrders.filter(isUberOrder);
+    const pandaOrders = todayOrders.filter(isPandaOrder);
+    const uberRev = uberOrders.reduce((sum, o) => sum + (Number(o.total) || 0), 0);
+    const pandaRev = pandaOrders.reduce((sum, o) => sum + (Number(o.total) || 0), 0);
+    const uberCount = uberOrders.length;
+    const pandaCount = pandaOrders.length;
+
+    const onlineRev = todayOrders
+      .filter(o => !isDelivery(o) && (o.paymentMethod === 'online' || o.paymentMethod === 'linepay' || o.paymentMethod === 'jkopay' || o.paymentMethod === '線上付'))
+      .reduce((sum, o) => sum + (Number(o.total) || 0), 0);
+
+    // Physical cash drawer strictly excludes online payment and delivery platforms
+    const cashRev = totalRev - onlineRev - uberRev - pandaRev;
+    const dineInCount = todayOrders.filter(o => o.type === 'dine-in' && !isDelivery(o)).length;
+    const takeoutCount = todayOrders.filter(o => o.type !== 'dine-in' && !isDelivery(o)).length;
     const avgOrderVal = todayOrders.length > 0 ? Math.round(totalRev / todayOrders.length) : 0;
 
     const itemCounts = {};
@@ -518,6 +547,10 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
       totalRevenue: totalRev,
       cashRevenue: cashRev,
       onlineRevenue: onlineRev,
+      uberRevenue: uberRev,
+      uberCount,
+      pandaRevenue: pandaRev,
+      pandaCount,
       totalOrders: todayOrders.length,
       dineInCount,
       takeoutCount,
@@ -652,16 +685,25 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
     let onlinePaymentTotal = 0;
     let uberRevenue = 0;
     let uberCount = 0;
+    let pandaRevenue = 0;
+    let pandaCount = 0;
     let dineInCount = 0;
     let takeoutCount = 0;
 
     targetOrders.forEach(o => {
       const orderTotal = Number(o.total) || 0;
       const isUber = o.type === 'uber' || o.type === 'ubereats' || o.paymentMethod === 'ubereats' || String(o.serialNum || o.order_number || '').startsWith('U-');
+      const isPanda = o.type === 'foodpanda' || o.type === 'panda' || o.paymentMethod === 'foodpanda' || String(o.serialNum || o.order_number || '').startsWith('P-');
 
       if (isUber) {
         uberRevenue += orderTotal;
         uberCount += 1;
+        return;
+      }
+
+      if (isPanda) {
+        pandaRevenue += orderTotal;
+        pandaCount += 1;
         return;
       }
 
@@ -708,6 +750,8 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
       onlineRevenue: onlinePaymentTotal,
       uberRevenue,
       uberCount,
+      pandaRevenue,
+      pandaCount,
       dineInCount,
       takeoutCount,
       avgOrderValue: avgOrderVal
@@ -1023,6 +1067,9 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
         };
 
         const getTypePriority = (order) => {
+          const isUber = order.type === 'uber' || order.type === 'ubereats' || String(order.serialNum || order.order_number || '').startsWith('U-');
+          const isPanda = order.type === 'foodpanda' || order.type === 'panda' || String(order.serialNum || order.order_number || '').startsWith('P-');
+          if (isUber || isPanda) return 3; // Delivery orders
           const isTakeout = order.type === 'takeout' || order.type === '外帶' || order.type === '自取';
           return isTakeout ? 1 : 2; // 1 for Takeout, 2 for Dine-in
         };
@@ -1535,8 +1582,8 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
     setIsSubmittingOrder(true);
 
     try {
-      // 1. Generate serial number (I-001, O-001 or U-001 daily format, max number + 1 logic)
-      const prefix = orderType === 'dine-in' ? 'I' : (orderType === 'uber' || orderType === 'ubereats' ? 'U' : 'O');
+      // 1. Generate serial number (I-001, O-001, U-001 or P-001 daily format, max number + 1 logic)
+      const prefix = orderType === 'dine-in' ? 'I' : ((orderType === 'uber' || orderType === 'ubereats') ? 'U' : ((orderType === 'foodpanda' || orderType === 'panda') ? 'P' : 'O'));
       const now = new Date();
       const taipeiDateStr = now.toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' });
       const todayTaipeiISO = new Date(`${taipeiDateStr}T00:00:00+08:00`).toISOString();
@@ -1598,10 +1645,12 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
             ? (tableNumber ? `內用 ${tableNumber} 號桌 (POS)` : '內用點餐 (POS)') 
             : ((orderType === 'uber' || orderType === 'ubereats')
                 ? (custName.trim() ? `Uber Eats (${custName.trim()})` : '🛵 Uber Eats 外送')
-                : (custName.trim() || '現場外帶 (POS)')),
+                : ((orderType === 'foodpanda' || orderType === 'panda')
+                    ? (custName.trim() ? `foodpanda (${custName.trim()})` : '🐼 熊貓外送')
+                    : (custName.trim() || '現場外帶 (POS)'))),
           customerPhone: '',
           pickupTime: '',
-          paymentMethod: (orderType === 'uber' || orderType === 'ubereats') ? 'ubereats' : (isCash ? 'cash' : selectedPaymentMethod),
+          paymentMethod: (orderType === 'uber' || orderType === 'ubereats') ? 'ubereats' : ((orderType === 'foodpanda' || orderType === 'panda') ? 'foodpanda' : (isCash ? 'cash' : selectedPaymentMethod)),
           remarks: "",
           cashier: cashierName || localStorage.getItem('cashier_name') || '店長 (Admin)'
         },
@@ -1670,7 +1719,7 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
     } catch (err) {
       console.warn("Supabase order submit failed, falling back to local offline queue:", err);
       
-      const prefix = orderType === 'dine-in' ? 'I' : (orderType === 'uber' || orderType === 'ubereats' ? 'U' : 'O');
+      const prefix = orderType === 'dine-in' ? 'I' : ((orderType === 'uber' || orderType === 'ubereats') ? 'U' : ((orderType === 'foodpanda' || orderType === 'panda') ? 'P' : 'O'));
       const fallbackSerial = `${prefix}-${Date.now().toString().slice(-4)}`;
       const offlineOrder = {
         order_number: fallbackSerial,
@@ -1680,8 +1729,10 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
             ? '內用點餐 (POS)' 
             : ((orderType === 'uber' || orderType === 'ubereats')
                 ? (custName.trim() ? `Uber Eats (${custName.trim()})` : '🛵 Uber Eats 外送')
-                : (custName.trim() || '現場外帶')),
-          paymentMethod: (orderType === 'uber' || orderType === 'ubereats') ? 'ubereats' : (isCash ? 'cash' : selectedPaymentMethod),
+                : ((orderType === 'foodpanda' || orderType === 'panda')
+                    ? (custName.trim() ? `foodpanda (${custName.trim()})` : '🐼 熊貓外送')
+                    : (custName.trim() || '現場外帶'))),
+          paymentMethod: (orderType === 'uber' || orderType === 'ubereats') ? 'ubereats' : ((orderType === 'foodpanda' || orderType === 'panda') ? 'foodpanda' : (isCash ? 'cash' : selectedPaymentMethod)),
           cashier: cashierName || '店長 (Admin)'
         },
         total: finalTotal,
@@ -2985,10 +3036,74 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
               {activeCategory === 'orders' ? (
                 /* Orders list */
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', textAlign: 'left' }}>
-                  {orders.filter(o => o.status !== 'deleted').length === 0 ? (
-                    <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem', padding: '20px', textAlign: 'center' }}>暫無訂單記錄</div>
-                  ) : (
-                    orders.filter(o => o.status !== 'deleted').map(order => {
+                  {/* Order Type Filter Tabs */}
+                  {(() => {
+                    const validOrders = orders.filter(o => o.status !== 'deleted');
+                    const isUber = (o) => o.type === 'uber' || o.type === 'ubereats' || o.paymentMethod === 'ubereats' || String(o.serialNum || o.order_number || '').startsWith('U-');
+                    const isPanda = (o) => o.type === 'foodpanda' || o.type === 'panda' || o.paymentMethod === 'foodpanda' || String(o.serialNum || o.order_number || '').startsWith('P-');
+                    const isDine = (o) => o.type === 'dine-in' && !isUber(o) && !isPanda(o);
+                    const isTake = (o) => o.type !== 'dine-in' && !isUber(o) && !isPanda(o);
+
+                    const dineCount = validOrders.filter(isDine).length;
+                    const takeCount = validOrders.filter(isTake).length;
+                    const uberCount = validOrders.filter(isUber).length;
+                    const pandaCount = validOrders.filter(isPanda).length;
+
+                    const tabs = [
+                      { id: 'all', label: `全部 (${validOrders.length})` },
+                      { id: 'dine-in', label: `🍽️ 內用 (${dineCount})` },
+                      { id: 'takeout', label: `🥡 現場外帶 (${takeCount})` },
+                      { id: 'uber', label: `🛵 Uber Eats (${uberCount})` },
+                      { id: 'foodpanda', label: `🐼 熊貓 (${pandaCount})` }
+                    ];
+
+                    return (
+                      <div style={{ display: 'flex', gap: '6px', overflowX: 'auto', paddingBottom: '4px', borderBottom: '1px solid var(--border)', marginBottom: '4px' }}>
+                        {tabs.map(t => (
+                          <button
+                            key={t.id}
+                            type="button"
+                            onClick={() => setOrderHistoryFilter(t.id)}
+                            style={{
+                              padding: '5px 12px',
+                              borderRadius: '20px',
+                              border: orderHistoryFilter === t.id ? '2px solid var(--primary)' : '1px solid var(--border)',
+                              backgroundColor: orderHistoryFilter === t.id ? 'var(--primary)' : 'var(--bg-card)',
+                              color: orderHistoryFilter === t.id ? 'white' : 'var(--text-main)',
+                              fontSize: '0.8rem',
+                              fontWeight: 'bold',
+                              cursor: 'pointer',
+                              whiteSpace: 'nowrap',
+                              transition: 'all 0.15s ease'
+                            }}
+                          >
+                            {t.label}
+                          </button>
+                        ))}
+                      </div>
+                    );
+                  })()}
+
+                  {(() => {
+                    const validOrders = orders.filter(o => o.status !== 'deleted');
+                    const isUber = (o) => o.type === 'uber' || o.type === 'ubereats' || o.paymentMethod === 'ubereats' || String(o.serialNum || o.order_number || '').startsWith('U-');
+                    const isPanda = (o) => o.type === 'foodpanda' || o.type === 'panda' || o.paymentMethod === 'foodpanda' || String(o.serialNum || o.order_number || '').startsWith('P-');
+                    const isDine = (o) => o.type === 'dine-in' && !isUber(o) && !isPanda(o);
+                    const isTake = (o) => o.type !== 'dine-in' && !isUber(o) && !isPanda(o);
+
+                    const filteredOrders = validOrders.filter(o => {
+                      if (orderHistoryFilter === 'dine-in') return isDine(o);
+                      if (orderHistoryFilter === 'takeout') return isTake(o);
+                      if (orderHistoryFilter === 'uber') return isUber(o);
+                      if (orderHistoryFilter === 'foodpanda') return isPanda(o);
+                      return true;
+                    });
+
+                    if (filteredOrders.length === 0) {
+                      return <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem', padding: '20px', textAlign: 'center' }}>此分類下暫無訂單記錄</div>;
+                    }
+
+                    return filteredOrders.map(order => {
                       const isCustomerOrder = Boolean(!order.cashier || order.isOnline || (order.customerPhone && order.customerPhone.length > 0) || order.pickupTime || order.source === 'customer');
                       const isCustomerUnfinished = isCustomerOrder && order.status !== 'completed' && order.status !== 'deleted';
 
@@ -3038,8 +3153,9 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                               </span>
 
                               {(() => {
-                                const isUber = order.type === 'uber' || order.type === 'ubereats' || order.paymentMethod === 'ubereats' || String(order.serialNum || order.order_number || '').startsWith('U-');
-                                if (isUber) {
+                                const isUberOrder = order.type === 'uber' || order.type === 'ubereats' || order.paymentMethod === 'ubereats' || String(order.serialNum || order.order_number || '').startsWith('U-');
+                                const isPandaOrder = order.type === 'foodpanda' || order.type === 'panda' || order.paymentMethod === 'foodpanda' || String(order.serialNum || order.order_number || '').startsWith('P-');
+                                if (isUberOrder) {
                                   return (
                                     <span style={{
                                       padding: '2px 8px',
@@ -3054,6 +3170,21 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                                     </span>
                                   );
                                 }
+                                if (isPandaOrder) {
+                                  return (
+                                    <span style={{
+                                      padding: '2px 8px',
+                                      borderRadius: '6px',
+                                      fontSize: '0.75rem',
+                                      fontWeight: 'bold',
+                                      backgroundColor: 'rgba(215, 15, 100, 0.15)',
+                                      color: '#D70F64',
+                                      border: '1px solid #D70F64'
+                                    }}>
+                                      🐼 熊貓外送
+                                    </span>
+                                  );
+                                }
                                 return (
                                   <span style={{
                                     padding: '2px 8px',
@@ -3063,7 +3194,7 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                                     backgroundColor: order.type === 'dine-in' ? 'rgba(59, 130, 246, 0.12)' : 'rgba(249, 115, 22, 0.12)',
                                     color: order.type === 'dine-in' ? '#2563eb' : '#ea580c'
                                   }}>
-                                    {order.type === 'dine-in' ? (order.tableName ? `🪑 內用 ${order.tableName} 桌` : '🪑 內用') : '🥡 外帶'}
+                                    {order.type === 'dine-in' ? (order.tableName ? `🪑 內用 ${order.tableName} 桌` : '🪑 內用') : '🥡 現場外帶'}
                                   </span>
                                 );
                               })()}
@@ -3214,8 +3345,8 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                           </div>
                         </div>
                       );
-                    })
-                  )}
+                    });
+                  })()}
                 </div>
               ) : (
                 /* Products grid for the active category (Supports combos, mee-sua, specialties, and any category!) */
@@ -3506,7 +3637,7 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
               overflowY: 'auto'
             }}>
               {/* Order Type Toggle buttons side-by-side (Scaled) */}
-              <div style={{ display: 'flex', gap: '6px', marginBottom: '2px', width: '100%' }}>
+              <div style={{ display: 'flex', gap: '4px', marginBottom: '2px', width: '100%' }}>
                 <button
                   type="button"
                   onClick={() => {
@@ -3515,20 +3646,20 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                   }}
                   style={{
                     flex: 1,
-                    height: posUiScale === 'large' ? '50px' : posUiScale === 'medium' ? '42px' : '36px',
-                    padding: '4px 6px',
+                    height: posUiScale === 'large' ? '48px' : posUiScale === 'medium' ? '40px' : '34px',
+                    padding: '2px 4px',
                     borderRadius: '8px',
                     border: orderType === 'dine-in' ? '2px solid var(--primary)' : '1px solid var(--border)',
                     backgroundColor: orderType === 'dine-in' ? 'var(--primary)' : 'var(--bg-card)',
                     color: orderType === 'dine-in' ? 'white' : 'var(--text-main)',
                     fontWeight: '900',
                     cursor: 'pointer',
-                    fontSize: posUiScale === 'large' ? '1.1rem' : posUiScale === 'medium' ? '1rem' : '0.9rem',
+                    fontSize: posUiScale === 'large' ? '0.98rem' : posUiScale === 'medium' ? '0.9rem' : '0.82rem',
                     transition: 'all 0.15s',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    gap: '4px',
+                    gap: '2px',
                     boxShadow: orderType === 'dine-in' ? '0 2px 8px rgba(255, 107, 53, 0.25)' : 'none'
                   }}
                 >
@@ -3542,20 +3673,20 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                   }}
                   style={{
                     flex: 1,
-                    height: posUiScale === 'large' ? '50px' : posUiScale === 'medium' ? '42px' : '36px',
-                    padding: '4px 6px',
+                    height: posUiScale === 'large' ? '48px' : posUiScale === 'medium' ? '40px' : '34px',
+                    padding: '2px 4px',
                     borderRadius: '8px',
                     border: orderType === 'takeout' ? '2px solid #dc2626' : '1px solid var(--border)',
                     backgroundColor: orderType === 'takeout' ? '#dc2626' : 'var(--bg-card)',
                     color: orderType === 'takeout' ? 'white' : 'var(--text-main)',
                     fontWeight: '900',
                     cursor: 'pointer',
-                    fontSize: posUiScale === 'large' ? '1.1rem' : posUiScale === 'medium' ? '1rem' : '0.9rem',
+                    fontSize: posUiScale === 'large' ? '0.98rem' : posUiScale === 'medium' ? '0.9rem' : '0.82rem',
                     transition: 'all 0.15s',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    gap: '4px',
+                    gap: '2px',
                     boxShadow: orderType === 'takeout' ? '0 2px 8px rgba(220, 38, 38, 0.25)' : 'none'
                   }}
                 >
@@ -3569,25 +3700,53 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                     setCashReceived(String(finalTotal));
                   }}
                   style={{
-                    flex: 1.25,
-                    height: posUiScale === 'large' ? '50px' : posUiScale === 'medium' ? '42px' : '36px',
-                    padding: '4px 6px',
+                    flex: 1.15,
+                    height: posUiScale === 'large' ? '48px' : posUiScale === 'medium' ? '40px' : '34px',
+                    padding: '2px 4px',
                     borderRadius: '8px',
                     border: orderType === 'uber' ? '2px solid #06C167' : '1px solid var(--border)',
                     backgroundColor: orderType === 'uber' ? '#06C167' : 'var(--bg-card)',
                     color: orderType === 'uber' ? 'white' : '#06C167',
                     fontWeight: '900',
                     cursor: 'pointer',
-                    fontSize: posUiScale === 'large' ? '1.1rem' : posUiScale === 'medium' ? '1rem' : '0.9rem',
+                    fontSize: posUiScale === 'large' ? '0.95rem' : posUiScale === 'medium' ? '0.88rem' : '0.8rem',
                     transition: 'all 0.15s',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    gap: '4px',
+                    gap: '2px',
                     boxShadow: orderType === 'uber' ? '0 2px 8px rgba(6, 193, 103, 0.3)' : 'none'
                   }}
                 >
-                  🛵 Uber Eats
+                  🛵 Uber
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOrderType('foodpanda');
+                    setSelectedPaymentMethod('foodpanda');
+                    setCashReceived(String(finalTotal));
+                  }}
+                  style={{
+                    flex: 1.15,
+                    height: posUiScale === 'large' ? '48px' : posUiScale === 'medium' ? '40px' : '34px',
+                    padding: '2px 4px',
+                    borderRadius: '8px',
+                    border: orderType === 'foodpanda' ? '2px solid #D70F64' : '1px solid var(--border)',
+                    backgroundColor: orderType === 'foodpanda' ? '#D70F64' : 'var(--bg-card)',
+                    color: orderType === 'foodpanda' ? 'white' : '#D70F64',
+                    fontWeight: '900',
+                    cursor: 'pointer',
+                    fontSize: posUiScale === 'large' ? '0.95rem' : posUiScale === 'medium' ? '0.88rem' : '0.8rem',
+                    transition: 'all 0.15s',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '2px',
+                    boxShadow: orderType === 'foodpanda' ? '0 2px 8px rgba(215, 15, 100, 0.3)' : 'none'
+                  }}
+                >
+                  🐼 熊貓
                 </button>
               </div>
 
@@ -3608,6 +3767,37 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                   <input
                     type="text"
                     placeholder="例: Uber 單號 4 碼或外送員備註"
+                    value={custName}
+                    onChange={(e) => setCustName(e.target.value)}
+                    style={{
+                      padding: '6px 8px',
+                      fontSize: '0.85rem',
+                      borderRadius: '6px',
+                      border: '1px solid var(--border)',
+                      backgroundColor: 'var(--bg-card)',
+                      color: 'var(--text-main)'
+                    }}
+                  />
+                </div>
+              )}
+
+              {orderType === 'foodpanda' && (
+                <div style={{
+                  padding: '8px 10px',
+                  backgroundColor: 'rgba(215, 15, 100, 0.08)',
+                  borderRadius: '8px',
+                  border: '1px solid rgba(215, 15, 100, 0.3)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '4px'
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: '0.78rem', fontWeight: 'bold', color: '#D70F64' }}>🐼 foodpanda 熊貓單號 / 備註 (選填)</span>
+                    <span style={{ fontSize: '0.72rem', color: '#BE185D', fontWeight: 'bold' }}>免收現 · 自動出單</span>
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="例: 熊貓單號 4 碼或取餐備註"
                     value={custName}
                     onChange={(e) => setCustName(e.target.value)}
                     style={{

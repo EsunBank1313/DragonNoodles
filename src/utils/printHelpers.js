@@ -76,8 +76,9 @@ export const printThermalReceipt = (order, storeProfile = defaultStoreProfile, r
   const totalNum = order.total || 0;
   const dateStr = order.timestamp || order.createdAt || order.created_at || new Date().toISOString();
   const isUber = order.type === 'uber' || order.type === 'ubereats' || String(orderNumStr).startsWith('U-');
+  const isPanda = order.type === 'foodpanda' || order.type === 'panda' || String(orderNumStr).startsWith('P-');
   const isDineIn = order.type === 'dine-in';
-  const typeStr = isUber ? '🛵 Uber Eats 外送' : (isDineIn ? '內用' : '外帶');
+  const typeStr = isUber ? '🛵 Uber Eats 外送' : (isPanda ? '🐼 熊貓外送' : (isDineIn ? '內用' : '現場外帶'));
   const tableNameStr = order.tableName || order.table_number || '';
 
   const is58mm = (receiptConfig?.paperWidth === '58mm');
@@ -175,8 +176,9 @@ export const printKitchenTicket = (order, storeProfile = defaultStoreProfile, re
   const orderNumStr = order.serialNum || order.orderNumber || order.order_number || '';
   const dateStr = order.timestamp || order.createdAt || order.created_at || new Date().toISOString();
   const isUber = order.type === 'uber' || order.type === 'ubereats' || String(orderNumStr).startsWith('U-');
+  const isPanda = order.type === 'foodpanda' || order.type === 'panda' || String(orderNumStr).startsWith('P-');
   const isDineIn = order.type === 'dine-in';
-  const typeStr = isUber ? '【🛵 Uber Eats 外送】' : (isDineIn ? '【內用】' : '【外帶】');
+  const typeStr = isUber ? '【🛵 Uber Eats 外送】' : (isPanda ? '【🐼 熊貓外送】' : (isDineIn ? '【內用】' : '【現場外帶】'));
   const tableNameStr = order.tableName || order.table_number || '';
   const custNameStr = order.customerName || order.custName || '';
   const remarksStr = order.remarks || order.note || '';
@@ -264,9 +266,10 @@ export const printDualReceipts = (order, storeProfile = defaultStoreProfile, rec
   const totalNum = order.total || 0;
   const dateStr = order.timestamp || order.createdAt || order.created_at || new Date().toISOString();
   const isUber = order.type === 'uber' || order.type === 'ubereats' || String(orderNumStr).startsWith('U-');
+  const isPanda = order.type === 'foodpanda' || order.type === 'panda' || String(orderNumStr).startsWith('P-');
   const isDineIn = order.type === 'dine-in';
-  const typeStr = isUber ? '🛵 Uber Eats 外送' : (isDineIn ? '內用' : '外帶');
-  const kitchenTypeStr = isUber ? '【🛵 Uber Eats 外送】' : (isDineIn ? '【內用】' : '【外帶】');
+  const typeStr = isUber ? '🛵 Uber Eats 外送' : (isPanda ? '🐼 熊貓外送' : (isDineIn ? '內用' : '現場外帶'));
+  const kitchenTypeStr = isUber ? '【🛵 Uber Eats 外送】' : (isPanda ? '【🐼 熊貓外送】' : (isDineIn ? '【內用】' : '【現場外帶】'));
   const tableNameStr = order.tableName || order.table_number || '';
   const custNameStr = order.customerName || order.custName || '';
   const remarksStr = order.remarks || order.note || '';
@@ -471,6 +474,12 @@ export const printDailyClosingReport = (dailyData, storeProfile = defaultStorePr
             <span>$${dailyData.uberRevenue || 0}</span>
           </div>
         ` : ''}
+        ${dailyData.pandaRevenue ? `
+          <div class="row" style="padding-left: 6px;">
+            <span>└ 🐼 foodpanda:</span>
+            <span>$${dailyData.pandaRevenue || 0}</span>
+          </div>
+        ` : ''}
         ${dailyData.manualRevenue ? `
           <div class="row" style="padding-left: 6px;">
             <span>└ 手動補登:</span>
@@ -496,6 +505,12 @@ export const printDailyClosingReport = (dailyData, storeProfile = defaultStorePr
           <div class="row" style="padding-left: 6px;">
             <span>└ 🛵 Uber Eats:</span>
             <span>${dailyData.uberCount || 0} 筆</span>
+          </div>
+        ` : ''}
+        ${dailyData.pandaCount ? `
+          <div class="row" style="padding-left: 6px;">
+            <span>└ 🐼 熊貓外送:</span>
+            <span>${dailyData.pandaCount || 0} 筆</span>
           </div>
         ` : ''}
         <div class="row" style="padding-left: 6px;">
@@ -610,6 +625,12 @@ export const printShiftHandoverReport = (shiftData, storeProfile = defaultStoreP
             <span>NT$ ${(shiftData.uberRevenue || 0).toLocaleString()}</span>
           </div>
         ` : ''}
+        ${shiftData.pandaRevenue ? `
+          <div class="row" style="padding-left: 6px;">
+            <span>└ 🐼 foodpanda:</span>
+            <span>NT$ ${(shiftData.pandaRevenue || 0).toLocaleString()}</span>
+          </div>
+        ` : ''}
 
         <div class="divider"></div>
         <div class="section-title">=== 當班訂單統計 ===</div>
@@ -622,13 +643,19 @@ export const printShiftHandoverReport = (shiftData, storeProfile = defaultStoreP
           <span>${shiftData.dineInCount || 0} 筆</span>
         </div>
         <div class="row" style="padding-left: 6px;">
-          <span>└ 外帶筆數:</span>
+          <span>└ 現場外帶:</span>
           <span>${shiftData.takeoutCount || 0} 筆</span>
         </div>
         ${shiftData.uberCount ? `
           <div class="row" style="padding-left: 6px;">
             <span>└ 🛵 Uber Eats:</span>
             <span>${shiftData.uberCount || 0} 筆</span>
+          </div>
+        ` : ''}
+        ${shiftData.pandaCount ? `
+          <div class="row" style="padding-left: 6px;">
+            <span>└ 🐼 熊貓外送:</span>
+            <span>${shiftData.pandaCount || 0} 筆</span>
           </div>
         ` : ''}
         <div class="row" style="padding-left: 6px;">

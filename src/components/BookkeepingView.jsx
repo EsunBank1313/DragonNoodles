@@ -3443,17 +3443,18 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
     
     let csvContent = "\uFEFF";
     csvContent += `${storeName} - 當日交易對帳明細表 (${selectedBookkeepingDate})\n`;
-    csvContent += `當日營業總額 (營業額):,NT$ ${totalRevenue},訂單總筆數:,${completedOrders.length} 筆,現金營業額:,NT$ ${cashRevenue},線上營業額:,NT$ ${onlineRevenue},UberEats營業額:,NT$ ${uberRevenue}\n\n`;
+    csvContent += `當日營業總額 (營業額):,NT$ ${totalRevenue},訂單總筆數:,${completedOrders.length} 筆,現金營業額:,NT$ ${cashRevenue},線上營業額:,NT$ ${onlineRevenue},UberEats營業額:,NT$ ${uberRevenue},foodpanda營業額:,NT$ ${pandaRevenue}\n\n`;
     csvContent += "時間,流水號,類型,顧客姓名/桌號,實收金額(NT$),付款方式,購買明細\n";
     
     completedOrders.forEach(order => {
       const time = order.time;
       const serial = order.serialNum || order.id.slice(-6);
       const isUber = order.type === 'uber' || order.type === 'ubereats' || order.paymentMethod === 'ubereats' || String(order.serialNum || '').startsWith('U-');
-      const type = isUber ? 'Uber外送' : (order.type === 'dine-in' ? '內用' : '外帶');
+      const isPanda = order.type === 'foodpanda' || order.type === 'panda' || order.paymentMethod === 'foodpanda' || String(order.serialNum || '').startsWith('P-');
+      const type = isUber ? 'Uber外送' : (isPanda ? '熊貓外送' : (order.type === 'dine-in' ? '內用' : '現場外帶'));
       const name = (order.customerName || '').replace(/,/g, ' ');
       const total = order.total;
-      const payment = isUber ? 'Uber線上結清' : (order.paymentMethod === 'online' ? '線上付' : '現金付');
+      const payment = isUber ? 'Uber線上結清' : (isPanda ? '熊貓線上結清' : (order.paymentMethod === 'online' ? '線上付' : '現金付'));
       const itemsStr = (order.items || []).map(item => `${item.name}x${item.quantity}`).join(' | ');
       
       csvContent += `${time},${serial},${type},${name},${total},${payment},"${itemsStr}"\n`;
@@ -3494,17 +3495,19 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
     totalRevenue, 
     onlineRevenue, 
     uberRevenue,
+    pandaRevenue,
     cashRevenue, 
     totalDineIn, 
     totalTakeout, 
     totalUber,
+    totalPanda,
     dailyProductCost, 
     dailyGrossProfit, 
     dailyGrossMargin, 
     sortedItems 
   } = useMemo(() => {
     const todayManualRevenue = Number(manualRevenues[selectedBookkeepingDate]) || 0;
-    const rev = completedOrders.reduce((sum, o) => sum + o.total, 0) + todayManualRevenue;
+    const rev = completedOrders.reduce((sum, o) => sum + (Number(o.total) || 0), 0) + todayManualRevenue;
 
     const isUberOrder = (o) => (
       o.type === 'uber' ||
@@ -3513,19 +3516,32 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
       String(o.serialNum || o.order_number || '').startsWith('U-')
     );
 
+    const isPandaOrder = (o) => (
+      o.type === 'foodpanda' ||
+      o.type === 'panda' ||
+      o.paymentMethod === 'foodpanda' ||
+      String(o.serialNum || o.order_number || '').startsWith('P-')
+    );
+
+    const isDelivery = (o) => isUberOrder(o) || isPandaOrder(o);
+
     const uberOrders = completedOrders.filter(isUberOrder);
-    const uberRev = uberOrders.reduce((sum, o) => sum + o.total, 0);
+    const uberRev = uberOrders.reduce((sum, o) => sum + (Number(o.total) || 0), 0);
+    const uberCount = uberOrders.length;
+
+    const pandaOrders = completedOrders.filter(isPandaOrder);
+    const pandaRev = pandaOrders.reduce((sum, o) => sum + (Number(o.total) || 0), 0);
+    const pandaCount = pandaOrders.length;
 
     const online = completedOrders
-      .filter(o => !isUberOrder(o) && (o.paymentMethod === 'online' || o.paymentMethod === 'linepay' || o.paymentMethod === 'jkopay' || o.paymentMethod === '線上付'))
-      .reduce((sum, o) => sum + o.total, 0);
+      .filter(o => !isDelivery(o) && (o.paymentMethod === 'online' || o.paymentMethod === 'linepay' || o.paymentMethod === 'jkopay' || o.paymentMethod === '線上付'))
+      .reduce((sum, o) => sum + (Number(o.total) || 0), 0);
 
-    // Physical cash drawer excludes online and Uber platform payments
-    const cash = rev - online - uberRev;
+    // Physical cash drawer strictly excludes online payment and delivery platform revenues
+    const cash = rev - online - uberRev - pandaRev;
 
-    const dineIn = completedOrders.filter(o => o.type === 'dine-in' && !isUberOrder(o)).length;
-    const uberCount = uberOrders.length;
-    const takeout = completedOrders.length - dineIn - uberCount;
+    const dineIn = completedOrders.filter(o => o.type === 'dine-in' && !isDelivery(o)).length;
+    const takeout = completedOrders.filter(o => o.type !== 'dine-in' && !isDelivery(o)).length;
 
     const prodCost = completedOrders.reduce((totalCost, order) => {
       const orderItems = Array.isArray(order.items) ? order.items : [];
@@ -3548,10 +3564,12 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
       totalRevenue: rev,
       onlineRevenue: online,
       uberRevenue: uberRev,
+      pandaRevenue: pandaRev,
       cashRevenue: cash,
       totalDineIn: dineIn,
       totalTakeout: takeout,
       totalUber: uberCount,
+      totalPanda: pandaCount,
       dailyProductCost: prodCost,
       dailyGrossProfit: gross,
       dailyGrossMargin: margin,
@@ -3788,6 +3806,12 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                     <strong style={{ marginLeft: 'auto' }}>NT$ {uberRevenue}</strong>
                   </div>
                 )}
+                {pandaRevenue > 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', color: '#D70F64' }}>
+                    <span>🐼 foodpanda:</span>
+                    <strong style={{ marginLeft: 'auto' }}>NT$ {pandaRevenue}</strong>
+                  </div>
+                )}
                 <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px dashed var(--border)', paddingTop: '6px', marginTop: '4px' }}>
                   <span>當日營業額:</span>
                   <strong style={{ marginLeft: 'auto', color: 'var(--primary)' }}>NT$ {totalRevenue}</strong>
@@ -3810,6 +3834,12 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                   <div style={{ display: 'flex', justifyContent: 'space-between', color: '#06C167' }}>
                     <span>🛵 Uber Eats:</span>
                     <strong style={{ marginLeft: 'auto' }}>{totalUber} 筆 ({completedOrders.length ? Math.round(totalUber/completedOrders.length*100) : 0}%)</strong>
+                  </div>
+                )}
+                {totalPanda > 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', color: '#D70F64' }}>
+                    <span>🐼 foodpanda:</span>
+                    <strong style={{ marginLeft: 'auto' }}>{totalPanda} 筆 ({completedOrders.length ? Math.round(totalPanda/completedOrders.length*100) : 0}%)</strong>
                   </div>
                 )}
                 <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px dashed var(--border)', paddingTop: '6px', marginTop: '4px' }}>

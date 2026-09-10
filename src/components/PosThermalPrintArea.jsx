@@ -22,8 +22,10 @@ export default function PosThermalPrintArea({ printPayload }) {
     const orderNumStr = order.serialNum || order.orderNumber || order.order_number || '';
     const totalNum = order.total || 0;
     const dateStr = order.timestamp || order.createdAt || order.created_at || new Date().toISOString();
+    const isUber = order.type === 'uber' || order.type === 'ubereats' || String(orderNumStr).startsWith('U-');
+    const isPanda = order.type === 'foodpanda' || order.type === 'panda' || String(orderNumStr).startsWith('P-');
     const isDineIn = order.type === 'dine-in';
-    const typeStr = isDineIn ? '內用' : '外帶';
+    const typeStr = isUber ? '🛵 Uber Eats 外送' : (isPanda ? '🐼 熊貓外送' : (isDineIn ? '內用' : '現場外帶'));
     const tableNameStr = order.tableName || order.table_number || '';
     const custNameStr = order.customerName || order.custName || '';
     const remarksStr = order.remarks || order.note || '';
@@ -187,6 +189,18 @@ export default function PosThermalPrintArea({ printPayload }) {
           <span>└ 線上/電子:</span>
           <span>${data.onlineRevenue || 0}</span>
         </div>
+        {data.uberRevenue ? (
+          <div style={{ display: 'flex', justifyContent: 'space-between', paddingLeft: '6px' }}>
+            <span>└ 🛵 Uber Eats:</span>
+            <span>${data.uberRevenue}</span>
+          </div>
+        ) : null}
+        {data.pandaRevenue ? (
+          <div style={{ display: 'flex', justifyContent: 'space-between', paddingLeft: '6px' }}>
+            <span>└ 🐼 foodpanda:</span>
+            <span>${data.pandaRevenue}</span>
+          </div>
+        ) : null}
 
         <div style={{ borderTop: '1px dashed #000', margin: '4px 0' }}></div>
         <div style={{ fontSize: '12px', fontWeight: 'bold', margin: '4px 0 2px 0' }}>=== 訂單筆數統計 ===</div>
@@ -202,6 +216,18 @@ export default function PosThermalPrintArea({ printPayload }) {
           <span>└ 現場外帶:</span>
           <span>{data.takeoutCount || 0} 筆</span>
         </div>
+        {data.uberCount ? (
+          <div style={{ display: 'flex', justifyContent: 'space-between', paddingLeft: '6px' }}>
+            <span>└ 🛵 Uber Eats:</span>
+            <span>${data.uberCount} 筆</span>
+          </div>
+        ) : null}
+        {data.pandaCount ? (
+          <div style={{ display: 'flex', justifyContent: 'space-between', paddingLeft: '6px' }}>
+            <span>└ 🐼 熊貓外送:</span>
+            <span>${data.pandaCount} 筆</span>
+          </div>
+        ) : null}
         <div style={{ display: 'flex', justifyContent: 'space-between', paddingLeft: '6px' }}>
           <span>└ 平均客單價:</span>
           <span>${data.avgOrderValue || 0}</span>
