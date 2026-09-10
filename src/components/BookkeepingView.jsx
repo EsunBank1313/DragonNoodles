@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 import { formatSupabaseOrder } from './CustomerView';
 import { menuItems as defaultMenuItems } from '../data/menuData';
@@ -573,6 +573,21 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
   
   const [isPurchasesOnCloud, setIsPurchasesOnCloud] = useState(false);
   const [isFixedCostsOnCloud, setIsFixedCostsOnCloud] = useState(false);
+  
+  // foodpanda (熊貓外送) CSV 匯入相關狀態
+  const [showPandaModal, setShowPandaModal] = useState(false);
+  const [pandaPreviewData, setPandaPreviewData] = useState([]);
+  const [isImportingPanda, setIsImportingPanda] = useState(false);
+  const [pandaImportStats, setPandaImportStats] = useState({
+    totalRows: 0,
+    newOrders: 0,
+    existingOrders: 0,
+    totalNet: 0,
+    totalSubtotal: 0,
+    totalComm: 0,
+    dateRange: ''
+  });
+  const pandaFileInputRef = useRef(null);
   
   // Date Selection
     const getTodayLocalDate = () => {
@@ -3472,6 +3487,284 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
     document.body.removeChild(link);
   };
 
+  // --- foodpanda (熊貓外送) CSV 解析與匯入模組 ---
+  const parseCSV = (text) => {
+    const cleanText = text.replace(/^\uFEFF/, '').trim();
+    const rows = [];
+    let currentRow = [];
+    let currentVal = '';
+    let insideQuotes = false;
+
+    for (let i = 0; i < cleanText.length; i++) {
+      const char = cleanText[i];
+      const nextChar = cleanText[i + 1];
+
+      if (char === '"') {
+        if (insideQuotes && nextChar === '"') {
+          currentVal += '"';
+          i++;
+        } else {
+          insideQuotes = !insideQuotes;
+        }
+      } else if (char === ',' && !insideQuotes) {
+        currentRow.push(currentVal.trim());
+        currentVal = '';
+      } else if ((char === '\r' || char === '\n') && !insideQuotes) {
+        if (char === '\r' && nextChar === '\n') {
+          i++;
+        }
+        currentRow.push(currentVal.trim());
+        if (currentRow.some(c => c !== '')) {
+          rows.push(currentRow);
+        }
+        currentRow = [];
+        currentVal = '';
+      } else {
+        currentVal += char;
+      }
+    }
+    if (currentVal || currentRow.length > 0) {
+      currentRow.push(currentVal.trim());
+      if (currentRow.some(c => c !== '')) {
+        rows.push(currentRow);
+      }
+    }
+    return rows;
+  };
+
+  const parseFoodpandaItems = (itemsStr, subtotal = 0) => {
+    if (!itemsStr) return [];
+    const regex = /(\d+)\s+([^,]+?)(?:,|$)/g;
+    const items = [];
+    let match;
+    while ((match = regex.exec(itemsStr)) !== null) {
+      const qty = parseInt(match[1], 10) || 1;
+      const name = match[2].trim();
+      items.push({
+        id: items.length + 1,
+        name: name,
+        quantity: qty,
+        price: 0,
+        totalPrice: 0,
+        specs: name.includes('大') ? ['大碗'] : (name.includes('小') ? ['小碗'] : [])
+      });
+    }
+    if (items.length === 0 && itemsStr.trim()) {
+      const parts = itemsStr.split(',');
+      parts.forEach((p, idx) => {
+        const trimmed = p.trim();
+        if (trimmed) {
+          items.push({
+            id: idx + 1,
+            name: trimmed,
+            quantity: 1,
+            price: 0,
+            totalPrice: 0,
+            specs: trimmed.includes('大') ? ['大碗'] : []
+          });
+        }
+      });
+    }
+    const totalQty = items.reduce((sum, item) => sum + item.quantity, 0);
+    if (totalQty > 0 && subtotal > 0) {
+      const avgPrice = Math.round(subtotal / totalQty);
+      items.forEach(item => {
+        item.price = avgPrice;
+        item.totalPrice = avgPrice * item.quantity;
+      });
+    }
+    return items;
+  };
+
+  const handlePandaFileSelect = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const text = event.target.result;
+        processPandaCSV(text);
+      } catch (err) {
+        alert('解析熊貓 CSV 報表失敗: ' + err.message);
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
+
+  const processPandaCSV = (csvText) => {
+    const rows = parseCSV(csvText);
+    if (!rows || rows.length < 2) {
+      alert('CSV 檔案內容為空或無法辨識！請確認是否為有效報表。');
+      return;
+    }
+
+    const headers = rows[0].map(h => h.trim());
+    const idIdx = headers.indexOf('訂單 ID');
+    const timeIdx = headers.indexOf('接收訂單時間');
+    const subtotalIdx = headers.indexOf('小計');
+    const commissionIdx = headers.indexOf('佣金');
+    const netIdx = headers.indexOf('預計營收');
+    const paidIdx = headers.indexOf('付款金額');
+    const statusIdx = headers.indexOf('訂單狀態');
+    const cancelIdx = headers.indexOf('取消原因');
+    const itemsIdx = headers.indexOf('訂單品項');
+
+    if (idIdx === -1 || timeIdx === -1) {
+      alert('無法識別此 CSV 欄位！請確認這是由 foodpanda 商家後台匯出的「訂單明細」CSV 檔案（需包含「訂單 ID」與「接收訂單時間」等欄位）。');
+      return;
+    }
+
+    // 取得現存所有訂單流水號與ID，以防重複匯入
+    const existingSet = new Set(
+      orders.map(o => String(o.serialNum || o.id || '')).filter(Boolean)
+    );
+
+    const candidates = [];
+    let totalNet = 0;
+    let totalSubtotal = 0;
+    let totalComm = 0;
+    let newCount = 0;
+    let existingCount = 0;
+    const dates = [];
+
+    rows.slice(1).forEach(row => {
+      const rawOrderId = row[idIdx]?.trim();
+      if (!rawOrderId) return;
+
+      const orderNumber = rawOrderId.startsWith('P-') ? rawOrderId : `P-${rawOrderId}`;
+      const timeStr = row[timeIdx]?.trim() || '';
+      const subtotal = parseFloat(row[subtotalIdx]) || 0;
+      const commission = parseFloat(row[commissionIdx]) || 0;
+      const netPayout = parseFloat(row[paidIdx] || row[netIdx]) || 0;
+      const status = row[statusIdx]?.trim() || '訂單已送達';
+      const cancelReason = (cancelIdx !== -1 && row[cancelIdx]) ? row[cancelIdx].trim() : '';
+      const isCanceled = Boolean(cancelReason) || status.includes('取消');
+      const isExisting = existingSet.has(orderNumber) || existingSet.has(rawOrderId);
+
+      let dateStr = '';
+      let isoTime = '';
+      if (timeStr) {
+        const parts = timeStr.split(' ');
+        dateStr = parts[0] || '';
+        isoTime = `${timeStr.replace(' ', 'T')}:00+08:00`;
+        if (dateStr) dates.push(dateStr);
+      } else {
+        isoTime = new Date().toISOString();
+        dateStr = isoTime.split('T')[0];
+        dates.push(dateStr);
+      }
+
+      const rawItems = itemsIdx !== -1 ? row[itemsIdx] : '';
+      const parsedItems = parseFoodpandaItems(rawItems, subtotal);
+
+      if (!isExisting && !isCanceled) {
+        newCount++;
+        totalNet += netPayout;
+        totalSubtotal += subtotal;
+        totalComm += commission;
+      } else if (isExisting) {
+        existingCount++;
+      }
+
+      candidates.push({
+        rawOrderId,
+        orderNumber,
+        timeStr,
+        dateStr,
+        isoTime,
+        subtotal,
+        commission,
+        netPayout,
+        status,
+        cancelReason,
+        isCanceled,
+        isExisting,
+        cart: parsedItems,
+        rawItems
+      });
+    });
+
+    if (candidates.length === 0) {
+      alert('未在此 CSV 中找到任何可解析的訂單資料！');
+      return;
+    }
+
+    dates.sort();
+    const dateRange = dates.length > 0 ? (dates[0] === dates[dates.length - 1] ? dates[0] : `${dates[0]} ~ ${dates[dates.length - 1]}`) : '';
+
+    setPandaImportStats({
+      totalRows: candidates.length,
+      newOrders: newCount,
+      existingOrders: existingCount,
+      totalNet: Math.round(totalNet),
+      totalSubtotal: Math.round(totalSubtotal),
+      totalComm: Math.round(totalComm),
+      dateRange
+    });
+    setPandaPreviewData(candidates);
+    setShowPandaModal(true);
+  };
+
+  const handleConfirmImportPanda = async () => {
+    const toImport = pandaPreviewData.filter(c => !c.isExisting && !c.isCanceled);
+    if (toImport.length === 0) {
+      alert('目前無可供匯入的新訂單（所有訂單皆已存在或為作廢訂單）。');
+      return;
+    }
+
+    setIsImportingPanda(true);
+    try {
+      const payloads = toImport.map(c => ({
+        order_number: c.orderNumber,
+        total: c.netPayout, // 實收金額代入營收
+        type: 'foodpanda',
+        status: 'completed',
+        payment_status: 'paid',
+        created_at: c.isoTime,
+        items: {
+          source: 'foodpanda_csv',
+          storeCode: storeCode || 'dragon',
+          store_code: storeCode || 'dragon',
+          customerName: 'foodpanda 熊貓外送',
+          customerPhone: '',
+          pickupTime: '',
+          paymentMethod: 'foodpanda',
+          originalTotal: c.subtotal,
+          commission: c.commission,
+          netPayout: c.netPayout,
+          remarks: `熊貓單號: ${c.rawOrderId} (實收: $${c.netPayout}, 原價: $${c.subtotal}, 佣金: $${c.commission})`,
+          cashier: 'foodpanda 報表匯入',
+          cart: c.cart
+        }
+      }));
+
+      // 分批 50 筆寫入 Supabase，確保高併發或大單時連線穩定
+      const chunkSize = 50;
+      for (let i = 0; i < payloads.length; i += chunkSize) {
+        const chunk = payloads.slice(i, i + chunkSize);
+        const { error } = await supabase.from('orders').insert(chunk);
+        if (error) throw error;
+      }
+
+      // 重新讀取雲端最新訂單
+      await fetchOrders();
+
+      // 切換至匯入之最新日期方便立即對帳
+      if (toImport[toImport.length - 1]?.dateStr) {
+        setSelectedBookkeepingDate(toImport[toImport.length - 1].dateStr);
+      }
+
+      setShowPandaModal(false);
+      alert(`🎉 成功匯入 ${payloads.length} 筆 foodpanda 熊貓訂單！\n店家實收金額合計 NT$ ${pandaImportStats.totalNet.toLocaleString()} 已正式計入營業額對帳報表。`);
+    } catch (err) {
+      console.error('Failed to import foodpanda orders:', err);
+      alert('匯入失敗: ' + err.message);
+    } finally {
+      setIsImportingPanda(false);
+    }
+  };
+
   // 1. Memoized Completed Orders for Selected Viewing Date
   const completedOrders = useMemo(() => {
     return orders.filter(o => {
@@ -3742,6 +4035,42 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
               }}
             />
           </div>
+
+          {/* Hidden File Input for foodpanda CSV */}
+          <input 
+            type="file" 
+            ref={pandaFileInputRef} 
+            accept=".csv,text/csv" 
+            style={{ display: 'none' }} 
+            onChange={handlePandaFileSelect} 
+          />
+
+          {/* foodpanda CSV Upload Button */}
+          <button 
+            type="button"
+            onClick={() => pandaFileInputRef.current?.click()}
+            title="上傳由 foodpanda 商家後台匯出之訂單明細 CSV 檔案，將店家實收金額匯入對帳系統"
+            style={{
+              padding: '6px 12px',
+              fontSize: '0.78rem',
+              borderRadius: '6px',
+              border: 'none',
+              backgroundColor: '#D70F64',
+              color: 'white',
+              cursor: 'pointer',
+              fontWeight: 'bold',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              boxShadow: '0 2px 6px rgba(215, 15, 100, 0.25)',
+              transition: 'opacity 0.2s'
+            }}
+            onMouseOver={(e) => e.currentTarget.style.opacity = '0.9'}
+            onMouseOut={(e) => e.currentTarget.style.opacity = '1'}
+          >
+            <span>🐼 匯入熊貓報表 (CSV)</span>
+          </button>
+
           {/* LINE 密鑰設定按鈕 (暫時隱藏) */}
           {/* <button 
             onClick={() => setShowLineSettingsModal(true)} 
@@ -4126,18 +4455,18 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                         顯示所有日期的歷史作廢訂單
                       </label>
                     ) : (
-                      receiptConfig.enableDailyClosingPrint !== false && (
+                      <>
                         <button
                           type="button"
-                          onClick={handlePrintDailyClosingReport}
-                          title="列印該日之熱感應日結對帳小票"
+                          onClick={() => pandaFileInputRef.current?.click()}
+                          title="上傳 foodpanda 商家後台匯出之 CSV 訂單明細並匯入帳本"
                           style={{
                             padding: '6px 12px',
                             fontSize: '0.75rem',
                             borderRadius: '6px',
-                            border: '1px solid #3b82f6',
-                            color: '#2563eb',
-                            backgroundColor: 'rgba(59, 130, 246, 0.08)',
+                            border: '1px solid #D70F64',
+                            color: '#D70F64',
+                            backgroundColor: 'rgba(215, 15, 100, 0.08)',
                             cursor: 'pointer',
                             fontWeight: 'bold',
                             display: 'flex',
@@ -4145,9 +4474,51 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                             gap: '4px'
                           }}
                         >
-                          🖨️ 列印日結對帳小票
+                          🐼 匯入熊貓報表
                         </button>
-                      )
+                        <button
+                          type="button"
+                          onClick={handleExportCSV}
+                          title="匯出當日營業流水為 CSV 試算表"
+                          style={{
+                            padding: '6px 12px',
+                            fontSize: '0.75rem',
+                            borderRadius: '6px',
+                            border: '1px solid var(--border)',
+                            color: 'var(--text-main)',
+                            backgroundColor: 'var(--bg-card)',
+                            cursor: 'pointer',
+                            fontWeight: 'bold',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px'
+                          }}
+                        >
+                          📥 匯出當日對帳 CSV
+                        </button>
+                        {receiptConfig.enableDailyClosingPrint !== false && (
+                          <button
+                            type="button"
+                            onClick={handlePrintDailyClosingReport}
+                            title="列印該日之熱感應日結對帳小票"
+                            style={{
+                              padding: '6px 12px',
+                              fontSize: '0.75rem',
+                              borderRadius: '6px',
+                              border: '1px solid #3b82f6',
+                              color: '#2563eb',
+                              backgroundColor: 'rgba(59, 130, 246, 0.08)',
+                              cursor: 'pointer',
+                              fontWeight: 'bold',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '4px'
+                            }}
+                          >
+                            🖨️ 列印日結對帳小票
+                          </button>
+                        )}
+                      </>
                     )}
                   </div>
                 </div>
@@ -4178,10 +4549,30 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                             <tr key={order.id} style={{ borderBottom: '1px solid var(--border)' }}>
                               <td style={{ padding: '10px 12px' }}>{order.time}</td>
                               <td style={{ padding: '10px 12px', fontWeight: 'bold', color: 'var(--primary)' }}>{order.serialNum || order.id.slice(-6)}</td>
-                              <td style={{ padding: '10px 12px' }}>{order.type === 'dine-in' ? '🍽️ 內用' : '🛍️ 外帶'}</td>
+                              <td style={{ padding: '10px 12px' }}>
+                                {order.type === 'uber' || String(order.serialNum || '').startsWith('U-') ? (
+                                  <span style={{ color: '#06C167', fontWeight: 'bold' }}>🛵 Uber外送</span>
+                                ) : order.type === 'foodpanda' || String(order.serialNum || '').startsWith('P-') ? (
+                                  <span style={{ color: '#D70F64', fontWeight: 'bold' }}>🐼 熊貓外送</span>
+                                ) : order.type === 'dine-in' ? (
+                                  '🍽️ 內用'
+                                ) : (
+                                  '🥡 現場外帶'
+                                )}
+                              </td>
                               <td style={{ padding: '10px 12px' }}>{order.customerName}</td>
                               <td style={{ padding: '10px 12px', fontWeight: 'bold' }}>NT$ {order.total}</td>
-                              <td style={{ padding: '10px 12px' }}>{order.paymentMethod === 'online' ? '💳 線上付' : '💵 現金付'}</td>
+                              <td style={{ padding: '10px 12px' }}>
+                                {order.type === 'uber' || order.paymentMethod === 'ubereats' || String(order.serialNum || '').startsWith('U-') ? (
+                                  <span style={{ color: '#06C167', fontWeight: 'bold' }}>🛵 Uber結清</span>
+                                ) : order.type === 'foodpanda' || order.paymentMethod === 'foodpanda' || String(order.serialNum || '').startsWith('P-') ? (
+                                  <span style={{ color: '#D70F64', fontWeight: 'bold' }}>🐼 熊貓結清</span>
+                                ) : (order.paymentMethod === 'online' || order.paymentMethod === 'linepay' || order.paymentMethod === 'jkopay') ? (
+                                  <span style={{ color: '#3b82f6', fontWeight: 'bold' }}>💳 線上付</span>
+                                ) : (
+                                  '💵 現金付'
+                                )}
+                              </td>
                               <td style={{ padding: '10px 12px', fontSize: '0.75rem' }}>
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
                                   {(!order.items || order.items.length === 0) ? (
@@ -8862,6 +9253,274 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                 style={{ padding: '8px 16px', fontSize: '0.8rem', borderRadius: '6px', border: 'none', backgroundColor: '#06c755', color: 'white', fontWeight: 'bold', cursor: 'pointer' }}
               >
                 💾 儲存並同步雲端
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 🐼 foodpanda (熊貓外送) CSV 匯入確認預覽彈窗 */}
+      {showPandaModal && (
+        <div className="modal-overlay" style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.65)',
+          backdropFilter: 'blur(3px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 9999,
+          padding: '16px'
+        }}>
+          <div className="modal-content" style={{
+            maxWidth: '900px',
+            width: '100%',
+            maxHeight: '90vh',
+            display: 'flex',
+            flexDirection: 'column',
+            padding: '24px',
+            borderRadius: '16px',
+            backgroundColor: 'var(--bg-card)',
+            color: 'var(--text-main)',
+            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.3), 0 10px 10px -5px rgba(0, 0, 0, 0.2)',
+            boxSizing: 'border-box'
+          }}>
+            {/* Header */}
+            <div style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              borderBottom: '1px solid var(--border)',
+              paddingBottom: '14px',
+              marginBottom: '16px'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ fontSize: '1.5rem' }}>🐼</span>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: '900', color: '#D70F64' }}>
+                    foodpanda 熊貓外送報表匯入與對帳
+                  </h3>
+                  <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                    預覽 CSV 訂單明細，確認後自動將「店家實收金額」批次寫入雲端營收帳本
+                  </p>
+                </div>
+              </div>
+              <button 
+                type="button"
+                onClick={() => setShowPandaModal(false)}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  fontSize: '1.4rem',
+                  cursor: 'pointer',
+                  color: 'var(--text-muted)'
+                }}
+              >
+                &times;
+              </button>
+            </div>
+
+            {/* Stat Summary Cards */}
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+              gap: '12px',
+              marginBottom: '16px'
+            }}>
+              <div style={{ padding: '12px', borderRadius: '10px', backgroundColor: 'var(--bg-body)', border: '1px solid var(--border)' }}>
+                <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 'bold' }}>📦 訂單總筆數</span>
+                <div style={{ fontSize: '1.25rem', fontWeight: '900', color: 'var(--text-main)', marginTop: '4px' }}>
+                  {pandaImportStats.totalRows} 筆
+                </div>
+                <div style={{ fontSize: '0.7rem', color: '#10b981', marginTop: '2px' }}>
+                  待匯入: <strong>{pandaImportStats.newOrders}</strong> 筆 {pandaImportStats.existingOrders > 0 && <span style={{ color: 'var(--text-muted)' }}>(已存在: {pandaImportStats.existingOrders} 筆)</span>}
+                </div>
+              </div>
+
+              <div style={{ padding: '12px', borderRadius: '10px', backgroundColor: 'rgba(215, 15, 100, 0.06)', border: '1px solid rgba(215, 15, 100, 0.25)' }}>
+                <span style={{ fontSize: '0.72rem', color: '#D70F64', fontWeight: 'bold' }}>💰 店家實收入帳 (淨額)</span>
+                <div style={{ fontSize: '1.25rem', fontWeight: '900', color: '#D70F64', marginTop: '4px' }}>
+                  NT$ {pandaImportStats.totalNet.toLocaleString()}
+                </div>
+                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                  已扣除平台佣金與優惠
+                </div>
+              </div>
+
+              <div style={{ padding: '12px', borderRadius: '10px', backgroundColor: 'var(--bg-body)', border: '1px solid var(--border)' }}>
+                <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 'bold' }}>🛒 顧客結帳原額 (小計)</span>
+                <div style={{ fontSize: '1.25rem', fontWeight: '900', color: 'var(--text-main)', marginTop: '4px' }}>
+                  NT$ {pandaImportStats.totalSubtotal.toLocaleString()}
+                </div>
+                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                  菜單定價總計
+                </div>
+              </div>
+
+              <div style={{ padding: '12px', borderRadius: '10px', backgroundColor: 'rgba(239, 68, 68, 0.05)', border: '1px solid rgba(239, 68, 68, 0.2)' }}>
+                <span style={{ fontSize: '0.72rem', color: '#ef4444', fontWeight: 'bold' }}>🏷️ 平台佣金抽成</span>
+                <div style={{ fontSize: '1.25rem', fontWeight: '900', color: '#ef4444', marginTop: '4px' }}>
+                  -NT$ {pandaImportStats.totalComm.toLocaleString()}
+                </div>
+                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                  foodpanda 抽成費用
+                </div>
+              </div>
+            </div>
+
+            {/* Information Notice */}
+            <div style={{
+              padding: '10px 14px',
+              borderRadius: '8px',
+              backgroundColor: 'rgba(59, 130, 246, 0.08)',
+              border: '1px solid rgba(59, 130, 246, 0.25)',
+              fontSize: '0.75rem',
+              color: '#1e40af',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              marginBottom: '14px',
+              flexWrap: 'wrap',
+              gap: '6px'
+            }}>
+              <span>
+                💡 <strong>對帳說明：</strong>系統將自動比對單號略過已匯入之重複訂單。代入報表的金額為<strong>「店家實收金額」</strong>（非顧客原價），且獨立歸類於熊貓外送統計，不影響現金收銀抽屜。
+              </span>
+              {pandaImportStats.dateRange && (
+                <span style={{ fontWeight: 'bold', color: '#2563eb' }}>
+                  📅 日期範圍: {pandaImportStats.dateRange}
+                </span>
+              )}
+            </div>
+
+            {/* Scrollable Preview Table */}
+            <div style={{
+              flex: 1,
+              overflowY: 'auto',
+              border: '1px solid var(--border)',
+              borderRadius: '8px',
+              marginBottom: '16px'
+            }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem', textAlign: 'left' }}>
+                <thead style={{ position: 'sticky', top: 0, backgroundColor: 'var(--bg-input)', zIndex: 1, borderBottom: '1px solid var(--border)' }}>
+                  <tr>
+                    <th style={{ padding: '8px 10px' }}>狀態</th>
+                    <th style={{ padding: '8px 10px' }}>熊貓單號</th>
+                    <th style={{ padding: '8px 10px' }}>接收時間</th>
+                    <th style={{ padding: '8px 10px', textAlign: 'right' }}>顧客原價</th>
+                    <th style={{ padding: '8px 10px', textAlign: 'right' }}>平台佣金</th>
+                    <th style={{ padding: '8px 10px', textAlign: 'right' }}>店家實收</th>
+                    <th style={{ padding: '8px 10px' }}>餐點品項明細</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pandaPreviewData.map((c, idx) => (
+                    <tr 
+                      key={idx} 
+                      style={{ 
+                        borderBottom: '1px solid var(--border)',
+                        backgroundColor: c.isExisting ? 'rgba(100, 116, 139, 0.05)' : (c.isCanceled ? 'rgba(239, 68, 68, 0.04)' : 'transparent')
+                      }}
+                    >
+                      <td style={{ padding: '8px 10px', whiteSpace: 'nowrap' }}>
+                        {c.isExisting ? (
+                          <span style={{ padding: '2px 6px', borderRadius: '4px', fontSize: '0.7rem', backgroundColor: '#e2e8f0', color: '#64748b', fontWeight: 'bold' }}>
+                            已存在 (略過)
+                          </span>
+                        ) : c.isCanceled ? (
+                          <span style={{ padding: '2px 6px', borderRadius: '4px', fontSize: '0.7rem', backgroundColor: '#fee2e2', color: '#dc2626', fontWeight: 'bold' }}>
+                            已取消
+                          </span>
+                        ) : (
+                          <span style={{ padding: '2px 6px', borderRadius: '4px', fontSize: '0.7rem', backgroundColor: '#dcfce7', color: '#16a34a', fontWeight: 'bold' }}>
+                            ✓ 待匯入
+                          </span>
+                        )}
+                      </td>
+                      <td style={{ padding: '8px 10px', fontWeight: 'bold', color: '#D70F64', whiteSpace: 'nowrap' }}>
+                        {c.orderNumber}
+                      </td>
+                      <td style={{ padding: '8px 10px', whiteSpace: 'nowrap', color: 'var(--text-muted)' }}>
+                        {c.timeStr}
+                      </td>
+                      <td style={{ padding: '8px 10px', textAlign: 'right', color: 'var(--text-muted)' }}>
+                        NT$ {c.subtotal}
+                      </td>
+                      <td style={{ padding: '8px 10px', textAlign: 'right', color: '#ef4444' }}>
+                        -NT$ {c.commission}
+                      </td>
+                      <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 'bold', color: '#D70F64' }}>
+                        NT$ {c.netPayout}
+                      </td>
+                      <td style={{ padding: '8px 10px', fontSize: '0.73rem' }}>
+                        {c.cart.length > 0 ? (
+                          c.cart.map((item, i) => (
+                            <span key={i} style={{ display: 'inline-block', marginRight: '6px' }}>
+                              {item.name} x{item.quantity}
+                            </span>
+                          ))
+                        ) : (
+                          <span style={{ color: 'var(--text-muted)' }}>{c.rawItems || '(無品項明細)'}</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Footer Action Buttons */}
+            <div style={{
+              display: 'flex',
+              justifyContent: 'flex-end',
+              gap: '12px',
+              borderTop: '1px solid var(--border)',
+              paddingTop: '14px'
+            }}>
+              <button
+                type="button"
+                onClick={() => setShowPandaModal(false)}
+                disabled={isImportingPanda}
+                style={{
+                  padding: '8px 18px',
+                  borderRadius: '6px',
+                  border: '1px solid var(--border)',
+                  backgroundColor: 'transparent',
+                  color: 'var(--text-main)',
+                  fontWeight: 'bold',
+                  fontSize: '0.85rem',
+                  cursor: isImportingPanda ? 'not-allowed' : 'pointer'
+                }}
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmImportPanda}
+                disabled={isImportingPanda || pandaImportStats.newOrders === 0}
+                style={{
+                  padding: '8px 24px',
+                  borderRadius: '6px',
+                  border: 'none',
+                  backgroundColor: (isImportingPanda || pandaImportStats.newOrders === 0) ? '#9ca3af' : '#D70F64',
+                  color: 'white',
+                  fontWeight: 'bold',
+                  fontSize: '0.85rem',
+                  cursor: (isImportingPanda || pandaImportStats.newOrders === 0) ? 'not-allowed' : 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  boxShadow: (isImportingPanda || pandaImportStats.newOrders === 0) ? 'none' : '0 2px 8px rgba(215, 15, 100, 0.35)'
+                }}
+              >
+                {isImportingPanda ? (
+                  <span>⏳ 正在寫入雲端中...</span>
+                ) : (
+                  <span>🚀 確認匯入 ({pandaImportStats.newOrders} 筆新訂單)</span>
+                )}
               </button>
             </div>
           </div>
