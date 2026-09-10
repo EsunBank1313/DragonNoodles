@@ -3566,10 +3566,19 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
     }
     const totalQty = items.reduce((sum, item) => sum + item.quantity, 0);
     if (totalQty > 0 && subtotal > 0) {
-      const avgPrice = Math.round(subtotal / totalQty);
-      items.forEach(item => {
-        item.price = avgPrice;
-        item.totalPrice = avgPrice * item.quantity;
+      const avgPrice = Math.round((subtotal / totalQty) * 10) / 10;
+      let allocated = 0;
+      items.forEach((item, idx) => {
+        if (idx === items.length - 1) {
+          const itemTotal = Math.round(subtotal - allocated);
+          item.totalPrice = itemTotal;
+          item.price = item.quantity > 0 ? Math.round(itemTotal / item.quantity) : itemTotal;
+        } else {
+          const itemTotal = Math.round(avgPrice * item.quantity);
+          item.totalPrice = itemTotal;
+          item.price = avgPrice;
+          allocated += itemTotal;
+        }
       });
     }
     return items;
@@ -3603,7 +3612,8 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
     const timeIdx = headers.indexOf('接收訂單時間');
     const subtotalIdx = headers.indexOf('小計');
     const commissionIdx = headers.indexOf('佣金');
-    const netIdx = headers.indexOf('預計營收');
+    let netIdx = headers.indexOf('預計營收');
+    if (netIdx === -1) netIdx = headers.findIndex(h => h.includes('預計營收'));
     const paidIdx = headers.indexOf('付款金額');
     const statusIdx = headers.indexOf('訂單狀態');
     const cancelIdx = headers.indexOf('取消原因');
@@ -3635,7 +3645,17 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
       const timeStr = row[timeIdx]?.trim() || '';
       const subtotal = parseFloat(row[subtotalIdx]) || 0;
       const commission = parseFloat(row[commissionIdx]) || 0;
-      const netPayout = parseFloat(row[paidIdx] || row[netIdx]) || 0;
+
+      // 嚴格優先以「預計營收」作為入帳之實收營業額（而非顧客小計）
+      let netPayout = 0;
+      if (netIdx !== -1 && row[netIdx] !== undefined && String(row[netIdx]).trim() !== '') {
+        netPayout = parseFloat(row[netIdx]) || 0;
+      } else if (paidIdx !== -1 && row[paidIdx] !== undefined && String(row[paidIdx]).trim() !== '') {
+        netPayout = parseFloat(row[paidIdx]) || 0;
+      } else {
+        netPayout = Math.max(0, subtotal - commission);
+      }
+
       const status = row[statusIdx]?.trim() || '訂單已送達';
       const cancelReason = (cancelIdx !== -1 && row[cancelIdx]) ? row[cancelIdx].trim() : '';
       const isCanceled = Boolean(cancelReason) || status.includes('取消');
@@ -3655,7 +3675,8 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
       }
 
       const rawItems = itemsIdx !== -1 ? row[itemsIdx] : '';
-      const parsedItems = parseFoodpandaItems(rawItems, subtotal);
+      // 餐點明細金額分配以 netPayout（預計營收）為基準，確保各品項金額總和嚴格等於店家實收
+      const parsedItems = parseFoodpandaItems(rawItems, netPayout);
 
       if (!isExisting && !isCanceled) {
         newCount++;
@@ -9381,12 +9402,12 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
               </div>
 
               <div style={{ padding: '12px', borderRadius: '10px', backgroundColor: 'rgba(215, 15, 100, 0.06)', border: '1px solid rgba(215, 15, 100, 0.25)' }}>
-                <span style={{ fontSize: '0.72rem', color: '#D70F64', fontWeight: 'bold' }}>💰 店家實收入帳 (淨額)</span>
+                <span style={{ fontSize: '0.72rem', color: '#D70F64', fontWeight: 'bold' }}>💰 店家預計營收 (實收入帳)</span>
                 <div style={{ fontSize: '1.25rem', fontWeight: '900', color: '#D70F64', marginTop: '4px' }}>
                   NT$ {pandaImportStats.totalNet.toLocaleString()}
                 </div>
                 <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '2px' }}>
-                  已扣除平台佣金與優惠
+                  以 CSV「預計營收」為準（計入營業額）
                 </div>
               </div>
 
@@ -9396,7 +9417,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                   NT$ {pandaImportStats.totalSubtotal.toLocaleString()}
                 </div>
                 <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '2px' }}>
-                  菜單定價總計
+                  原價小計（僅供參考，不計入營收）
                 </div>
               </div>
 
@@ -9427,7 +9448,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
               gap: '6px'
             }}>
               <span>
-                💡 <strong>對帳說明：</strong>系統將自動比對單號略過已匯入之重複訂單。代入報表的金額為<strong>「店家實收金額」</strong>（非顧客原價），且獨立歸類於熊貓外送統計，不影響現金收銀抽屜。
+                💡 <strong>對帳說明：</strong>系統將自動比對單號略過重複訂單。代入報表的金額為 CSV <strong>「預計營收」</strong>（店家實際入帳金額，絕非未扣款之小計），並獨立歸類於熊貓外送統計，不影響現金收銀抽屜。
               </span>
               {pandaImportStats.dateRange && (
                 <span style={{ fontWeight: 'bold', color: '#2563eb' }}>
@@ -9450,9 +9471,9 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                     <th style={{ padding: '8px 10px' }}>狀態</th>
                     <th style={{ padding: '8px 10px' }}>熊貓單號</th>
                     <th style={{ padding: '8px 10px' }}>接收時間</th>
-                    <th style={{ padding: '8px 10px', textAlign: 'right' }}>顧客原價</th>
+                    <th style={{ padding: '8px 10px', textAlign: 'right' }}>小計 (參考原價)</th>
                     <th style={{ padding: '8px 10px', textAlign: 'right' }}>平台佣金</th>
-                    <th style={{ padding: '8px 10px', textAlign: 'right' }}>店家實收</th>
+                    <th style={{ padding: '8px 10px', textAlign: 'right' }}>預計營收 (實收)</th>
                     <th style={{ padding: '8px 10px' }}>餐點品項明細</th>
                   </tr>
                 </thead>
