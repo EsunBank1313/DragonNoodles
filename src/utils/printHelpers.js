@@ -78,7 +78,7 @@ export const printThermalReceipt = (order, storeProfile = defaultStoreProfile, r
   const isUber = order.type === 'uber' || order.type === 'ubereats' || String(orderNumStr).startsWith('U-');
   const isPanda = order.type === 'foodpanda' || order.type === 'panda' || String(orderNumStr).startsWith('P-');
   const isDineIn = order.type === 'dine-in';
-  const typeStr = isUber ? '🛵 Uber Eats 外送' : (isPanda ? '🐼 熊貓外送' : (isDineIn ? '內用' : '現場外帶'));
+  const typeStr = isUber ? '🛵 外送 (Uber Eats)' : (isPanda ? '🐼 外送 (foodpanda)' : (order.type === 'delivery' ? '🛵 外送' : (isDineIn ? '內用' : '現場外帶')));
   const tableNameStr = order.tableName || order.table_number || '';
 
   const is58mm = (receiptConfig?.paperWidth === '58mm');
@@ -178,7 +178,7 @@ export const printKitchenTicket = (order, storeProfile = defaultStoreProfile, re
   const isUber = order.type === 'uber' || order.type === 'ubereats' || String(orderNumStr).startsWith('U-');
   const isPanda = order.type === 'foodpanda' || order.type === 'panda' || String(orderNumStr).startsWith('P-');
   const isDineIn = order.type === 'dine-in';
-  const typeStr = isUber ? '【🛵 Uber Eats 外送】' : (isPanda ? '【🐼 熊貓外送】' : (isDineIn ? '【內用】' : '【現場外帶】'));
+  const typeStr = isUber ? '【🛵 外送 (Uber Eats)】' : (isPanda ? '【🐼 外送 (foodpanda)】' : (order.type === 'delivery' ? '【🛵 外送】' : (isDineIn ? '【內用】' : '【現場外帶】')));
   const tableNameStr = order.tableName || order.table_number || '';
   const custNameStr = order.customerName || order.custName || '';
   const remarksStr = order.remarks || order.note || '';
@@ -268,8 +268,8 @@ export const printDualReceipts = (order, storeProfile = defaultStoreProfile, rec
   const isUber = order.type === 'uber' || order.type === 'ubereats' || String(orderNumStr).startsWith('U-');
   const isPanda = order.type === 'foodpanda' || order.type === 'panda' || String(orderNumStr).startsWith('P-');
   const isDineIn = order.type === 'dine-in';
-  const typeStr = isUber ? '🛵 Uber Eats 外送' : (isPanda ? '🐼 熊貓外送' : (isDineIn ? '內用' : '現場外帶'));
-  const kitchenTypeStr = isUber ? '【🛵 Uber Eats 外送】' : (isPanda ? '【🐼 熊貓外送】' : (isDineIn ? '【內用】' : '【現場外帶】'));
+  const typeStr = isUber ? '🛵 外送 (Uber Eats)' : (isPanda ? '🐼 外送 (foodpanda)' : (order.type === 'delivery' ? '🛵 外送' : (isDineIn ? '內用' : '現場外帶')));
+  const kitchenTypeStr = isUber ? '【🛵 外送 (Uber Eats)】' : (isPanda ? '【🐼 外送 (foodpanda)】' : (order.type === 'delivery' ? '【🛵 外送】' : (isDineIn ? '【內用】' : '【現場外帶】')));
   const tableNameStr = order.tableName || order.table_number || '';
   const custNameStr = order.customerName || order.custName || '';
   const remarksStr = order.remarks || order.note || '';
@@ -468,17 +468,23 @@ export const printDailyClosingReport = (dailyData, storeProfile = defaultStorePr
           <span>└ 線上/電子:</span>
           <span>$${dailyData.onlineRevenue || 0}</span>
         </div>
-        ${dailyData.uberRevenue ? `
-          <div class="row" style="padding-left: 6px;">
-            <span>└ 🛵 Uber Eats:</span>
-            <span>$${dailyData.uberRevenue || 0}</span>
+        ${(dailyData.uberRevenue || dailyData.pandaRevenue || dailyData.deliveryRevenue) ? `
+          <div class="row bold" style="padding-left: 6px;">
+            <span>└ 🛵 外送實收:</span>
+            <span>$${dailyData.deliveryRevenue || ((dailyData.uberRevenue || 0) + (dailyData.pandaRevenue || 0))}</span>
           </div>
-        ` : ''}
-        ${dailyData.pandaRevenue ? `
-          <div class="row" style="padding-left: 6px;">
-            <span>└ 🐼 foodpanda:</span>
-            <span>$${dailyData.pandaRevenue || 0}</span>
-          </div>
+          ${dailyData.uberRevenue ? `
+            <div class="row" style="padding-left: 14px; font-size: 11px;">
+              <span>• Uber Eats:</span>
+              <span>$${dailyData.uberRevenue}</span>
+            </div>
+          ` : ''}
+          ${dailyData.pandaRevenue ? `
+            <div class="row" style="padding-left: 14px; font-size: 11px;">
+              <span>• foodpanda:</span>
+              <span>$${dailyData.pandaRevenue}</span>
+            </div>
+          ` : ''}
         ` : ''}
         ${dailyData.manualRevenue ? `
           <div class="row" style="padding-left: 6px;">
@@ -501,17 +507,23 @@ export const printDailyClosingReport = (dailyData, storeProfile = defaultStorePr
           <span>└ 現場外帶:</span>
           <span>${dailyData.takeoutCount || 0} 筆</span>
         </div>
-        ${dailyData.uberCount ? `
-          <div class="row" style="padding-left: 6px;">
-            <span>└ 🛵 Uber Eats:</span>
-            <span>${dailyData.uberCount || 0} 筆</span>
+        ${(dailyData.uberCount || dailyData.pandaCount || dailyData.deliveryCount) ? `
+          <div class="row bold" style="padding-left: 6px;">
+            <span>└ 🛵 外送總數:</span>
+            <span>${dailyData.deliveryCount || ((dailyData.uberCount || 0) + (dailyData.pandaCount || 0))} 筆</span>
           </div>
-        ` : ''}
-        ${dailyData.pandaCount ? `
-          <div class="row" style="padding-left: 6px;">
-            <span>└ 🐼 熊貓外送:</span>
-            <span>${dailyData.pandaCount || 0} 筆</span>
-          </div>
+          ${dailyData.uberCount ? `
+            <div class="row" style="padding-left: 14px; font-size: 11px;">
+              <span>• Uber Eats:</span>
+              <span>${dailyData.uberCount} 筆</span>
+            </div>
+          ` : ''}
+          ${dailyData.pandaCount ? `
+            <div class="row" style="padding-left: 14px; font-size: 11px;">
+              <span>• foodpanda:</span>
+              <span>${dailyData.pandaCount} 筆</span>
+            </div>
+          ` : ''}
         ` : ''}
         <div class="row" style="padding-left: 6px;">
           <span>└ 平均客單價:</span>

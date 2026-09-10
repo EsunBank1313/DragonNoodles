@@ -36,6 +36,8 @@ export const formatSupabaseOrder = (dbOrder) => {
     finalType = 'uber';
   } else if (orderNumStr.startsWith('P-') || orderNumStr.startsWith('P') || dbOrder.type === 'foodpanda' || dbOrder.type === 'panda') {
     finalType = 'foodpanda';
+  } else if (orderNumStr.startsWith('D-') || dbOrder.type === 'delivery') {
+    finalType = 'delivery';
   } else if (orderNumStr.startsWith('I-') || orderNumStr.startsWith('I') || dbOrder.type === 'dine-in') {
     finalType = 'dine-in';
   } else {
@@ -46,9 +48,11 @@ export const formatSupabaseOrder = (dbOrder) => {
   let customerName = itemsData.customerName || '';
   if (!customerName) {
     if (finalType === 'uber') {
-      customerName = '🛵 Uber Eats 外送';
+      customerName = '🛵 外送 (Uber Eats)';
     } else if (finalType === 'foodpanda') {
-      customerName = '🐼 熊貓外送';
+      customerName = '🐼 外送 (foodpanda)';
+    } else if (finalType === 'delivery') {
+      customerName = '🛵 外送';
     } else {
       customerName = finalType === 'dine-in' ? (tableName ? `內用 ${tableName} 號桌` : '內用點餐') : '現場外帶';
     }

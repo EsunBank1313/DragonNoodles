@@ -3041,11 +3041,13 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                     const validOrders = orders.filter(o => o.status !== 'deleted');
                     const isUber = (o) => o.type === 'uber' || o.type === 'ubereats' || o.paymentMethod === 'ubereats' || String(o.serialNum || o.order_number || '').startsWith('U-');
                     const isPanda = (o) => o.type === 'foodpanda' || o.type === 'panda' || o.paymentMethod === 'foodpanda' || String(o.serialNum || o.order_number || '').startsWith('P-');
-                    const isDine = (o) => o.type === 'dine-in' && !isUber(o) && !isPanda(o);
-                    const isTake = (o) => o.type !== 'dine-in' && !isUber(o) && !isPanda(o);
+                    const isDelivery = (o) => isUber(o) || isPanda(o) || o.type === 'delivery';
+                    const isDine = (o) => o.type === 'dine-in' && !isDelivery(o);
+                    const isTake = (o) => o.type !== 'dine-in' && !isDelivery(o);
 
                     const dineCount = validOrders.filter(isDine).length;
                     const takeCount = validOrders.filter(isTake).length;
+                    const deliveryCount = validOrders.filter(isDelivery).length;
                     const uberCount = validOrders.filter(isUber).length;
                     const pandaCount = validOrders.filter(isPanda).length;
 
@@ -3053,7 +3055,8 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                       { id: 'all', label: `全部 (${validOrders.length})` },
                       { id: 'dine-in', label: `🍽️ 內用 (${dineCount})` },
                       { id: 'takeout', label: `🥡 現場外帶 (${takeCount})` },
-                      { id: 'uber', label: `🛵 Uber Eats (${uberCount})` },
+                      { id: 'delivery', label: `🛵 外送 (${deliveryCount})` },
+                      { id: 'uber', label: `🛵 Uber (${uberCount})` },
                       { id: 'foodpanda', label: `🐼 熊貓 (${pandaCount})` }
                     ];
 
@@ -3088,12 +3091,14 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                     const validOrders = orders.filter(o => o.status !== 'deleted');
                     const isUber = (o) => o.type === 'uber' || o.type === 'ubereats' || o.paymentMethod === 'ubereats' || String(o.serialNum || o.order_number || '').startsWith('U-');
                     const isPanda = (o) => o.type === 'foodpanda' || o.type === 'panda' || o.paymentMethod === 'foodpanda' || String(o.serialNum || o.order_number || '').startsWith('P-');
-                    const isDine = (o) => o.type === 'dine-in' && !isUber(o) && !isPanda(o);
-                    const isTake = (o) => o.type !== 'dine-in' && !isUber(o) && !isPanda(o);
+                    const isDelivery = (o) => isUber(o) || isPanda(o) || o.type === 'delivery';
+                    const isDine = (o) => o.type === 'dine-in' && !isDelivery(o);
+                    const isTake = (o) => o.type !== 'dine-in' && !isDelivery(o);
 
                     const filteredOrders = validOrders.filter(o => {
                       if (orderHistoryFilter === 'dine-in') return isDine(o);
                       if (orderHistoryFilter === 'takeout') return isTake(o);
+                      if (orderHistoryFilter === 'delivery') return isDelivery(o);
                       if (orderHistoryFilter === 'uber') return isUber(o);
                       if (orderHistoryFilter === 'foodpanda') return isPanda(o);
                       return true;
@@ -3166,7 +3171,7 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                                       color: '#06C167',
                                       border: '1px solid #06C167'
                                     }}>
-                                      🛵 Uber Eats 外送
+                                      🛵 外送 (Uber)
                                     </span>
                                   );
                                 }
@@ -3181,7 +3186,22 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                                       color: '#D70F64',
                                       border: '1px solid #D70F64'
                                     }}>
-                                      🐼 熊貓外送
+                                      🐼 外送 (熊貓)
+                                    </span>
+                                  );
+                                }
+                                if (order.type === 'delivery') {
+                                  return (
+                                    <span style={{
+                                      padding: '2px 8px',
+                                      borderRadius: '6px',
+                                      fontSize: '0.75rem',
+                                      fontWeight: 'bold',
+                                      backgroundColor: 'rgba(2, 132, 199, 0.15)',
+                                      color: '#0284c7',
+                                      border: '1px solid #0284c7'
+                                    }}>
+                                      🛵 外送
                                     </span>
                                   );
                                 }

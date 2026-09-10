@@ -25,7 +25,7 @@ export default function PosThermalPrintArea({ printPayload }) {
     const isUber = order.type === 'uber' || order.type === 'ubereats' || String(orderNumStr).startsWith('U-');
     const isPanda = order.type === 'foodpanda' || order.type === 'panda' || String(orderNumStr).startsWith('P-');
     const isDineIn = order.type === 'dine-in';
-    const typeStr = isUber ? '🛵 Uber Eats 外送' : (isPanda ? '🐼 熊貓外送' : (isDineIn ? '內用' : '現場外帶'));
+    const typeStr = isUber ? '🛵 外送 (Uber Eats)' : (isPanda ? '🐼 外送 (foodpanda)' : (order.type === 'delivery' ? '🛵 外送' : (isDineIn ? '內用' : '現場外帶')));
     const tableNameStr = order.tableName || order.table_number || '';
     const custNameStr = order.customerName || order.custName || '';
     const remarksStr = order.remarks || order.note || '';
@@ -189,17 +189,25 @@ export default function PosThermalPrintArea({ printPayload }) {
           <span>└ 線上/電子:</span>
           <span>${data.onlineRevenue || 0}</span>
         </div>
-        {data.uberRevenue ? (
-          <div style={{ display: 'flex', justifyContent: 'space-between', paddingLeft: '6px' }}>
-            <span>└ 🛵 Uber Eats:</span>
-            <span>${data.uberRevenue}</span>
-          </div>
-        ) : null}
-        {data.pandaRevenue ? (
-          <div style={{ display: 'flex', justifyContent: 'space-between', paddingLeft: '6px' }}>
-            <span>└ 🐼 foodpanda:</span>
-            <span>${data.pandaRevenue}</span>
-          </div>
+        {(data.uberRevenue || data.pandaRevenue || data.deliveryRevenue) ? (
+          <>
+            <div style={{ display: 'flex', justifyContent: 'space-between', paddingLeft: '6px', fontWeight: 'bold' }}>
+              <span>└ 🛵 外送實收:</span>
+              <span>${data.deliveryRevenue || ((data.uberRevenue || 0) + (data.pandaRevenue || 0))}</span>
+            </div>
+            {data.uberRevenue ? (
+              <div style={{ display: 'flex', justifyContent: 'space-between', paddingLeft: '14px', fontSize: '11px' }}>
+                <span>• Uber Eats:</span>
+                <span>${data.uberRevenue}</span>
+              </div>
+            ) : null}
+            {data.pandaRevenue ? (
+              <div style={{ display: 'flex', justifyContent: 'space-between', paddingLeft: '14px', fontSize: '11px' }}>
+                <span>• foodpanda:</span>
+                <span>${data.pandaRevenue}</span>
+              </div>
+            ) : null}
+          </>
         ) : null}
 
         <div style={{ borderTop: '1px dashed #000', margin: '4px 0' }}></div>
@@ -216,17 +224,25 @@ export default function PosThermalPrintArea({ printPayload }) {
           <span>└ 現場外帶:</span>
           <span>{data.takeoutCount || 0} 筆</span>
         </div>
-        {data.uberCount ? (
-          <div style={{ display: 'flex', justifyContent: 'space-between', paddingLeft: '6px' }}>
-            <span>└ 🛵 Uber Eats:</span>
-            <span>${data.uberCount} 筆</span>
-          </div>
-        ) : null}
-        {data.pandaCount ? (
-          <div style={{ display: 'flex', justifyContent: 'space-between', paddingLeft: '6px' }}>
-            <span>└ 🐼 熊貓外送:</span>
-            <span>${data.pandaCount} 筆</span>
-          </div>
+        {(data.uberCount || data.pandaCount || data.deliveryCount) ? (
+          <>
+            <div style={{ display: 'flex', justifyContent: 'space-between', paddingLeft: '6px', fontWeight: 'bold' }}>
+              <span>└ 🛵 外送總數:</span>
+              <span>{data.deliveryCount || ((data.uberCount || 0) + (data.pandaCount || 0))} 筆</span>
+            </div>
+            {data.uberCount ? (
+              <div style={{ display: 'flex', justifyContent: 'space-between', paddingLeft: '14px', fontSize: '11px' }}>
+                <span>• Uber Eats:</span>
+                <span>${data.uberCount} 筆</span>
+              </div>
+            ) : null}
+            {data.pandaCount ? (
+              <div style={{ display: 'flex', justifyContent: 'space-between', paddingLeft: '14px', fontSize: '11px' }}>
+                <span>• foodpanda:</span>
+                <span>${data.pandaCount} 筆</span>
+              </div>
+            ) : null}
+          </>
         ) : null}
         <div style={{ display: 'flex', justifyContent: 'space-between', paddingLeft: '6px' }}>
           <span>└ 平均客單價:</span>

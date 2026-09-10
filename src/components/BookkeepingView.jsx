@@ -3457,8 +3457,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
     }
     
     let csvContent = "\uFEFF";
-    csvContent += `${storeName} - 當日交易對帳明細表 (${selectedBookkeepingDate})\n`;
-    csvContent += `當日營業總額 (營業額):,NT$ ${totalRevenue},訂單總筆數:,${completedOrders.length} 筆,現金營業額:,NT$ ${cashRevenue},線上營業額:,NT$ ${onlineRevenue},UberEats營業額:,NT$ ${uberRevenue},foodpanda營業額:,NT$ ${pandaRevenue}\n\n`;
+    csvContent += `當日營業總額 (營業額):,NT$ ${totalRevenue},訂單總筆數:,${completedOrders.length} 筆,現金營業額:,NT$ ${cashRevenue},線上營業額:,NT$ ${onlineRevenue},外送實收營業額:,NT$ ${deliveryRevenue} (Uber: NT$ ${uberRevenue} / 熊貓: NT$ ${pandaRevenue})\n\n`;
     csvContent += "時間,流水號,類型,顧客姓名/桌號,實收金額(NT$),付款方式,購買明細\n";
     
     completedOrders.forEach(order => {
@@ -3466,7 +3465,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
       const serial = order.serialNum || order.id.slice(-6);
       const isUber = order.type === 'uber' || order.type === 'ubereats' || order.paymentMethod === 'ubereats' || String(order.serialNum || '').startsWith('U-');
       const isPanda = order.type === 'foodpanda' || order.type === 'panda' || order.paymentMethod === 'foodpanda' || String(order.serialNum || '').startsWith('P-');
-      const type = isUber ? 'Uber外送' : (isPanda ? '熊貓外送' : (order.type === 'dine-in' ? '內用' : '現場外帶'));
+      const type = isUber ? '外送 (Uber)' : (isPanda ? '外送 (熊貓)' : (order.type === 'delivery' ? '外送' : (order.type === 'dine-in' ? '內用' : '現場外帶')));
       const name = (order.customerName || '').replace(/,/g, ' ');
       const total = order.total;
       const payment = isUber ? 'Uber線上結清' : (isPanda ? '熊貓線上結清' : (order.paymentMethod === 'online' ? '線上付' : '現金付'));
@@ -3816,7 +3815,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
       String(o.serialNum || o.order_number || '').startsWith('P-')
     );
 
-    const isDelivery = (o) => isUberOrder(o) || isPandaOrder(o);
+    const isDelivery = (o) => isUberOrder(o) || isPandaOrder(o) || o.type === 'delivery';
 
     const uberOrders = completedOrders.filter(isUberOrder);
     const uberRev = uberOrders.reduce((sum, o) => sum + (Number(o.total) || 0), 0);
@@ -3826,12 +3825,16 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
     const pandaRev = pandaOrders.reduce((sum, o) => sum + (Number(o.total) || 0), 0);
     const pandaCount = pandaOrders.length;
 
+    const deliveryOrders = completedOrders.filter(isDelivery);
+    const deliveryRev = uberRev + pandaRev;
+    const deliveryCount = deliveryOrders.length;
+
     const online = completedOrders
       .filter(o => !isDelivery(o) && (o.paymentMethod === 'online' || o.paymentMethod === 'linepay' || o.paymentMethod === 'jkopay' || o.paymentMethod === '線上付'))
       .reduce((sum, o) => sum + (Number(o.total) || 0), 0);
 
     // Physical cash drawer strictly excludes online payment and delivery platform revenues
-    const cash = rev - online - uberRev - pandaRev;
+    const cash = rev - online - deliveryRev;
 
     const dineIn = completedOrders.filter(o => o.type === 'dine-in' && !isDelivery(o)).length;
     const takeout = completedOrders.filter(o => o.type !== 'dine-in' && !isDelivery(o)).length;
@@ -3858,9 +3861,11 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
       onlineRevenue: online,
       uberRevenue: uberRev,
       pandaRevenue: pandaRev,
+      deliveryRevenue: deliveryRev,
       cashRevenue: cash,
       totalDineIn: dineIn,
       totalTakeout: takeout,
+      totalDelivery: deliveryCount,
       totalUber: uberCount,
       totalPanda: pandaCount,
       dailyProductCost: prodCost,
@@ -4129,16 +4134,24 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                   <span>💳 線上已付:</span>
                   <strong style={{ marginLeft: 'auto' }}>NT$ {onlineRevenue}</strong>
                 </div>
-                {uberRevenue > 0 && (
-                  <div style={{ display: 'flex', justifyContent: 'space-between', color: '#06C167' }}>
-                    <span>🛵 Uber Eats:</span>
-                    <strong style={{ marginLeft: 'auto' }}>NT$ {uberRevenue}</strong>
-                  </div>
-                )}
-                {pandaRevenue > 0 && (
-                  <div style={{ display: 'flex', justifyContent: 'space-between', color: '#D70F64' }}>
-                    <span>🐼 foodpanda:</span>
-                    <strong style={{ marginLeft: 'auto' }}>NT$ {pandaRevenue}</strong>
+                {deliveryRevenue > 0 && (
+                  <div style={{ borderTop: '1px dotted var(--border)', paddingTop: '4px', marginTop: '2px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', color: '#0284c7', fontWeight: 'bold' }}>
+                      <span>🛵 外送實收總計:</span>
+                      <strong style={{ marginLeft: 'auto' }}>NT$ {deliveryRevenue}</strong>
+                    </div>
+                    {uberRevenue > 0 && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: '#059669', paddingLeft: '8px' }}>
+                        <span>• 🛵 Uber Eats:</span>
+                        <span>NT$ {uberRevenue}</span>
+                      </div>
+                    )}
+                    {pandaRevenue > 0 && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: '#D70F64', paddingLeft: '8px' }}>
+                        <span>• 🐼 foodpanda:</span>
+                        <span>NT$ {pandaRevenue}</span>
+                      </div>
+                    )}
                   </div>
                 )}
                 <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px dashed var(--border)', paddingTop: '6px', marginTop: '4px' }}>
@@ -4159,16 +4172,24 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                   <span>🛍️ 現場外帶:</span>
                   <strong style={{ marginLeft: 'auto' }}>{totalTakeout} 筆 ({completedOrders.length ? Math.round(totalTakeout/completedOrders.length*100) : 0}%)</strong>
                 </div>
-                {totalUber > 0 && (
-                  <div style={{ display: 'flex', justifyContent: 'space-between', color: '#06C167' }}>
-                    <span>🛵 Uber Eats:</span>
-                    <strong style={{ marginLeft: 'auto' }}>{totalUber} 筆 ({completedOrders.length ? Math.round(totalUber/completedOrders.length*100) : 0}%)</strong>
-                  </div>
-                )}
-                {totalPanda > 0 && (
-                  <div style={{ display: 'flex', justifyContent: 'space-between', color: '#D70F64' }}>
-                    <span>🐼 foodpanda:</span>
-                    <strong style={{ marginLeft: 'auto' }}>{totalPanda} 筆 ({completedOrders.length ? Math.round(totalPanda/completedOrders.length*100) : 0}%)</strong>
+                {totalDelivery > 0 && (
+                  <div style={{ borderTop: '1px dotted var(--border)', paddingTop: '4px', marginTop: '2px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', color: '#0284c7', fontWeight: 'bold' }}>
+                      <span>🛵 外送訂單:</span>
+                      <strong style={{ marginLeft: 'auto' }}>{totalDelivery} 筆 ({completedOrders.length ? Math.round(totalDelivery/completedOrders.length*100) : 0}%)</strong>
+                    </div>
+                    {totalUber > 0 && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: '#059669', paddingLeft: '8px' }}>
+                        <span>• 🛵 Uber Eats:</span>
+                        <span>{totalUber} 筆</span>
+                      </div>
+                    )}
+                    {totalPanda > 0 && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: '#D70F64', paddingLeft: '8px' }}>
+                        <span>• 🐼 foodpanda:</span>
+                        <span>{totalPanda} 筆</span>
+                      </div>
+                    )}
                   </div>
                 )}
                 <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px dashed var(--border)', paddingTop: '6px', marginTop: '4px' }}>
