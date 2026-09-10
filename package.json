@@ -11,6 +11,7 @@
     "sync-branch": "node ../sync_to_branch.js"
   },
   "dependencies": {
+    "@line/liff": "^2.31.0",
     "@supabase/supabase-js": "^2.110.1",
     "firebase": "^12.15.0",
     "qrcode": "^1.5.4",

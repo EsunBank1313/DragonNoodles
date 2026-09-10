@@ -6,6 +6,7 @@ import CartPanel from './CartPanel';
 import OrderTracker from './OrderTracker';
 import { supabase } from '../supabaseClient';
 import { getActiveStoreCode, filterItemsByStore, prefixNameForStore } from '../utils/storeContext';
+import { initLiff, loginWithLine, logoutLine } from '../utils/liffHelper';
 
 // Import Firebase and config settings
 import { firebaseConfig } from '../config';
@@ -40,6 +41,9 @@ export const formatSupabaseOrder = (dbOrder) => {
   if (!customerName) {
     customerName = finalType === 'dine-in' ? (tableName ? `內用 ${tableName} 號桌` : '內用點餐') : '現場外帶';
   }
+  if (itemsData.lineUser?.displayName && !customerName.includes(itemsData.lineUser.displayName)) {
+    customerName = `${customerName} [LINE:${itemsData.lineUser.displayName}]`;
+  }
 
   let cartItems = [];
   if (Array.isArray(itemsData)) {
@@ -68,7 +72,8 @@ export const formatSupabaseOrder = (dbOrder) => {
     items: cartItems,
     total: Number(dbOrder.total),
     cashier: itemsData.cashier || '',
-    source: itemsData.source || (itemsData.cashier ? 'pos' : 'customer')
+    source: itemsData.source || (itemsData.cashier ? 'pos' : 'customer'),
+    lineUser: itemsData.lineUser || null
   };
 };
 
@@ -214,6 +219,38 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
       return defaultUpgradeCombos;
     }
   });
+
+  // LINE LIFF Authentication state
+  const [lineUser, setLineUser] = useState(() => {
+    try {
+      const saved = localStorage.getItem('app_line_user_profile');
+      return saved ? JSON.parse(saved) : null;
+    } catch (e) {
+      return null;
+    }
+  });
+  const [isLiffReady, setIsLiffReady] = useState(false);
+  const [showLineAuthModal, setShowLineAuthModal] = useState(false);
+
+  useEffect(() => {
+    let isMounted = true;
+    const setupLiff = async () => {
+      try {
+        const res = await initLiff();
+        if (!isMounted) return;
+        setIsLiffReady(res.isReady);
+        if (res.isLoggedIn && res.profile) {
+          setLineUser(res.profile);
+          localStorage.setItem('app_line_user_profile', JSON.stringify(res.profile));
+          setCustName(prev => prev || res.profile.displayName || '');
+        }
+      } catch (err) {
+        console.warn("LINE LIFF init error:", err);
+      }
+    };
+    setupLiff();
+    return () => { isMounted = false; };
+  }, []);
 
   // OTP Verification States (Real Firebase Phone Auth)
   const [showOtpModal, setShowOtpModal] = useState(false);
@@ -939,28 +976,39 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
     e.preventDefault();
     if (cart.length === 0) return;
 
-    // Validate customer name (only Chinese/English letters, no numbers/symbols)
+    // 🛡️ LINE 認證防惡意點餐保護：未通過 LINE 認證強制阻擋並彈窗提示
+    if (!lineUser) {
+      setShowLineAuthModal(true);
+      return;
+    }
+
+    // Validate customer name
     if (!tableNumber) {
-      const nameCheck = /^[a-zA-Z\s\u4e00-\u9fa5]+$/;
-      if (!custName.trim() || !nameCheck.test(custName.trim())) {
-        alert('訂購姓名只能包含中文或英文，不能有數字與特殊符號！');
+      const currentName = custName.trim() || lineUser?.displayName || '';
+      if (!currentName) {
+        alert('請填寫訂購姓名！');
         return;
       }
-      if (!isValidTaiwanMobile(custPhone)) {
+      if (custPhone && !isValidTaiwanMobile(custPhone)) {
         alert('請輸入正確的台灣手機號碼格式 (例如: 0912345678)');
         return;
       }
-      if (blacklist.some(b => b.phone === custPhone)) {
+      if (custPhone && blacklist.some(b => b.phone === custPhone)) {
         alert("⚠️ 您的號碼已被系統列入黑名單，無法進行線上點餐。如有疑問請聯絡店家！");
         return;
       }
     }
 
-    // Direct to confirm modal without phone verification
+    // Direct to confirm modal
     setShowOrderConfirmModal(true);
   };
 
   const submitOrder = async (verified = false) => {
+    if (!lineUser) {
+      setShowLineAuthModal(true);
+      return;
+    }
+
     const subtotal = cart.reduce((sum, item) => sum + item.totalPrice, 0);
     const total = subtotal;
 
@@ -997,6 +1045,11 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
     const serialNum = `${prefix}-${String(maxNum + 1).padStart(3, '0')}`;
 
     try {
+      const lineName = lineUser?.displayName || '';
+      const finalCustomerName = tableNumber 
+        ? `內用 ${tableNumber} 號桌${lineName ? ` (${lineName})` : ''}`
+        : `${custName.trim() || lineName || '現場顧客'}`;
+
       const orderPayload = {
         order_number: serialNum,
         items: {
@@ -1004,11 +1057,16 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
           storeCode: storeCode,
           store_code: storeCode,
           cart: cart,
-          customerName: tableNumber ? `內用 ${tableNumber} 號桌` : custName,
+          customerName: finalCustomerName,
           customerPhone: tableNumber ? '' : custPhone,
           pickupTime: tableNumber ? '' : (pickupTime === 'custom' ? customPickupTime : pickupTime),
           paymentMethod,
-          remarks
+          remarks,
+          lineUser: lineUser ? {
+            userId: lineUser.userId,
+            displayName: lineUser.displayName,
+            pictureUrl: lineUser.pictureUrl || ''
+          } : null
         },
         total,
         type: tableNumber ? 'dine-in' : 'takeout',
@@ -1288,6 +1346,115 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
         )}
       </header>
 
+      {/* 🟢 LINE LIFF 會員身份認證狀態條 */}
+      <div style={{
+        margin: '10px 16px 4px 16px',
+        padding: '10px 14px',
+        borderRadius: '12px',
+        backgroundColor: lineUser ? '#f0fdf4' : '#fffbeb',
+        border: lineUser ? '1px solid #bbf7d0' : '1px solid #fde68a',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+        fontSize: '0.85rem'
+      }}>
+        {lineUser ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', overflow: 'hidden' }}>
+            {lineUser.pictureUrl ? (
+              <img 
+                src={lineUser.pictureUrl} 
+                alt={lineUser.displayName} 
+                style={{ width: '32px', height: '32px', borderRadius: '50%', objectFit: 'cover', border: '2px solid #22c55e' }}
+              />
+            ) : (
+              <span style={{ 
+                width: '32px', 
+                height: '32px', 
+                borderRadius: '50%', 
+                backgroundColor: '#22c55e', 
+                color: '#fff', 
+                display: 'flex', 
+                alignItems: 'center', 
+                justifyContent: 'center', 
+                fontWeight: 'bold', 
+                fontSize: '1rem' 
+              }}>
+                L
+              </span>
+            )}
+            <div style={{ display: 'flex', flexDirection: 'column' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span style={{ fontWeight: 'bold', color: '#15803d' }}>{lineUser.displayName}</span>
+                <span style={{ 
+                  backgroundColor: '#22c55e', 
+                  color: 'white', 
+                  fontSize: '0.65rem', 
+                  padding: '1px 6px', 
+                  borderRadius: '10px', 
+                  fontWeight: 'bold' 
+                }}>
+                  LINE已認證
+                </span>
+              </div>
+              <span style={{ fontSize: '0.72rem', color: '#65a30d' }}>已具備快速點餐資格</span>
+            </div>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#92400e', fontSize: '0.82rem' }}>
+            <span style={{ fontSize: '1.1rem' }}>🛡️</span>
+            <div>
+              <div style={{ fontWeight: 'bold' }}>防惡意點餐保護機制</div>
+              <div style={{ fontSize: '0.72rem', color: '#b45309' }}>送出訂單前需驗證 LINE 身份</div>
+            </div>
+          </div>
+        )}
+
+        {lineUser ? (
+          <button
+            type="button"
+            onClick={() => {
+              if (window.confirm('確定要切換或登出 LINE 帳號嗎？')) {
+                localStorage.removeItem('app_line_user_profile');
+                logoutLine();
+              }
+            }}
+            style={{
+              background: 'transparent',
+              border: 'none',
+              color: '#6b7280',
+              fontSize: '0.75rem',
+              cursor: 'pointer',
+              padding: '4px 8px',
+              borderRadius: '6px'
+            }}
+          >
+            登出
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => loginWithLine()}
+            style={{
+              backgroundColor: '#06c755',
+              color: 'white',
+              border: 'none',
+              borderRadius: '8px',
+              padding: '6px 12px',
+              fontSize: '0.8rem',
+              fontWeight: 'bold',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+              boxShadow: '0 2px 4px rgba(6,199,85,0.2)'
+            }}
+          >
+            <span>💬</span> LINE 登入
+          </button>
+        )}
+      </div>
+
       {viewState === 'menu' && (
         <>
           {/* Hero / Announcement Banner */}
@@ -1492,13 +1659,81 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
 
             {/* Dining details */}
             {tableNumber ? (
-              <div className="option-group" style={{ backgroundColor: 'rgba(255,107,53,0.03)', padding: '16px', borderRadius: 'var(--radius-sm)' }}>
+              <div className="option-group" style={{ backgroundColor: 'rgba(255,107,53,0.03)', padding: '16px', borderRadius: 'var(--radius-sm)', display: 'flex', flexDirection: 'column', gap: '10px' }}>
                 <h4 style={{ color: 'var(--primary)', marginBottom: '4px' }}>🍽️ 掃碼內用確認</h4>
                 <p style={{ fontSize: '0.9rem' }}>已鎖定 <strong>{tableNumber} 號桌</strong>。餐點製作完成後將會直接送至您的桌位。</p>
+                {lineUser ? (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', color: '#166534', backgroundColor: '#f0fdf4', padding: '8px 12px', borderRadius: '8px', border: '1px solid #bbf7d0' }}>
+                    <span style={{ fontSize: '1rem' }}>✓</span>
+                    <span>LINE 認證顧客：<strong>{lineUser.displayName}</strong></span>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#fffbeb', padding: '8px 12px', borderRadius: '8px', border: '1px solid #fde68a' }}>
+                    <span style={{ fontSize: '0.8rem', color: '#92400e' }}>防惡意點餐保護：請先登入 LINE</span>
+                    <button type="button" onClick={() => loginWithLine()} style={{ backgroundColor: '#06c755', color: 'white', border: 'none', borderRadius: '6px', padding: '4px 10px', fontSize: '0.75rem', fontWeight: 'bold', cursor: 'pointer' }}>LINE 登入</button>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="option-group" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                <h4 className="checkout-section-title">👤 外帶聯絡資訊 (需LINE驗證)</h4>
+                <h4 className="checkout-section-title">👤 外帶聯絡資訊</h4>
+
+                {/* LINE 認證狀態卡片 */}
+                {lineUser ? (
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '10px 14px',
+                    borderRadius: '10px',
+                    backgroundColor: '#f0fdf4',
+                    border: '1px solid #bbf7d0'
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      {lineUser.pictureUrl ? (
+                        <img src={lineUser.pictureUrl} alt="" style={{ width: '36px', height: '36px', borderRadius: '50%', objectFit: 'cover' }} />
+                      ) : (
+                        <div style={{ width: '36px', height: '36px', borderRadius: '50%', backgroundColor: '#22c55e', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold' }}>L</div>
+                      )}
+                      <div>
+                        <div style={{ fontWeight: 'bold', color: '#166534', fontSize: '0.9rem' }}>{lineUser.displayName}</div>
+                        <div style={{ fontSize: '0.75rem', color: '#15803d' }}>✓ LINE 實名認證通過</div>
+                      </div>
+                    </div>
+                    <span style={{ fontSize: '0.75rem', color: '#166534', fontWeight: 'bold', backgroundColor: '#dcfce7', padding: '4px 8px', borderRadius: '20px' }}>已驗證</span>
+                  </div>
+                ) : (
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '12px 14px',
+                    borderRadius: '10px',
+                    backgroundColor: '#fffbeb',
+                    border: '1px solid #fde68a'
+                  }}>
+                    <div style={{ fontSize: '0.85rem', color: '#92400e' }}>
+                      <div>⚠️ 尚未完成 LINE 認證</div>
+                      <div style={{ fontSize: '0.75rem', color: '#b45309' }}>龍城麵線為防惡意點餐，下單前請登入 LINE</div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => loginWithLine()}
+                      style={{
+                        backgroundColor: '#06c755',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '8px',
+                        padding: '6px 12px',
+                        fontSize: '0.8rem',
+                        fontWeight: 'bold',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      LINE 登入
+                    </button>
+                  </div>
+                )}
                 
                 <div className="form-group">
                   <label htmlFor="cust-name">訂購姓名 <span style={{ color: 'var(--accent)' }}>*</span></label>
@@ -1507,40 +1742,20 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
                     id="cust-name" 
                     placeholder="請輸入取餐姓名" 
                     required 
-                    value={custName}
+                    value={custName || (lineUser ? lineUser.displayName : '')}
                     onChange={(e) => setCustName(e.target.value)}
                   />
                 </div>
 
                 <div className="form-group">
-                  <label htmlFor="cust-phone">手機號碼 <span style={{ color: 'var(--accent)' }}>*</span></label>
-                  <div style={{ display: 'flex', gap: '8px' }}>
-                    <input 
-                      type="tel" 
-                      id="cust-phone" 
-                      placeholder="例: 0912345678" 
-                      required 
-                      disabled={phoneVerified}
-                      value={custPhone}
-                      onChange={(e) => {
-                        setCustPhone(e.target.value);
-                        setPhoneVerified(false); // reset verified if number changes
-                      }}
-                      style={{ flexGrow: 1 }}
-                    />
-                    {phoneVerified && (
-                      <span style={{ 
-                        display: 'flex', 
-                        alignItems: 'center', 
-                        gap: '4px', 
-                        color: '#22c55e', 
-                        fontWeight: 'bold', 
-                        fontSize: '0.85rem' 
-                      }}>
-                        ✓ 已驗證
-                      </span>
-                    )}
-                  </div>
+                  <label htmlFor="cust-phone">手機號碼 (選填，方便到店備用連絡)</label>
+                  <input 
+                    type="tel" 
+                    id="cust-phone" 
+                    placeholder="例: 0912345678 (選填)" 
+                    value={custPhone}
+                    onChange={(e) => setCustPhone(e.target.value)}
+                  />
                 </div>
 
                 <div className="form-group">
@@ -1637,14 +1852,33 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
                 <span>訂單總金額</span>
                 <span>NT$ {cart.reduce((sum, item) => sum + item.totalPrice, 0)}</span>
               </div>
-              <button 
-                type="submit" 
-                className="cart-checkout-btn" 
-                style={{ width: '100%' }}
-                disabled={isVerifying}
-              >
-                確認送出訂單
-              </button>
+              {lineUser ? (
+                <button 
+                  type="submit" 
+                  className="cart-checkout-btn" 
+                  style={{ width: '100%' }}
+                  disabled={isVerifying}
+                >
+                  確認送出訂單 (LINE認證: {lineUser.displayName})
+                </button>
+              ) : (
+                <button 
+                  type="button" 
+                  onClick={() => loginWithLine()} 
+                  className="cart-checkout-btn" 
+                  style={{ 
+                    width: '100%', 
+                    backgroundColor: '#06c755', 
+                    borderColor: '#06c755',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '8px'
+                  }}
+                >
+                  <span>💬</span> 使用 LINE 一鍵登入點餐
+                </button>
+              )}
             </div>
           </form>
         </div>
@@ -1852,6 +2086,100 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
                 確定送出訂單
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* 🛡️ LINE 認證強制提示彈窗 */}
+      {showLineAuthModal && (
+        <div className="modal-backdrop" style={{ zIndex: 500 }} onClick={() => setShowLineAuthModal(false)}>
+          <div 
+            className="modal-content" 
+            style={{ maxWidth: '380px', borderRadius: '20px', padding: '28px 24px', textAlign: 'center' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ 
+              width: '64px', 
+              height: '64px', 
+              backgroundColor: '#f0fdf4', 
+              borderRadius: '50%', 
+              margin: '0 auto 16px auto', 
+              display: 'flex', 
+              alignItems: 'center', 
+              justifyContent: 'center',
+              fontSize: '2rem',
+              border: '2px solid #bbf7d0'
+            }}>
+              💬
+            </div>
+            
+            <h3 style={{ margin: '0 0 8px 0', fontSize: '1.2rem', fontWeight: 'bold', color: '#1f2937' }}>
+              請先登入 LINE 進行點餐
+            </h3>
+            
+            <p style={{ fontSize: '0.88rem', color: '#4b5563', lineHeight: '1.5', margin: '0 0 20px 0' }}>
+              為維護每一位顧客的美味品質與出餐順序，避免惡意測試或假下單，<strong>龍城麵線</strong> 全面採用 <strong>LINE 官方認證</strong>。
+            </p>
+
+            <div style={{
+              backgroundColor: '#f9fafb',
+              padding: '12px',
+              borderRadius: '12px',
+              marginBottom: '20px',
+              textAlign: 'left',
+              fontSize: '0.8rem',
+              color: '#374151',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '6px'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span style={{ color: '#22c55e', fontWeight: 'bold' }}>✓</span> 免註冊密碼，一秒授權快速辨識
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span style={{ color: '#22c55e', fontWeight: 'bold' }}>✓</span> 訂單即時綁定，取餐不拿錯
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => loginWithLine()}
+              style={{
+                width: '100%',
+                backgroundColor: '#06c755',
+                color: 'white',
+                border: 'none',
+                borderRadius: '12px',
+                padding: '14px',
+                fontSize: '1rem',
+                fontWeight: 'bold',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '8px',
+                boxShadow: '0 4px 12px rgba(6,199,85,0.3)',
+                marginBottom: '10px'
+              }}
+            >
+              <span>💬</span> 使用 LINE 一鍵登入點餐
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setShowLineAuthModal(false)}
+              style={{
+                width: '100%',
+                background: 'transparent',
+                border: 'none',
+                color: '#9ca3af',
+                fontSize: '0.85rem',
+                cursor: 'pointer',
+                padding: '8px'
+              }}
+            >
+              返回繼續瀏覽菜單
+            </button>
           </div>
         </div>
       )}
