@@ -2,4 +2,5 @@ node_modules
 dist
 .vercel
 .env*
+!.env.example
 sync_today_from_old_store.cjs

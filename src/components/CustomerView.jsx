@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { menuCategories, menuItems as defaultMenuItems, defaultUpgradeCombos, isComboApplicableToItem } from '../data/menuData';
+import { menuCategories, menuItems as defaultMenuItems, luzhouFallbackMenuItems, defaultUpgradeCombos, isComboApplicableToItem } from '../data/menuData';
 import ItemModal from './ItemModal';
 
 import CartPanel from './CartPanel';
@@ -184,14 +184,25 @@ const MenuItemImage = ({ item }) => {
     </div>
   );
 };
-export default function CustomerView({ storeCode: propStoreCode, tableNumber, onBackToDemo }) {
+export default function CustomerView({ storeCode: propStoreCode, tableNumber, onBackToDemo, onSwitchToLogin }) {
   const storeCode = propStoreCode || getActiveStoreCode();
+  const handleSwitchToLogin = onSwitchToLogin || onBackToDemo || (() => { window.location.href = '/?login=true'; });
   const [viewState, setViewState] = useState('menu'); // 'menu', 'checkout', 'tracking'
-  const [productCategories, setProductCategories] = useState([
-    { id: 'mee-sua', name: '招牌麵線', icon: '🍜' },
-    { id: 'specialties', name: '特色產品', icon: '🔥' }
-  ]);
-  const [activeCategory, setActiveCategory] = useState('mee-sua');
+  const [productCategories, setProductCategories] = useState(() => {
+    if (storeCode === 'luzhou' || storeCode === 'luzhou7') {
+      return [{ id: 'specialties', name: '精選推薦', icon: '🔥' }];
+    }
+    return [
+      { id: 'mee-sua', name: '招牌麵線', icon: '🍜' },
+      { id: 'specialties', name: '特色產品', icon: '🔥' }
+    ];
+  });
+  const [activeCategory, setActiveCategory] = useState(() => {
+    if (storeCode === 'luzhou' || storeCode === 'luzhou7') {
+      return 'specialties';
+    }
+    return 'mee-sua';
+  });
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedItem, setSelectedItem] = useState(null);
   const [cart, setCart] = useState([]);
@@ -268,8 +279,22 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
     '辣醬': true
   });
 
-  const [menuItemsAvailability, setMenuItemsAvailability] = useState({});
-  const [menuItems, setMenuItems] = useState([]);
+  const [menuItems, setMenuItems] = useState(() => {
+    try {
+      const saved = localStorage.getItem(`${storeCode}_restaurant_menu_items`);
+      if (saved) {
+        let parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          if (storeCode === 'luzhou' || storeCode === 'luzhou7') {
+            parsed = parsed.filter(i => !i.name?.includes('麵線') && !i.name?.includes('沙士') && !i.name?.includes('氣泡飲') && i.category !== 'mee-sua' && !([146, 147, 148, 149, 150, 151, 152, 153, 154, 155].includes(Number(i.id))));
+          }
+          if (parsed.length > 0) return parsed;
+        }
+      }
+    } catch (e) {}
+    if (storeCode === 'luzhou' || storeCode === 'luzhou7') return luzhouFallbackMenuItems;
+    return storeCode === 'dragon' ? defaultMenuItems : [];
+  });
   const [storeName, setStoreName] = useState('龍城麵線');
   const [storeSlogan, setStoreSlogan] = useState('');
   const [showHeroBanner, setShowHeroBanner] = useState(true);
@@ -354,13 +379,17 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
         if (tokenItem) {
           setLineNotifyToken(tokenItem.description || '');
         }
+        let currentCats = productCategories;
         const categoriesItem = storeItems.find(item => item.name === 'SYSTEM_SETTING_PRODUCT_CATEGORIES');
         if (categoriesItem && categoriesItem.description) {
           try {
             const parsed = JSON.parse(categoriesItem.description);
-            setProductCategories(parsed);
-            if (parsed.length > 0 && !parsed.some(c => c.id === activeCategory)) {
-              setActiveCategory(parsed[0].id);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              currentCats = parsed;
+              setProductCategories(parsed);
+              if (!parsed.some(c => c.id === activeCategory)) {
+                setActiveCategory(parsed[0].id);
+              }
             }
           } catch (e) {}
         }
@@ -487,7 +516,29 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
             return indexA - indexB;
           });
         }
-        setMenuItems(visibleItems);
+        const finalItems = visibleItems.length === 0 
+          ? ((storeCode === 'luzhou' || storeCode === 'luzhou7') ? luzhouFallbackMenuItems : (storeCode === 'dragon' ? defaultMenuItems : []))
+          : visibleItems;
+
+        setMenuItems(finalItems);
+        try {
+          if (visibleItems.length > 0) {
+            localStorage.setItem(`${storeCode}_restaurant_menu_items`, JSON.stringify(visibleItems));
+          }
+        } catch (e) {}
+
+        // Auto-select category with items if activeCategory has 0 items
+        if (finalItems.length > 0) {
+          const hasCurrent = finalItems.some(i => (i.category === activeCategory) || (activeCategory === 'combos' && (i.category === 'combos' || i.customizations?.is_combo)));
+          if (!hasCurrent) {
+            const foundCat = currentCats.find(c => finalItems.some(i => (i.category === c.id) || (c.id === 'combos' && (i.category === 'combos' || i.customizations?.is_combo))));
+            if (foundCat) {
+              setActiveCategory(foundCat.id);
+            } else if (finalItems[0]?.category) {
+              setActiveCategory(finalItems[0].category);
+            }
+          }
+        }
       } else {
         // Seed database if empty
         const defaultWithNullCustomizations = defaultMenuItems.map(item => ({
@@ -581,10 +632,17 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
       console.error("Failed to load from Supabase menu_items, using localStorage/default:", err);
       const savedMenuItems = localStorage.getItem('restaurant_menu_items');
       if (savedMenuItems) {
-        setMenuItems(JSON.parse(savedMenuItems).filter(item => item.name !== 'SYSTEM_SETTING_LINE_TOKEN'));
+        try {
+          const parsed = JSON.parse(savedMenuItems).filter(item => item.name !== 'SYSTEM_SETTING_LINE_TOKEN');
+          setMenuItems(parsed.length > 0 ? parsed : defaultMenuItems);
+        } catch (e) {
+          setMenuItems(defaultMenuItems);
+        }
       } else {
         setMenuItems(defaultMenuItems);
       }
+    } finally {
+      setIsInitialLoading(false);
     }
   };
 
@@ -1056,6 +1114,7 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
           source: 'customer',
           storeCode: storeCode,
           store_code: storeCode,
+          storeCode: storeCode,
           cart: cart,
           customerName: finalCustomerName,
           customerPhone: tableNumber ? '' : custPhone,
@@ -1136,11 +1195,18 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
   const todayStr = getTodayLocalDate();
   const nowTaipei = new Date();
   const currentHour = parseInt(nowTaipei.toLocaleTimeString('en-US', { timeZone: 'Asia/Taipei', hour12: false, hour: '2-digit' }), 10);
-  const isPast10PM = currentHour >= 22 || currentHour < 6;
-  const isClosed = closedDates.includes(todayStr) || isPast10PM;
-  const isStoreOpenToday = Boolean(storeOpenStatus && storeOpenStatus.is_open && storeOpenStatus.open_date === todayStr);
+  
+  // Robust open status checks
+  const isManuallyClosed = Boolean(storeOpenStatus && (storeOpenStatus.is_open === false || storeOpenStatus.isOpen === false));
+  const isManuallyOpened = Boolean(storeOpenStatus && (storeOpenStatus.is_open === true || storeOpenStatus.isOpen === true));
+  const isTodayHoliday = closedDates.includes(todayStr);
 
-  if (!isInitialLoading && !isStoreOpenToday && !closedDates.includes(todayStr) && !isPast10PM) {
+  // If explicitly opened by cashier/manager, store is strictly open (overriding nighttime cutoff!)
+  // Store is only closed if today is a scheduled holiday or explicitly closed by staff
+  const isClosed = isTodayHoliday || isManuallyClosed;
+  const isStoreOpenToday = isManuallyOpened || (!isClosed && (currentHour < 23 && currentHour >= 6));
+
+  if (!isInitialLoading && !isStoreOpenToday && !isClosed) {
     return (
       <div style={{
         display: 'flex',
@@ -1568,6 +1634,20 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
                 );
               })
             )}
+          </div>
+
+          {/* Footer */}
+          <div style={{
+            marginTop: '36px',
+            marginBottom: '70px',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: '6px',
+            color: 'var(--text-muted)',
+            fontSize: '0.75rem'
+          }}>
+            <div>{storeName} ・ 顧客線上掃碼點餐系統</div>
           </div>
 
           {/* Sticky Floating Cart Bar */}

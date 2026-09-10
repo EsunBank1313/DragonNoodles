@@ -27,7 +27,7 @@ export const syncRegisteredStoresCache = (storesList) => {
   } catch (e) {}
 };
 
-// Resolve storeCode from URL param (?store=xxx or ?staff=xxx)
+// Resolve storeCode from URL param (?store=xxx or ?staff=xxx) or Domain Hostname
 export const resolveStoreCode = (paramValue = '') => {
   if (!paramValue && typeof window !== 'undefined') {
     const hostname = window.location.hostname;
@@ -35,8 +35,16 @@ export const resolveStoreCode = (paramValue = '') => {
     if (hostname.startsWith('luzhou.') || hostname.startsWith('luzhou7.')) return 'luzhou';
     const params = new URLSearchParams(window.location.search);
     paramValue = params.get('store') || params.get('staff') || '';
+
+    // Domain / Hostname auto-detection if no ?store= param
+    if (!paramValue) {
+      const host = (window.location.hostname || '').toLowerCase();
+      if (host.includes('luzhou') || host.includes('lz7')) return 'luzhou';
+      if (host.includes('133')) return '133';
+      return DEFAULT_STORE_CODE;
+    }
   }
-  const clean = String(paramValue || '').trim().toLowerCase();
+  let clean = String(paramValue || '').trim().toLowerCase();
   if (!clean) {
     if (typeof window !== 'undefined') {
       const hostname = window.location.hostname;
@@ -46,22 +54,67 @@ export const resolveStoreCode = (paramValue = '') => {
     return DEFAULT_STORE_CODE;
   }
 
+  // Normalize aliases
+  if (clean === 'luzhou7' || clean === 'lz7') clean = 'luzhou';
+
+  // 1. PIN or Admin Tokens for default store
+  if (
+    clean === '8888' ||
+    clean.includes('admin_8888') ||
+    clean.includes('pos_8888') ||
+    clean === 'admin' ||
+    clean === 'pos' ||
+    clean === 'cashier' ||
+    clean === 'dragon' ||
+    clean.startsWith('dg_')
+  ) {
+    return DEFAULT_STORE_CODE;
+  }
+
   const stores = getRegisteredStores();
-  
-  // Exact match by code
+
+  // 2. Exact match by store code
   const matchCode = stores.find(s => s.code.toLowerCase() === clean);
-  if (matchCode) return matchCode.code;
+  if (matchCode) return matchCode.code === 'luzhou7' ? 'luzhou' : matchCode.code;
 
-  // Match by staffToken
+  // 3. Match by staffToken
   const matchToken = stores.find(s => s.staffToken && s.staffToken.toLowerCase() === clean);
-  if (matchToken) return matchToken.code;
+  if (matchToken) return matchToken.code === 'luzhou7' ? 'luzhou' : matchToken.code;
 
-  // Prefix matching
-  if (clean.startsWith('dg_') || clean === 'dragon') return 'dragon';
+  // 4. Token prefix matching (e.g. lz_xxx, 133_xxx, storecode_random)
   if (clean.startsWith('lz_') || clean === 'luzhou' || clean.includes('luzhou')) return 'luzhou';
   if (clean.startsWith('133') || clean.includes('133')) return '133';
 
-  return clean;
+  // If token has standard format {storeCode}_{randomHex}, extract prefix
+  if (clean.includes('_')) {
+    const prefix = clean.split('_')[0];
+    const matchPrefix = stores.find(s => s.code.toLowerCase() === prefix);
+    if (matchPrefix) return matchPrefix.code === 'luzhou7' ? 'luzhou' : matchPrefix.code;
+  }
+
+  // 5. Check if clean matches any known custom store token stored in localStorage
+  if (typeof localStorage !== 'undefined') {
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.endsWith('_staff_secret_token')) {
+          const val = (localStorage.getItem(k) || '').trim().toLowerCase();
+          if (val && val === clean) {
+            const sc = k.replace('_staff_secret_token', '');
+            if (sc) return sc;
+          }
+        }
+      }
+    } catch (e) {}
+  }
+
+  // 6. If clean is an already registered store code
+  if (stores.some(s => s.code.toLowerCase() === clean)) {
+    return clean;
+  }
+
+  // 7. Safety fallback: NEVER return an unregistered or unknown code that causes 0 items to be loaded!
+  return DEFAULT_STORE_CODE;
 };
 
 export const getActiveStoreCode = () => {
@@ -113,7 +166,8 @@ export const removeStoreSessionStorage = (key, storeCode = '') => {
 // Filter Supabase items by storeCode
 export const filterItemsByStore = (items = [], storeCode = '') => {
   if (!Array.isArray(items)) return [];
-  const sCode = storeCode || getActiveStoreCode();
+  let sCode = resolveStoreCode(storeCode || getActiveStoreCode());
+  if (sCode === 'luzhou7' || sCode === 'lz7') sCode = 'luzhou';
   
   if (sCode === 'dragon') {
     // Default main store: items without [prefix] or with [dragon] prefix
@@ -128,33 +182,41 @@ export const filterItemsByStore = (items = [], storeCode = '') => {
 
   // Branch stores: items with [sCode] prefix
   return items
-    .filter(item => item.name && item.name.startsWith(`[${sCode}] `))
+    .filter(item => item.name && (item.name.startsWith(`[${sCode}] `) || (sCode === 'luzhou' && item.name.startsWith('[luzhou7] '))))
     .map(item => ({
       ...item,
       originalDbName: item.name,
-      name: item.name ? item.name.replace(new RegExp(`^\\[${sCode}\\]\\s*`), '') : ''
+      name: item.name ? item.name.replace(new RegExp(`^\\[(${sCode}|luzhou7)\\]\\s*`), '') : ''
     }));
 };
 
 export const filterOrdersByStore = (orders = [], storeCode = '') => {
   if (!Array.isArray(orders)) return [];
-  const sCode = storeCode || getActiveStoreCode();
+  let sCode = (storeCode || getActiveStoreCode() || 'dragon').toLowerCase();
+  if (sCode === 'luzhou7' || sCode === 'lz7') sCode = 'luzhou';
+
   return orders.filter(o => {
-    try {
-      const itemsData = typeof o.items === 'string' ? JSON.parse(o.items || '{}') : (o.items || {});
-      const orderStore = itemsData.storeCode || itemsData.store_code || o.store_code;
-      if (sCode === 'dragon') {
-        return !orderStore || orderStore === 'dragon';
-      }
-      return orderStore === sCode;
-    } catch (e) {
-      return sCode === 'dragon';
+    let itemsData = o.items;
+    if (typeof itemsData === 'string') {
+      try { itemsData = JSON.parse(itemsData); } catch (e) { itemsData = {}; }
     }
+    const orderStore = String(itemsData?.store_code || itemsData?.storeCode || o.store_code || '').trim().toLowerCase();
+
+    if (sCode === 'dragon') {
+      return !orderStore || orderStore === 'dragon';
+    }
+
+    if (sCode === 'luzhou') {
+      return orderStore === 'luzhou' || orderStore === 'luzhou7' || orderStore.startsWith('lz_');
+    }
+
+    return orderStore === sCode;
   });
 };
 
 export const prefixNameForStore = (name = '', storeCode = '') => {
-  const sCode = storeCode || getActiveStoreCode();
+  let sCode = storeCode || getActiveStoreCode();
+  if (sCode === 'luzhou7' || sCode === 'lz7') sCode = 'luzhou';
   if (sCode === 'dragon') return name;
   if (name.startsWith(`[${sCode}] `)) return name;
   return `[${sCode}] ${name}`;
@@ -185,7 +247,7 @@ export const generateRandomStoreToken = (storeCode = 'store') => {
 };
 
 export const getStoreLinks = (storeCode = '') => {
-  const sCode = storeCode || getActiveStoreCode();
+  const sCode = resolveStoreCode(storeCode || getActiveStoreCode());
   const token = getStoreStaffToken(sCode);
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
   return {
@@ -193,6 +255,27 @@ export const getStoreLinks = (storeCode = '') => {
     login: `${origin}/?store=${token}&login=true`,
     pos: `${origin}/?store=${token}&pos=true`,
     bookkeeping: `${origin}/?store=${token}&bookkeeping=true`,
-    admin: `${origin}/?store=${token}&admin=true`
+    // Compatibility aliases for ManagementView
+    customerUrl: `${origin}/?store=${sCode}`,
+    posUrl: `${origin}/?store=${token}&pos=true`,
+    bookkeepingUrl: `${origin}/?store=${token}&bookkeeping=true`,
+    adminUrl: `${origin}/?store=${token}&admin=true`,
+    publicToken: token
   };
 };
+
+export const getStoreDisplayName = (storeCode = '') => {
+  let sCode = resolveStoreCode(storeCode || getActiveStoreCode());
+  if (sCode === 'luzhou' || sCode === 'luzhou7' || sCode === 'lz7') return '蘆洲七號麵線';
+  if (sCode === '133') return '133那個麵';
+  if (sCode === 'dragon') return '龍城麵線';
+  try {
+    const cached = localStorage.getItem(`${sCode}_store_name`);
+    if (cached) return cached;
+  } catch (e) {}
+  const stores = getRegisteredStores();
+  const matched = stores.find(s => s.code === sCode);
+  return matched?.name || (sCode === 'dragon' ? '龍城麵線' : `門市 [${sCode}]`);
+};
+
+

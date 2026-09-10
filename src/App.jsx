@@ -7,7 +7,7 @@ import UnifiedLoginScreen from './components/UnifiedLoginScreen';
 import SetupWizardModal from './components/SetupWizardModal';
 import { supabase } from './supabaseClient';
 import { isAuthorizedStaffToken, getPinLockoutStatus, recordFailedPinAttempt, resetPinAttempts } from './utils/securityConfig';
-import { resolveStoreCode, getActiveStoreCode } from './utils/storeContext';
+import { resolveStoreCode, getActiveStoreCode, syncRegisteredStoresCache, getStoreDisplayName } from './utils/storeContext';
 import { getActiveModuleSettings, isModuleEnabled } from './utils/moduleContext';
 
 const getInitialRoleAndParams = () => {
@@ -26,22 +26,22 @@ const getInitialRoleAndParams = () => {
   // Subdomain support (pos.domain.com, admin.domain.com, bookkeeping.domain.com)
   const isSubdomainStaff = hostname.startsWith('pos.') || hostname.startsWith('admin.') || hostname.startsWith('bookkeeping.');
 
-  const wantsPos = params.get('pos') !== null || hostname.startsWith('pos.');
+  const wantsPos = params.get('pos') !== null || params.get('cashier') !== null || hostname.startsWith('pos.');
   const wantsBookkeeping = params.get('bookkeeping') !== null || hostname.startsWith('bookkeeping.');
   const wantsAdmin = params.get('admin') !== null || params.get('management') !== null || hostname.startsWith('admin.');
   const wantsLogin = params.get('portal') !== null || params.get('login') !== null || params.get('demo') !== null;
 
   if (wantsPos || wantsBookkeeping || wantsAdmin || wantsLogin) {
-    // Strictly require authorized security token!
+    // Strictly require authorized secret token (亂碼)!
+    // 沒有亂碼的非顧客使用網址都沒有任何作用，直接留在顧客點餐畫面
     if (!isAuthorized && !isSubdomainStaff) {
-      // 🚫 No secret token provided: Strictly hide backend and show customer menu!
-      return { role: 'customer', table: table || null, isStaffAuthorized: false, storeCode };
+      return { role: 'customer', table: table || null, isStaffAuthorized: false, storeCode: storeCode || resolveStoreCode('') };
     }
 
+    if (wantsLogin) return { role: 'login', table: null, isStaffAuthorized: true, storeCode };
     if (wantsPos) return { role: 'pos', table: null, isStaffAuthorized: true, storeCode };
     if (wantsBookkeeping) return { role: 'bookkeeping', table: null, isStaffAuthorized: true, storeCode };
     if (wantsAdmin) return { role: 'management', table: null, isStaffAuthorized: true, storeCode };
-    if (wantsLogin) return { role: 'login', table: null, isStaffAuthorized: true, storeCode };
   }
 
   return { role: 'customer', table: table || null, isStaffAuthorized: false, storeCode };
@@ -52,7 +52,13 @@ function App() {
   const [role, setRole] = useState(initial.role);
   const [storeCode, setStoreCode] = useState(initial.storeCode || 'dragon');
   const [tableNumber, setTableNumber] = useState(initial.table);
-  const [storeName, setStoreName] = useState(() => localStorage.getItem('app_store_name') || '龍城麵線');
+  const [storeName, setStoreName] = useState(() => {
+    try {
+      const cached = localStorage.getItem(`${initial.storeCode || 'dragon'}_store_name`);
+      if (cached) return cached;
+    } catch (e) {}
+    return getStoreDisplayName(initial.storeCode || 'dragon');
+  });
   const [adminPin, setAdminPin] = useState(() => localStorage.getItem('app_admin_pin') || '8888');
   const [showSetupWizard, setShowSetupWizard] = useState(false);
 
@@ -86,10 +92,16 @@ function App() {
 
   // Cache buster to clear stale local storage states across client devices
   useEffect(() => {
-    const CURRENT_VERSION = "3.0.0";
+    const CURRENT_VERSION = "3.2.0";
     const localVersion = localStorage.getItem('app_version');
     if (localVersion !== CURRENT_VERSION) {
       localStorage.setItem('app_version', CURRENT_VERSION);
+      try {
+        localStorage.removeItem('luzhou_restaurant_menu_items');
+        localStorage.removeItem('luzhou_management_menu_items');
+        localStorage.removeItem('luzhou7_restaurant_menu_items');
+        localStorage.removeItem('luzhou7_management_menu_items');
+      } catch (e) {}
     }
   }, []);
 
@@ -97,22 +109,27 @@ function App() {
   useEffect(() => {
     const loadProfile = async () => {
       try {
-        const { data } = await supabase.from('menu_items').select('*');
+        const { data } = await supabase
+          .from('menu_items')
+          .select('name, description')
+          .like('name', '%SYSTEM_SETTING_%');
         if (data && data.length > 0) {
           // Data exists! Existing store -> ensure wizard is never shown
           localStorage.setItem('app_setup_wizard_completed', 'true');
           setShowSetupWizard(false);
-          const profileItem = data.find(i => i.name === 'SYSTEM_SETTING_STORE_PROFILE');
+          const profileKey = storeCode === 'dragon' ? 'SYSTEM_SETTING_STORE_PROFILE' : `[${storeCode}] SYSTEM_SETTING_STORE_PROFILE`;
+          const profileItem = data.find(i => i.name === profileKey) || (storeCode === 'dragon' ? data.find(i => i.name === 'SYSTEM_SETTING_STORE_PROFILE') : null);
           if (profileItem && profileItem.description) {
             try {
               const p = JSON.parse(profileItem.description);
-              if (p.name) {
-                setStoreName(p.name);
-                localStorage.setItem('app_store_name', p.name);
+              const storeDisplayName = p.storeName || p.name;
+              if (storeDisplayName) {
+                setStoreName(storeDisplayName);
+                localStorage.setItem(`${storeCode}_store_name`, storeDisplayName);
               }
               if (p.pin) {
                 setAdminPin(p.pin);
-                localStorage.setItem('app_admin_pin', p.pin);
+                localStorage.setItem(`${storeCode}_admin_pin`, p.pin);
               }
             } catch (e) {}
           }
@@ -132,6 +149,17 @@ function App() {
               localStorage.setItem('app_staff_secret_token', cleanToken);
               localStorage.setItem(`${storeCode}_staff_secret_token`, cleanToken);
             }
+          }
+
+          // Sync registered stores from cloud into local cache for all devices
+          const regItem = data.find(i => i.name === 'SYSTEM_SETTING_REGISTERED_STORES');
+          if (regItem && regItem.description) {
+            try {
+              const parsed = JSON.parse(regItem.description);
+              if (Array.isArray(parsed) && parsed.length > 0) {
+                syncRegisteredStoresCache(parsed);
+              }
+            } catch (e) {}
           }
         }
       } catch (err) {}

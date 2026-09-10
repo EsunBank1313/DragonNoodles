@@ -29,19 +29,23 @@ export const setStaffSecretToken = (token, storeCode = '') => {
 
 // Check if the provided URL token matches ANY registered store or staff token
 export const isAuthorizedStaffToken = (tokenParam) => {
-  if (!tokenParam) return false;
+  // If no token param, only allow if staff is ALREADY authenticated within valid session
+  if (!tokenParam) {
+    if (typeof window !== 'undefined') {
+      const hasSession = localStorage.getItem('is_cashier_authenticated') === 'true' ||
+                         localStorage.getItem('is_bookkeeping_authenticated') === 'true' ||
+                         localStorage.getItem('is_management_authenticated') === 'true';
+      if (hasSession) return true;
+    }
+    return false;
+  }
   const cleanParam = String(tokenParam).trim().toLowerCase();
   
-  // 1. Check known built-in static tokens
+  // 1. Check known built-in static secret tokens (ONLY secret tokens, NO generic keywords!)
   const builtInTokens = [
     'dg_8f2a1c',
     'lz_9b7e41',
-    '133_g35gb6',
-    'dragon',
-    'luzhou',
-    '133',
-    'admin_8888',
-    'pos_8888'
+    '133_g35gb6'
   ];
   if (builtInTokens.includes(cleanParam)) return true;
 

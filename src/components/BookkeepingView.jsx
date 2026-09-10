@@ -5,7 +5,7 @@ import { menuItems as defaultMenuItems } from '../data/menuData';
 import { printDailyClosingReport, defaultStoreProfile, defaultReceiptConfig } from '../utils/printHelpers';
 import ModuleCenterModal from './ModuleCenterModal';
 import { getActiveModuleSettings, isModuleEnabled } from '../utils/moduleContext';
-import { getActiveStoreCode, filterItemsByStore, filterOrdersByStore, prefixNameForStore, stripNameForStore, getStoreStorage, setStoreStorage } from '../utils/storeContext';
+import { resolveStoreCode, getActiveStoreCode, filterItemsByStore, filterOrdersByStore, prefixNameForStore, stripNameForStore, getStoreStorage, setStoreStorage, getStoreDisplayName } from '../utils/storeContext';
 
 // Dynamic Item & Addon Cost Calculation Engine
 export const calculateItemCost = (item) => {
@@ -113,29 +113,92 @@ const defaultVendorEvalTags = [
   { id: 't10', name: '📦 包裝破損', isGood: false }
 ];
 
-const defaultInventory = [
-  { name: '紅麵線', qty: 100, unit: '斤', minStock: 20 },
-  { name: '新鮮蚵仔', qty: 30, unit: '斤', minStock: 5 },
-  { name: '滷大腸', qty: 50, unit: '斤', minStock: 10 },
-  { name: '豬肚', qty: 30, unit: '斤', minStock: 8 },
-  { name: '肉羹', qty: 40, unit: '斤', minStock: 10 },
-  { name: '花枝羹', qty: 40, unit: '斤', minStock: 10 },
-  { name: '貢丸', qty: 200, unit: '個', minStock: 50 },
-  { name: '皮蛋', qty: 120, unit: '個', minStock: 30 },
-  { name: '板豆腐', qty: 60, unit: '盒', minStock: 15 },
-  { name: '黃金泡菜(備料)', qty: 80, unit: '份', minStock: 20 },
-  { name: '紅茶(備料)', qty: 150, unit: '杯', minStock: 45 },
-  { name: '外帶紙碗/內用清潔費', qty: 500, unit: '個', minStock: 100 },
-  { name: '免洗湯匙', qty: 500, unit: '個', minStock: 100 },
-  { name: '新鮮香菜', qty: 15, unit: '斤', minStock: 3 },
-  { name: '特製辣醬', qty: 20, unit: '罐', minStock: 5 },
-  { name: '大蒜/辛香料', qty: 25, unit: '斤', minStock: 5 },
-  { name: '桶裝瓦斯', qty: 10, unit: '桶', minStock: 2 },
-  { name: '洗衣粉', qty: 0, unit: '包', minStock: 1 },
-  { name: '大瓷碗', qty: 0, unit: '個', minStock: 2 },
-  { name: '小瓷碗', qty: 0, unit: '個', minStock: 2 },
-  { name: '拖鞋', qty: 0, unit: '組', minStock: 1 },
-  { name: '手套', qty: 0, unit: '組', minStock: 1 }
+export const defaultVendors = [
+  {
+    id: "v1",
+    name: "小周",
+    items: [
+      { name: "紅麵線", qty: "1包", cost: 500 },
+      { name: "花枝羹", qty: "1包", cost: 725 },
+      { name: "肉羹", qty: "1包", cost: 650 },
+      { name: "貢丸", qty: "1包", cost: 600 },
+      { name: "大腸", qty: "1包", cost: 240 },
+      { name: "小腸", qty: "1包", cost: 140 },
+      { name: "豬肚", qty: "1包", cost: 140 },
+      { name: "大紙碗", qty: "1箱", cost: 1400 },
+      { name: "小紙碗", qty: "1箱", cost: 1850 },
+      { name: "外帶塑膠袋", qty: "1公斤", cost: 95 },
+      { name: "調味粉(三包)", qty: "1套", cost: 200 },
+      { name: "泡菜", qty: "1包", cost: 125 },
+      { name: "要你命1000(販售)", qty: "1罐", cost: 85 },
+      { name: "要你命2000(販售)", qty: "1罐", cost: 85 },
+      { name: "要你命3000(販售)", qty: "1罐", cost: 105 },
+      { name: "要你命1000(商用)", qty: "1罐", cost: 550 },
+      { name: "要你命2000(商用)", qty: "1罐", cost: 550 },
+      { name: "要你命3000(商用)", qty: "1罐", cost: 650 },
+      { name: "鮮肉包(10顆)", qty: "1包", cost: 150 }
+    ]
+  },
+  {
+    id: "v_1785304699106",
+    name: "其他",
+    items: [
+      { name: "手套", qty: "1組", cost: 39 },
+      { name: "拖鞋", qty: "1組", cost: 35 },
+      { name: "洗衣粉", qty: "1包", cost: 95 },
+      { name: "大蒜", qty: "1包", cost: 40 },
+      { name: "內用湯匙", qty: "1組", cost: 480 },
+      { name: "蚵仔", qty: "1包", cost: 90 },
+      { name: "香菜", qty: "1把", cost: 35 },
+      { name: "皮蛋", qty: "1顆", cost: 10 }
+    ]
+  },
+  {
+    id: "v_1788315734785",
+    name: "濱江果菜市場-海鮮A",
+    items: [
+      { name: "蚵仔", qty: "1斤", cost: 150 }
+    ]
+  },
+  {
+    id: "v_1788315819632",
+    name: "濱江果菜市場-葉菜A",
+    items: [
+      { name: "香菜", qty: "一把", cost: 80 },
+      { name: "蒜末", qty: "一包", cost: 70 }
+    ]
+  }
+];
+
+export const defaultInventory = [
+  { name: "調味粉(三包)", qty: 9.5, unit: "套", minStock: 8 },
+  { name: "紅麵線", qty: 30.75, unit: "包", minStock: 2 },
+  { name: "衛生紙", qty: 1, unit: "包", minStock: 1 },
+  { name: "大腸", qty: 4, unit: "包", minStock: 3 },
+  { name: "小腸", qty: 4, unit: "包", minStock: 3 },
+  { name: "豬肚", qty: 15, unit: "包", minStock: 3 },
+  { name: "貢丸", qty: 8, unit: "包", minStock: 1 },
+  { name: "肉羹", qty: 7, unit: "包", minStock: 1 },
+  { name: "花枝羹", qty: 8.5, unit: "包", minStock: 1 },
+  { name: "蚵仔", qty: 11, unit: "包", minStock: 1 },
+  { name: "泡菜", qty: 19, unit: "包", minStock: 2 },
+  { name: "醋", qty: 6, unit: "L", minStock: 2 },
+  { name: "香菜", qty: 1, unit: "把", minStock: 1 },
+  { name: "皮蛋", qty: 49, unit: "顆", minStock: 10 },
+  { name: "大紙碗", qty: 9, unit: "包", minStock: 5 },
+  { name: "小紙碗", qty: 9, unit: "包", minStock: 5 },
+  { name: "塑膠蓋", qty: 8, unit: "包", minStock: 5 },
+  { name: "塑膠袋", qty: 1, unit: "份", minStock: 1 },
+  { name: "收據紙捲", qty: 2, unit: "捲", minStock: 1 },
+  { name: "廚房用紙", qty: 2, unit: "包", minStock: 1 },
+  { name: "菜瓜布", qty: 4, unit: "片", minStock: 2 },
+  { name: "雙片菜瓜布", qty: 2, unit: "片", minStock: 1 },
+  { name: "洗衣粉", qty: 5, unit: "包", minStock: 0 },
+  { name: "瓢根", qty: 25, unit: "包", minStock: 5 },
+  { name: "拖鞋", qty: 8, unit: "組", minStock: 1 },
+  { name: "手套", qty: 8, unit: "組", minStock: 1 },
+  { name: "大瓷碗", qty: 12, unit: "個", minStock: 2 },
+  { name: "小瓷碗", qty: 6, unit: "個", minStock: 2 }
 ];
 
 const RECIPES = {
@@ -247,7 +310,7 @@ const defaultBatchTemplates = [
 ];
 
 export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo, onLogout, parentClosedDates, parentSetClosedDates }) {
-  const storeCode = propStoreCode || getActiveStoreCode();
+  const storeCode = resolveStoreCode(propStoreCode || getActiveStoreCode());
     const [condimentsAvailability, setCondimentsAvailability] = useState({});
   const [menuItems, setMenuItems] = useState([]);
   const [selectedManageType, setSelectedManageType] = useState('general');
@@ -701,8 +764,13 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
   const [editInvIsWatched, setEditInvIsWatched] = useState(true);
   const [newInvIsWatched, setNewInvIsWatched] = useState(true);
   const [storeProfile, setStoreProfile] = useState(defaultStoreProfile);
-  const defaultInitialStoreName = false ? '蘆洲七號店' : (storeCode !== 'dragon' ? `門市 [${storeCode}]` : '龍城麵線');
-  const [storeName, setStoreName] = useState(defaultInitialStoreName);
+  const [storeName, setStoreName] = useState(() => {
+    try {
+      const cached = localStorage.getItem(`${storeCode}_store_name`);
+      if (cached) return cached;
+    } catch (e) {}
+    return getStoreDisplayName(storeCode);
+  });
   const [receiptConfig, setReceiptConfig] = useState(defaultReceiptConfig);
 
   // Financial report date range filtering
@@ -848,7 +916,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
 
   // Inventory States
   const [isInventoryLoaded, setIsInventoryLoaded] = useState(false);
-  const [inventory, setInventory] = useState([]);
+  const [inventory, setInventory] = useState(() => storeCode === 'dragon' ? defaultInventory : []);
   const [processedOrderIds, setProcessedOrderIds] = useState([]);
   const [inventoryLogs, setInventoryLogs] = useState([]);
   // Vendor Management States (V2: multi-items support)
@@ -866,7 +934,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
   const [salesViewMode, setSalesViewMode] = useState('active'); // 'active' (有效訂單) or 'deleted' (已作廢/已刪除訂單)
   const [showAllHistoryDeleted, setShowAllHistoryDeleted] = useState(false);
 
-  const [vendors, setVendors] = useState([]);
+  const [vendors, setVendors] = useState(() => storeCode === 'dragon' ? defaultVendors : []);
   const [selectedVendorId, setSelectedVendorId] = useState('v1');
   const [selectedVendorItemIndex, setSelectedVendorItemIndex] = useState('0'); // index or 'custom'
   const [customItemName, setCustomItemName] = useState('');
@@ -2022,7 +2090,10 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
 
         // Filter out SYSTEM_STORE_CLOSE
         const clientOrders = storeOrders.filter(o => {
-          const itemsData = typeof o.items === 'string' ? JSON.parse(o.items) : o.items;
+          let itemsData = o.items;
+          if (typeof itemsData === 'string') {
+            try { itemsData = JSON.parse(itemsData); } catch (e) { itemsData = {}; }
+          }
           return itemsData?.customerName !== 'SYSTEM_STORE_CLOSE';
         });
         setOrders(clientOrders.map(formatSupabaseOrder).filter(Boolean));
@@ -2030,7 +2101,10 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
         // Extract SYSTEM_STORE_CLOSE dates
         const cloudClosedDates = storeOrders
           .filter(o => {
-            const itemsData = typeof o.items === 'string' ? JSON.parse(o.items) : o.items;
+            let itemsData = o.items;
+            if (typeof itemsData === 'string') {
+              try { itemsData = JSON.parse(itemsData); } catch (e) { itemsData = {}; }
+            }
             return itemsData?.customerName === 'SYSTEM_STORE_CLOSE';
           })
           .map(o => new Date(o.created_at).toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' }));
@@ -2053,11 +2127,15 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
       const { data, error } = await supabase.from('purchases').select('*').order('created_at', { ascending: false });
       if (error) throw error;
       if (data) {
+        const currentCode = (storeCode || 'dragon').toLowerCase();
         const storePurchases = data.filter(p => {
-          if (true) {
+          if (currentCode === 'dragon') {
             return !p.item_name?.startsWith('[') || p.item_name?.startsWith('[dragon] ');
           }
-          return p.item_name?.startsWith(`[${storeCode}] `);
+          if (currentCode === 'luzhou' || currentCode === 'luzhou7') {
+            return p.item_name?.startsWith('[luzhou] ') || p.item_name?.startsWith('[luzhou7] ');
+          }
+          return p.item_name?.startsWith(`[${currentCode}] `);
         });
 
         const mapped = storePurchases.map(p => ({
@@ -2065,7 +2143,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
           date: p.date,
           time: p.time,
           vendor: p.vendor,
-          itemName: p.item_name,
+          itemName: stripNameForStore(p.item_name, storeCode),
           quantity: p.quantity,
           cost: Number(p.cost),
           status: p.status
@@ -2107,16 +2185,20 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
       const { data, error } = await supabase.from('fixed_costs').select('*').order('created_at', { ascending: false });
       if (error) throw error;
       if (data) {
+        const currentCode = (storeCode || 'dragon').toLowerCase();
         const storeFixedCosts = data.filter(fc => {
-          if (true) {
+          if (currentCode === 'dragon') {
             return !fc.name?.startsWith('[') || fc.name?.startsWith('[dragon] ');
           }
-          return fc.name?.startsWith(`[${storeCode}] `);
+          if (currentCode === 'luzhou' || currentCode === 'luzhou7') {
+            return fc.name?.startsWith('[luzhou] ') || fc.name?.startsWith('[luzhou7] ');
+          }
+          return fc.name?.startsWith(`[${currentCode}] `);
         });
 
         const mapped = storeFixedCosts.map(fc => ({
           id: String(fc.id),
-          name: fc.name,
+          name: stripNameForStore(fc.name, storeCode),
           cost: Number(fc.cost),
           expiryDate: fc.expiry_date
         }));
@@ -2164,14 +2246,18 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
           try {
             const parsed = JSON.parse(profileItem.description);
             setStoreProfile(parsed);
-            if (parsed.storeName) setStoreName(parsed.storeName);
+            if (parsed.storeName) {
+              setStoreName(parsed.storeName);
+              try { localStorage.setItem(`${storeCode}_store_name`, parsed.storeName); } catch (e) {}
+            }
           } catch (e) {}
         } else {
           const nameItem = storeItems.find(i => i.name === 'SYSTEM_SETTING_STORE_NAME');
           if (nameItem && nameItem.description) {
             setStoreName(nameItem.description);
+            try { localStorage.setItem(`${storeCode}_store_name`, nameItem.description); } catch (e) {}
           } else {
-            setStoreName(storeCode === 'dragon' ? '龍城麵線' : (storeCode === 'luzhou' ? '蘆洲七號麵線' : `門市 [${storeCode}]`));
+            setStoreName(getStoreDisplayName(storeCode));
           }
         }
 
@@ -2185,10 +2271,46 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
         const invItem = storeItems.find(i => i.name === 'SYSTEM_SETTING_INVENTORY');
         if (invItem && invItem.description) {
           try {
-            setInventory(JSON.parse(invItem.description));
-          } catch (e) { setInventory([]); }
+            const parsed = JSON.parse(invItem.description);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              setInventory(parsed);
+            } else if (storeCode === 'dragon') {
+              setInventory(defaultInventory);
+            } else {
+              const masterInv = data.find(i => i.name === 'SYSTEM_SETTING_INVENTORY');
+              if (masterInv && masterInv.description) {
+                const mParsed = JSON.parse(masterInv.description);
+                setInventory(mParsed.length > 0 ? mParsed : defaultInventory);
+              } else {
+                setInventory(defaultInventory);
+              }
+            }
+          } catch (e) {
+            setInventory(storeCode === 'dragon' ? defaultInventory : []);
+          }
         } else {
-          setInventory([]);
+          // Check localStorage or master store fallback
+          const localInv = localStorage.getItem(`${storeCode}_restaurant_inventory`);
+          if (localInv) {
+            try {
+              const parsed = JSON.parse(localInv);
+              setInventory(parsed && parsed.length > 0 ? parsed : (storeCode === 'dragon' ? defaultInventory : []));
+            } catch (e) {
+              setInventory(storeCode === 'dragon' ? defaultInventory : []);
+            }
+          } else {
+            const masterInv = data.find(i => i.name === 'SYSTEM_SETTING_INVENTORY');
+            if (masterInv && masterInv.description) {
+              try {
+                const parsed = JSON.parse(masterInv.description);
+                setInventory(parsed && parsed.length > 0 ? parsed : defaultInventory);
+              } catch (e) {
+                setInventory(storeCode === 'dragon' ? defaultInventory : []);
+              }
+            } else {
+              setInventory(storeCode === 'dragon' ? defaultInventory : []);
+            }
+          }
         }
 
         const logsItem = storeItems.find(i => i.name === 'SYSTEM_SETTING_INVENTORY_LOGS');
@@ -2278,12 +2400,44 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
         if (vendorsItem && vendorsItem.description) {
           try {
             const parsed = JSON.parse(vendorsItem.description);
-            setVendors(parsed);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              setVendors(parsed);
+            } else if (storeCode === 'dragon') {
+              setVendors(defaultVendors);
+            } else {
+              const masterVendors = data.find(i => i.name === 'SYSTEM_SETTING_VENDORS_V2');
+              if (masterVendors && masterVendors.description) {
+                const mParsed = JSON.parse(masterVendors.description);
+                setVendors(mParsed.length > 0 ? mParsed : defaultVendors);
+              } else {
+                setVendors(defaultVendors);
+              }
+            }
           } catch (e) {
-            setVendors([]);
+            setVendors(storeCode === 'dragon' ? defaultVendors : []);
           }
         } else {
-          setVendors([]);
+          const localVendors = localStorage.getItem(`${storeCode}_restaurant_vendors`) || localStorage.getItem('restaurant_vendors_v2');
+          if (localVendors) {
+            try {
+              const parsed = JSON.parse(localVendors);
+              setVendors(parsed && parsed.length > 0 ? parsed : (storeCode === 'dragon' ? defaultVendors : []));
+            } catch (e) {
+              setVendors(storeCode === 'dragon' ? defaultVendors : []);
+            }
+          } else {
+            const masterVendors = data.find(i => i.name === 'SYSTEM_SETTING_VENDORS_V2');
+            if (masterVendors && masterVendors.description) {
+              try {
+                const parsed = JSON.parse(masterVendors.description);
+                setVendors(parsed && parsed.length > 0 ? parsed : defaultVendors);
+              } catch (e) {
+                setVendors(storeCode === 'dragon' ? defaultVendors : []);
+              }
+            } else {
+              setVendors(storeCode === 'dragon' ? defaultVendors : []);
+            }
+          }
         }
       }
     } catch (e) {
@@ -2319,6 +2473,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
   useEffect(() => {
     if (!isInventoryLoaded) return;
     localStorage.setItem(`${storeCode}_restaurant_inventory`, JSON.stringify(inventory));
+    if (!inventory || inventory.length === 0) return;
     const syncInv = async () => {
       try {
         const invKey = prefixNameForStore('SYSTEM_SETTING_INVENTORY', storeCode);

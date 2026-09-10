@@ -1,16 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 import { formatSupabaseOrder } from './CustomerView';
-import { defaultUpgradeCombos, isComboApplicableToItem } from '../data/menuData';
+import { menuItems as fallbackMenuItems, luzhouFallbackMenuItems, defaultUpgradeCombos, isComboApplicableToItem } from '../data/menuData';
 import ItemModal from './ItemModal';
 import ThermalPrintPortal from './ThermalPrintPortal';
 import { defaultStoreProfile, defaultReceiptConfig, printThermalReceipt, printDailyClosingReport } from '../utils/printHelpers';
 import ModuleCenterModal from './ModuleCenterModal';
 import { getActiveModuleSettings, isModuleEnabled } from '../utils/moduleContext';
-import { getActiveStoreCode, filterItemsByStore, filterOrdersByStore, prefixNameForStore, stripNameForStore, getStoreStorage, setStoreStorage, getStoreSessionStorage, setStoreSessionStorage, removeStoreSessionStorage } from '../utils/storeContext';
+import { resolveStoreCode, getActiveStoreCode, filterItemsByStore, filterOrdersByStore, prefixNameForStore, stripNameForStore, getStoreStorage, setStoreStorage, getStoreSessionStorage, setStoreSessionStorage, removeStoreSessionStorage, getStoreDisplayName } from '../utils/storeContext';
 
 export default function CashierView({ storeCode: propStoreCode, cashierName, sessionId: propSessionId, onLogout }) {
-  const storeCode = propStoreCode || getActiveStoreCode();
+  const storeCode = resolveStoreCode(propStoreCode || getActiveStoreCode());
 
   const getTodayLocalDate = () => {
     try {
@@ -34,12 +34,37 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
 
   const systemStartTime = useRef(Date.now());
   const locallyPrintedOrders = useRef(new Set());
-  const [menuItems, setMenuItems] = useState([]);
-  const [categories, setCategories] = useState([
-    { id: 'mee-sua', name: '招牌麵線', icon: '🍜' },
-    { id: 'specialties', name: '精選推薦', icon: '🔥' }
-  ]);
-  const [activeCategory, setActiveCategory] = useState('mee-sua');
+  const [menuItems, setMenuItems] = useState(() => {
+    try {
+      const saved = localStorage.getItem(`${storeCode}_restaurant_menu_items`);
+      if (saved) {
+        let parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          if (storeCode === 'luzhou' || storeCode === 'luzhou7') {
+            parsed = parsed.filter(i => !i.name?.includes('麵線') && !i.name?.includes('沙士') && !i.name?.includes('氣泡飲') && i.category !== 'mee-sua' && !([146, 147, 148, 149, 150, 151, 152, 153, 154, 155].includes(Number(i.id))));
+          }
+          if (parsed.length > 0) return parsed;
+        }
+      }
+    } catch (e) {}
+    if (storeCode === 'luzhou' || storeCode === 'luzhou7') return luzhouFallbackMenuItems;
+    return storeCode === 'dragon' ? fallbackMenuItems : [];
+  });
+  const [categories, setCategories] = useState(() => {
+    if (storeCode === 'luzhou' || storeCode === 'luzhou7') {
+      return [{ id: 'specialties', name: '精選推薦', icon: '🔥' }];
+    }
+    return [
+      { id: 'mee-sua', name: '招牌麵線', icon: '🍜' },
+      { id: 'specialties', name: '特色產品', icon: '🔥' }
+    ];
+  });
+  const [activeCategory, setActiveCategory] = useState(() => {
+    if (storeCode === 'luzhou' || storeCode === 'luzhou7') {
+      return 'specialties';
+    }
+    return 'mee-sua';
+  });
   const [cart, setCart] = useState([]);
 
   // Inventory & Watched Items Restock Warning
@@ -49,8 +74,12 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
   useEffect(() => {
     const fetchInventory = async () => {
       try {
-        const invKey = 'SYSTEM_SETTING_INVENTORY';
-        const { data } = await supabase.from('menu_items').select('*').eq('name', invKey);
+        const invKey = prefixNameForStore('SYSTEM_SETTING_INVENTORY', storeCode);
+        let { data } = await supabase.from('menu_items').select('*').eq('name', invKey);
+        if ((!data || data.length === 0) && storeCode !== 'dragon') {
+          const fallbackRes = await supabase.from('menu_items').select('*').eq('name', 'SYSTEM_SETTING_INVENTORY');
+          data = fallbackRes.data;
+        }
         if (data && data.length > 0) {
           const parsed = JSON.parse(data[0].description);
           if (Array.isArray(parsed)) {
@@ -63,8 +92,9 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
     };
     fetchInventory();
 
-    const channel = supabase.channel('pos-inventory-realtime')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'menu_items', filter: 'name=eq.SYSTEM_SETTING_INVENTORY' }, () => {
+    const invKey = prefixNameForStore('SYSTEM_SETTING_INVENTORY', storeCode);
+    const channel = supabase.channel(`pos-inventory-realtime-${storeCode}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'menu_items', filter: `name=eq.${invKey}` }, () => {
         fetchInventory();
       })
       .subscribe();
@@ -72,7 +102,7 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
     return () => {
       supabase.removeChannel(channel);
     };
-  }, []);
+  }, [storeCode]);
 
   const watchedLowStockItems = inventory.filter(item => {
     const isWatched = item.isWatched !== false;
@@ -193,8 +223,14 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
   const [searchQuery, setSearchQuery] = useState('');
 
   // Store Open / Daily Opening Status
-  const [storeOpenStatus, setStoreOpenStatus] = useState(null);
-  const isStoreOpenToday = Boolean(storeOpenStatus && storeOpenStatus.is_open && storeOpenStatus.open_date === getTodayLocalDate());
+  const [storeOpenStatus, setStoreOpenStatus] = useState(() => {
+    try {
+      const saved = localStorage.getItem(`${storeCode}_store_open_status`);
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    return null;
+  });
+  const isStoreOpenToday = Boolean(storeOpenStatus && (storeOpenStatus.is_open === true || storeOpenStatus.isOpen === true));
 
   // Closed Dates for Locking
   const [closedDates, setClosedDates] = useState([]);
@@ -252,7 +288,13 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
   // Orders state and printing integration
   const [orders, setOrders] = useState([]);
   const [storeProfile, setStoreProfile] = useState(defaultStoreProfile);
-  const [storeName, setStoreName] = useState(storeCode === 'dragon' ? '龍城麵線' : (storeCode === 'luzhou' ? '蘆洲七號麵線' : `門市 [${storeCode}]`));
+  const [storeName, setStoreName] = useState(() => {
+    try {
+      const cached = localStorage.getItem(`${storeCode}_store_name`);
+      if (cached) return cached;
+    } catch (e) {}
+    return getStoreDisplayName(storeCode);
+  });
   const [adminPin, setAdminPin] = useState('8888');
   const [receiptConfig, setReceiptConfig] = useState(defaultReceiptConfig);
   const [upgradeCombos, setUpgradeCombos] = useState(defaultUpgradeCombos);
@@ -708,14 +750,18 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
           try {
             const parsed = JSON.parse(storeProfileItem.description);
             setStoreProfile(parsed);
-            if (parsed.storeName) setStoreName(parsed.storeName);
+            if (parsed.storeName) {
+              setStoreName(parsed.storeName);
+              try { localStorage.setItem(`${storeCode}_store_name`, parsed.storeName); } catch (e) {}
+            }
           } catch (e) {}
         } else {
           const storeNameItem = storeItems.find(item => item.name === 'SYSTEM_SETTING_STORE_NAME');
           if (storeNameItem && storeNameItem.description) {
             setStoreName(storeNameItem.description);
+            try { localStorage.setItem(`${storeCode}_store_name`, storeNameItem.description); } catch (e) {}
           } else {
-            setStoreName(storeCode === 'dragon' ? '龍城麵線' : (storeCode === 'luzhou' ? '蘆洲七號麵線' : `門市 [${storeCode}]`));
+            setStoreName(getStoreDisplayName(storeCode));
           }
         }
 
@@ -745,11 +791,13 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
           try { orderList = JSON.parse(orderItem.description); } catch (e) {}
         }
         
+        let currentCategories = categories;
         const categoriesItem = storeItems.find(item => item.name === 'SYSTEM_SETTING_PRODUCT_CATEGORIES');
         if (categoriesItem && categoriesItem.description) {
           try {
             const parsed = JSON.parse(categoriesItem.description);
             if (Array.isArray(parsed) && parsed.length > 0) {
+              currentCategories = parsed;
               setCategories(parsed);
               if (!parsed.some(c => c.id === activeCategory)) {
                 setActiveCategory(parsed[0].id);
@@ -757,8 +805,9 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
             }
           } catch (e) {}
         } else if (storeCode !== 'dragon') {
-          setCategories([{ id: 'main', name: '全商品', icon: '🍲' }]);
-          setActiveCategory('main');
+          currentCategories = [{ id: 'specialties', name: '精選推薦', icon: '🔥' }];
+          setCategories(currentCategories);
+          setActiveCategory('specialties');
         }
 
                 const weightConfigItem = storeItems.find(item => item.name === 'SYSTEM_SETTING_WEIGHT_CONFIG');
@@ -780,7 +829,9 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
         const openStatusItem = storeItems.find(item => item.name === 'SYSTEM_SETTING_STORE_OPEN_STATUS');
         if (openStatusItem && openStatusItem.description) {
           try {
-            setStoreOpenStatus(JSON.parse(openStatusItem.description));
+            const parsedStatus = JSON.parse(openStatusItem.description);
+            setStoreOpenStatus(parsedStatus);
+            try { localStorage.setItem(`${storeCode}_store_open_status`, JSON.stringify(parsedStatus)); } catch (e) {}
           } catch (e) {}
         }
 
@@ -854,26 +905,70 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
             return indexA - indexB;
           });
         }
-        setMenuItems(visibleItems);
+        const finalItems = visibleItems.length === 0 
+          ? ((storeCode === 'luzhou' || storeCode === 'luzhou7') ? luzhouFallbackMenuItems : (storeCode === 'dragon' ? fallbackMenuItems : []))
+          : visibleItems;
+
+        if (visibleItems.length === 0) {
+          setMenuItems(finalItems);
+        } else {
+          setMenuItems(visibleItems);
+          try {
+            localStorage.setItem(`${storeCode}_restaurant_menu_items`, JSON.stringify(visibleItems));
+          } catch (e) {}
+        }
+
+        // Auto-select category that contains items if activeCategory has 0 items
+        if (finalItems.length > 0) {
+          const hasCurrent = finalItems.some(i => (i.category === activeCategory) || (activeCategory === 'combos' && (i.category === 'combos' || i.customizations?.is_combo)));
+          if (!hasCurrent) {
+            const foundCat = currentCategories.find(c => finalItems.some(i => (i.category === c.id) || (c.id === 'combos' && (i.category === 'combos' || i.customizations?.is_combo))));
+            if (foundCat) {
+              setActiveCategory(foundCat.id);
+            } else if (finalItems[0]?.category) {
+              setActiveCategory(finalItems[0].category);
+            }
+          }
+        }
       }
     } catch (err) {
       console.error("Failed to load menu items in CashierView:", err);
       // Fallback from localStorage or default
       const saved = localStorage.getItem(`${storeCode}_restaurant_menu_items`);
-      if (saved) setMenuItems(JSON.parse(saved));
-      else if (storeCode === 'dragon') setMenuItems(defaultMenuItems);
-      else setMenuItems([]);
+      if (saved) {
+        try {
+          let parsed = JSON.parse(saved);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            if (storeCode === 'luzhou' || storeCode === 'luzhou7') {
+              parsed = parsed.filter(i => !i.name?.includes('麵線') && !i.name?.includes('沙士') && !i.name?.includes('氣泡飲') && i.category !== 'mee-sua' && !([146, 147, 148, 149, 150, 151, 152, 153, 154, 155].includes(Number(i.id))));
+            }
+            if (parsed.length > 0) {
+              setMenuItems(parsed);
+              return;
+            }
+          }
+        } catch (e) {}
+      }
+      if (storeCode === 'luzhou' || storeCode === 'luzhou7') {
+        setMenuItems(luzhouFallbackMenuItems);
+      } else if (storeCode === 'dragon') {
+        setMenuItems(fallbackMenuItems);
+      } else {
+        setMenuItems([]);
+      }
     }
   };
 
   const fetchOrders = async () => {
     try {
-      // Query latest 500 orders descending by ID so newest orders are NEVER truncated by Supabase 1000 limit!
+      const todayStr = getTodayLocalDate();
+      const todayTaipeiISO = new Date(`${todayStr}T00:00:00+08:00`).toISOString();
       const { data, error } = await supabase
         .from('orders')
         .select('*')
+        .gte('created_at', todayTaipeiISO)
         .order('id', { ascending: false })
-        .limit(500);
+        .limit(200);
 
       if (error) throw error;
       if (data) {
@@ -881,7 +976,10 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
         const storeOrders = filterOrdersByStore(data, storeCode);
         const clientOrders = storeOrders.filter(o => {
           const orderDate = new Date(o.created_at).toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' });
-          const itemsData = typeof o.items === 'string' ? JSON.parse(o.items) : o.items;
+          let itemsData = o.items;
+          if (typeof itemsData === 'string') {
+            try { itemsData = JSON.parse(itemsData); } catch (e) { itemsData = {}; }
+          }
           return orderDate === todayStr && itemsData?.customerName !== 'SYSTEM_STORE_CLOSE' && o.status !== 'deleted';
         });
         const mapped = clientOrders.map(formatSupabaseOrder).filter(Boolean);
@@ -987,7 +1085,10 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
             if (locallyPrintedOrders.current.has(orderId) || locallyPrintedOrders.current.has(orderNum)) {
               return false;
             }
-            const itemsData = typeof o.items === 'string' ? JSON.parse(o.items) : o.items;
+            let itemsData = o.items;
+            if (typeof itemsData === 'string') {
+              try { itemsData = JSON.parse(itemsData); } catch (e) { itemsData = {}; }
+            }
             return !itemsData || !itemsData.is_printed;
           });
 
@@ -1143,6 +1244,7 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
         closed_by: cashierName || '櫃檯人員'
       };
       setStoreOpenStatus(newStatus);
+      try { localStorage.setItem(`${storeCode}_store_open_status`, JSON.stringify(newStatus)); } catch (e) {}
       try {
         const { data: existOpen } = await supabase.from('menu_items').select('*').eq('name', openStatusKey);
         if (existOpen && existOpen.length > 0) {
@@ -1188,6 +1290,7 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
         closed_by: cashierName || '櫃檯人員'
       };
       setStoreOpenStatus(newStatus);
+      try { localStorage.setItem(`${storeCode}_store_open_status`, JSON.stringify(newStatus)); } catch (e) {}
       try {
         const { data: exist } = await supabase.from('menu_items').select('*').eq('name', openStatusKey);
         if (exist && exist.length > 0) {
@@ -1210,6 +1313,7 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
         opened_by: cashierName || '櫃檯人員'
       };
       setStoreOpenStatus(newStatus);
+      try { localStorage.setItem(`${storeCode}_store_open_status`, JSON.stringify(newStatus)); } catch (e) {}
 
       // If today was marked closed in closedDates, automatically unlock!
       if (closedDates.includes(todayStr)) {
@@ -1238,18 +1342,19 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
 
   // Update Order Status (received -> ready -> completed / deleted)
   const handleUpdateOrderStatus = async (orderId, newStatus) => {
-    try {
-      setOrders(prev => prev.map(o => (String(o.id) === String(orderId)) ? { ...o, status: newStatus } : o));
+    // 1. Optimistic instant UI update (0ms feedback)
+    setOrders(prev => prev.map(o => (String(o.id) === String(orderId)) ? { ...o, status: newStatus } : o));
 
+    try {
       const { error } = await supabase
         .from('orders')
         .update({ status: newStatus })
         .eq('id', orderId);
 
       if (error) throw error;
-      fetchOrders();
     } catch (err) {
       console.error("Failed to update order status:", err);
+      fetchOrders();
       alert("更新訂單狀態失敗，請確認網路連線。");
     }
   };
@@ -1406,25 +1511,39 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
       const todayTaipeiISO = new Date(`${taipeiDateStr}T00:00:00+08:00`).toISOString();
 
       let maxNum = 0;
-      try {
-        const { data: todayOrders } = await supabase
-          .from('orders')
-          .select('order_number')
-          .gte('created_at', todayTaipeiISO)
-          .eq('type', orderType);
+      // 1. Fast in-memory check from existing loaded orders (0ms, no network delay)
+      if (orders && orders.length > 0) {
+        orders.forEach(o => {
+          const numStr = String(o.serialNum || o.order_number || '');
+          if (numStr.startsWith(prefix + '-')) {
+            const num = parseInt(numStr.replace(/[^0-9]/g, ''), 10);
+            if (!isNaN(num) && num > maxNum) maxNum = num;
+          }
+        });
+      }
 
-        if (todayOrders && todayOrders.length > 0) {
-          todayOrders.forEach(o => {
-            if (o.order_number && o.order_number.startsWith(prefix + '-')) {
-              const num = parseInt(o.order_number.replace(/[^0-9]/g, ''), 10);
-              if (!isNaN(num) && num > maxNum) {
-                maxNum = num;
+      // 2. Only query Supabase if not yet found in memory
+      if (maxNum === 0) {
+        try {
+          const { data: todayOrders } = await supabase
+            .from('orders')
+            .select('order_number')
+            .gte('created_at', todayTaipeiISO)
+            .eq('type', orderType);
+
+          if (todayOrders && todayOrders.length > 0) {
+            todayOrders.forEach(o => {
+              if (o.order_number && o.order_number.startsWith(prefix + '-')) {
+                const num = parseInt(o.order_number.replace(/[^0-9]/g, ''), 10);
+                if (!isNaN(num) && num > maxNum) {
+                  maxNum = num;
+                }
               }
-            }
-          });
+            });
+          }
+        } catch (err) {
+          console.warn("Failed to get today max order num:", err);
         }
-      } catch (err) {
-        console.warn("Failed to get today max order num:", err);
       }
 
       const serialNum = `${prefix}-${String(maxNum + 1).padStart(3, '0')}`;
