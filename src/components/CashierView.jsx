@@ -4341,8 +4341,10 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                     style={{ padding: '8px 10px', fontSize: '0.85rem', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-body)', color: 'var(--text-main)' }}
                   >
                     <option value="dine-in">🍽️ 內用</option>
-                    <option value="takeout">🛍️ 外帶</option>
-                    <option value="uber">🛵 Uber Eats</option>
+                    <option value="takeout">🥡 現場外帶</option>
+                    <option value="delivery">🛵 外送</option>
+                    <option value="uber">🛵 外送 (Uber)</option>
+                    <option value="foodpanda">🐼 外送 (熊貓)</option>
                   </select>
                 </div>
 

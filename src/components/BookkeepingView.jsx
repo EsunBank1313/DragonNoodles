@@ -4571,10 +4571,12 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                               <td style={{ padding: '10px 12px' }}>{order.time}</td>
                               <td style={{ padding: '10px 12px', fontWeight: 'bold', color: 'var(--primary)' }}>{order.serialNum || order.id.slice(-6)}</td>
                               <td style={{ padding: '10px 12px' }}>
-                                {order.type === 'uber' || String(order.serialNum || '').startsWith('U-') ? (
-                                  <span style={{ color: '#06C167', fontWeight: 'bold' }}>🛵 Uber外送</span>
-                                ) : order.type === 'foodpanda' || String(order.serialNum || '').startsWith('P-') ? (
-                                  <span style={{ color: '#D70F64', fontWeight: 'bold' }}>🐼 熊貓外送</span>
+                                {order.type === 'uber' || order.type === 'ubereats' || order.paymentMethod === 'ubereats' || String(order.serialNum || '').startsWith('U-') ? (
+                                  <span style={{ color: '#06C167', fontWeight: 'bold' }}>🛵 外送 (Uber)</span>
+                                ) : order.type === 'foodpanda' || order.type === 'panda' || order.paymentMethod === 'foodpanda' || String(order.serialNum || '').startsWith('P-') ? (
+                                  <span style={{ color: '#D70F64', fontWeight: 'bold' }}>🐼 外送 (熊貓)</span>
+                                ) : order.type === 'delivery' || String(order.serialNum || '').startsWith('D-') ? (
+                                  <span style={{ color: '#0284c7', fontWeight: 'bold' }}>🛵 外送</span>
                                 ) : order.type === 'dine-in' ? (
                                   '🍽️ 內用'
                                 ) : (
@@ -4712,7 +4714,19 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                                 {order.serialNum || order.id.slice(-6)}
                                 <div style={{ fontSize: '0.68rem', color: '#ef4444', fontWeight: 'bold' }}>[已作廢]</div>
                               </td>
-                              <td style={{ padding: '10px 12px' }}>{order.type === 'dine-in' ? '🍽️ 內用' : '🛍️ 外帶'}</td>
+                              <td style={{ padding: '10px 12px' }}>
+                                {order.type === 'uber' || order.type === 'ubereats' || order.paymentMethod === 'ubereats' || String(order.serialNum || '').startsWith('U-') ? (
+                                  <span style={{ color: '#06C167', fontWeight: 'bold' }}>🛵 外送 (Uber)</span>
+                                ) : order.type === 'foodpanda' || order.type === 'panda' || order.paymentMethod === 'foodpanda' || String(order.serialNum || '').startsWith('P-') ? (
+                                  <span style={{ color: '#D70F64', fontWeight: 'bold' }}>🐼 外送 (熊貓)</span>
+                                ) : order.type === 'delivery' || String(order.serialNum || '').startsWith('D-') ? (
+                                  <span style={{ color: '#0284c7', fontWeight: 'bold' }}>🛵 外送</span>
+                                ) : order.type === 'dine-in' ? (
+                                  '🍽️ 內用'
+                                ) : (
+                                  '🥡 現場外帶'
+                                )}
+                              </td>
                               <td style={{ padding: '10px 12px' }}>{order.customerName}</td>
                               <td style={{ padding: '10px 12px', fontWeight: 'bold', textDecoration: 'line-through', color: 'var(--text-muted)' }}>
                                 NT$ {order.total}
@@ -8899,7 +8913,10 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                     style={{ padding: '8px 10px', fontSize: '0.85rem', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-body)', color: 'var(--text-main)' }}
                   >
                     <option value="dine-in">🍽️ 內用</option>
-                    <option value="takeout">🛍️ 外帶</option>
+                    <option value="takeout">🥡 現場外帶</option>
+                    <option value="delivery">🛵 外送</option>
+                    <option value="uber">🛵 外送 (Uber)</option>
+                    <option value="foodpanda">🐼 外送 (熊貓)</option>
                   </select>
                 </div>
               </div>
