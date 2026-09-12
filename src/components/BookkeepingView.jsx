@@ -836,12 +836,18 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
   const [showBatchLogModal, setShowBatchLogModal] = useState(false);
   const [editingBatchTemplate, setEditingBatchTemplate] = useState(null);
   
-  // Batch Log Modal Form State
+  // Batch Log Modal & Daily Tracking Form State
   const [batchLogMonth, setBatchLogMonth] = useState(() => getTodayLocalDate().slice(0, 7));
   const [batchLogTemplateId, setBatchLogTemplateId] = useState('mee-sua');
+  const [batchLogTab, setBatchLogTab] = useState('daily'); // 'daily' | 'monthly'
+  const [batchLogEntryDate, setBatchLogEntryDate] = useState(() => getTodayLocalDate());
+  const [batchLogEntryCount, setBatchLogEntryCount] = useState('');
+  const [batchLogEntryCost, setBatchLogEntryCost] = useState('350');
+  const [batchLogEntryNotes, setBatchLogEntryNotes] = useState('');
   const [batchLogCount, setBatchLogCount] = useState('');
   const [batchLogCost, setBatchLogCost] = useState('350');
   const [batchLogNotes, setBatchLogNotes] = useState('');
+  const [dailyPotSavedFeedback, setDailyPotSavedFeedback] = useState(false);
 
   // Batch Template Form State
   const [tmplName, setTmplName] = useState('');
@@ -1783,12 +1789,8 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                 let totalBatches = 0;
                 let totalCost = 0;
                 activeReportMonths.forEach(m => {
-                  const cnt = monthlyBatchLogs[m]?.[tmpl.id];
-                  if (cnt) {
-                    totalBatches += Number(cnt) || 0;
-                    const cUnit = Number(monthlyBatchLogs[m]?.[tmpl.id + '_cost']) || tmpl.batchCost || 0;
-                    totalCost += (Number(cnt) || 0) * cUnit;
-                  }
+                  totalBatches += getBatchPotsForMonth(m, tmpl.id);
+                  totalCost += getBatchCostForMonth(m, tmpl.id, tmpl.batchCost || 0);
                 });
 
                 const totalSold = bigBowl + smallBowl;
@@ -3190,8 +3192,119 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
     }
   };
 
+  // 🍲 大單位物料換算與每日/每月批次輔助計算
+  const getBatchPotsForMonth = (m, tmplId) => {
+    const mData = monthlyBatchLogs?.[m];
+    if (!mData) return 0;
+    const daily = mData.daily;
+    if (daily && typeof daily === 'object' && Object.keys(daily).length > 0) {
+      let sum = 0;
+      let hasDailyEntry = false;
+      Object.values(daily).forEach(d => {
+        if (d && d[tmplId] !== undefined && d[tmplId] !== null) {
+          sum += Number(d[tmplId]) || 0;
+          hasDailyEntry = true;
+        }
+      });
+      if (hasDailyEntry) return sum;
+    }
+    return Number(mData[tmplId]) || 0;
+  };
+
+  const getBatchCostForMonth = (m, tmplId, fallbackCost = 0) => {
+    const mData = monthlyBatchLogs?.[m];
+    if (!mData) return 0;
+    const daily = mData.daily;
+    if (daily && typeof daily === 'object' && Object.keys(daily).length > 0) {
+      let totalCost = 0;
+      let hasDailyEntry = false;
+      Object.values(daily).forEach(d => {
+        if (d && d[tmplId] !== undefined && d[tmplId] !== null) {
+          const cnt = Number(d[tmplId]) || 0;
+          const costUnit = Number(d[tmplId + '_cost']) || Number(mData[tmplId + '_cost']) || fallbackCost;
+          totalCost += cnt * costUnit;
+          hasDailyEntry = true;
+        }
+      });
+      if (hasDailyEntry) return totalCost;
+    }
+    const directCnt = Number(mData[tmplId]) || 0;
+    const costUnit = Number(mData[tmplId + '_cost']) || fallbackCost;
+    return directCnt * costUnit;
+  };
+
+  const getBatchDailyDaysCount = (m, tmplId) => {
+    const mData = monthlyBatchLogs?.[m];
+    if (!mData || !mData.daily) return 0;
+    let days = 0;
+    Object.values(mData.daily).forEach(d => {
+      if (d && Number(d[tmplId]) > 0) {
+        days += 1;
+      }
+    });
+    return days;
+  };
+
+  const handleSaveDailyBatchLog = (dateStr, tmplId, count, cost, notes) => {
+    if (!dateStr) return;
+    const ym = dateStr.slice(0, 7);
+    const numCount = Number(count) || 0;
+    const currentLogs = monthlyBatchLogs || {};
+    const monthData = currentLogs[ym] || {};
+    const dailyLogs = { ...(monthData.daily || {}) };
+
+    if (numCount <= 0) {
+      if (dailyLogs[dateStr]) {
+        const nextDayData = { ...dailyLogs[dateStr] };
+        delete nextDayData[tmplId];
+        delete nextDayData[`${tmplId}_cost`];
+        delete nextDayData[`${tmplId}_notes`];
+        if (Object.keys(nextDayData).length === 0) {
+          delete dailyLogs[dateStr];
+        } else {
+          dailyLogs[dateStr] = nextDayData;
+        }
+      }
+    } else {
+      dailyLogs[dateStr] = {
+        ...(dailyLogs[dateStr] || {}),
+        [tmplId]: numCount,
+        [`${tmplId}_cost`]: Number(cost) || 0,
+        [`${tmplId}_notes`]: (notes || '').trim()
+      };
+    }
+
+    // Recompute sum of daily logs for this month
+    let monthlySum = 0;
+    let hasDaily = false;
+    Object.keys(dailyLogs).forEach(d => {
+      if (dailyLogs[d] && dailyLogs[d][tmplId] !== undefined) {
+        monthlySum += Number(dailyLogs[d][tmplId]) || 0;
+        hasDaily = true;
+      }
+    });
+
+    const updated = {
+      ...currentLogs,
+      [ym]: {
+        ...monthData,
+        daily: dailyLogs,
+        [tmplId]: hasDaily ? monthlySum : (monthData[tmplId] || 0)
+      }
+    };
+
+    setMonthlyBatchLogs(updated);
+    localStorage.setItem(`${storeCode}_restaurant_monthly_batch_logs`, JSON.stringify(updated));
+    saveMonthlyBatchLogsToCloud(updated);
+    return updated;
+  };
+
+  const handleDeleteDailyBatchLog = (dateStr, tmplId) => {
+    return handleSaveDailyBatchLog(dateStr, tmplId, 0, 0, '');
+  };
+
   const handleSaveBatchLog = (e) => {
-    e.preventDefault();
+    if (e && e.preventDefault) e.preventDefault();
     const count = Number(batchLogCount) || 0;
     if (count <= 0) {
       alert("請輸入有效的製作數量（大於 0 的鍋數/桶數）！");
@@ -4431,6 +4544,180 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                       >
                         {selectedAudit ? '✏️ 重新盤點' : '💵 立即盤點該日現金'}
                       </button>
+                    </div>
+                  );
+                })()}
+
+                {/* 🍲 Daily Batch Pot Cooking Tracker Card */}
+                {(() => {
+                  const currentYM = selectedBookkeepingDate ? selectedBookkeepingDate.slice(0, 7) : getTodayLocalDate().slice(0, 7);
+                  const tmpls = batchYieldTemplates && batchYieldTemplates.length > 0 ? batchYieldTemplates : defaultBatchTemplates;
+                  
+                  return (
+                    <div style={{
+                      padding: '14px 16px',
+                      borderRadius: '8px',
+                      backgroundColor: 'rgba(139, 92, 246, 0.05)',
+                      border: '1px solid rgba(139, 92, 246, 0.25)',
+                      marginBottom: '16px'
+                    }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', flexWrap: 'wrap', gap: '8px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span style={{ fontSize: '1.1rem' }}>🍲</span>
+                          <strong style={{ fontSize: '0.9rem', color: '#7c3aed' }}>
+                            當日物料製作量登記 (煮鍋數)
+                          </strong>
+                          <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                            對帳日期：{selectedBookkeepingDate}
+                          </span>
+                        </div>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          {dailyPotSavedFeedback && (
+                            <span style={{ fontSize: '0.78rem', color: '#10b981', fontWeight: 'bold' }}>
+                              ✓ 本日製作量已儲存同步
+                            </span>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setBatchLogMonth(currentYM);
+                              setBatchLogTemplateId(tmpls[0]?.id || 'mee-sua');
+                              setBatchLogTab('daily');
+                              setBatchLogEntryDate(selectedBookkeepingDate || getTodayLocalDate());
+                              const existingDaily = monthlyBatchLogs[currentYM]?.daily?.[selectedBookkeepingDate]?.[tmpls[0]?.id || 'mee-sua'];
+                              setBatchLogEntryCount(existingDaily !== undefined ? String(existingDaily) : '');
+                              setBatchLogEntryCost(String(monthlyBatchLogs[currentYM]?.daily?.[selectedBookkeepingDate]?.[(tmpls[0]?.id || 'mee-sua') + '_cost'] || tmpls[0]?.batchCost || '350'));
+                              setBatchLogEntryNotes(monthlyBatchLogs[currentYM]?.daily?.[selectedBookkeepingDate]?.[(tmpls[0]?.id || 'mee-sua') + '_notes'] || '');
+                              setShowBatchLogModal(true);
+                            }}
+                            style={{
+                              padding: '5px 12px',
+                              fontSize: '0.78rem',
+                              borderRadius: '6px',
+                              border: '1px solid #8b5cf6',
+                              backgroundColor: 'var(--bg-card)',
+                              color: '#7c3aed',
+                              cursor: 'pointer',
+                              fontWeight: 'bold',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '4px'
+                            }}
+                          >
+                            <span>📅 當月每日明細表與管理</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        {tmpls.map(tmpl => {
+                          const todayPots = Number(monthlyBatchLogs[currentYM]?.daily?.[selectedBookkeepingDate]?.[tmpl.id]) || 0;
+                          const monthPots = getBatchPotsForMonth(currentYM, tmpl.id);
+                          const monthDays = getBatchDailyDaysCount(currentYM, tmpl.id);
+                          const currentCost = Number(monthlyBatchLogs[currentYM]?.daily?.[selectedBookkeepingDate]?.[tmpl.id + '_cost']) || tmpl.batchCost || 350;
+                          const currentNotes = monthlyBatchLogs[currentYM]?.daily?.[selectedBookkeepingDate]?.[tmpl.id + '_notes'] || '';
+
+                          return (
+                            <div key={tmpl.id} style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              backgroundColor: 'var(--bg-card)',
+                              padding: '8px 12px',
+                              borderRadius: '6px',
+                              border: '1px solid var(--border)',
+                              flexWrap: 'wrap',
+                              gap: '10px'
+                            }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                <span style={{ fontWeight: 'bold', fontSize: '0.85rem', color: 'var(--text-main)' }}>
+                                  {tmpl.name}
+                                </span>
+                                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                                  (本月已累計: <strong style={{ color: '#8b5cf6' }}>{monthPots}</strong> {tmpl.batchUnit}，共登記 {monthDays} 天)
+                                </span>
+                              </div>
+
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>本日製作:</span>
+                                <div style={{ display: 'inline-flex', alignItems: 'center', border: '1px solid #8b5cf6', borderRadius: '6px', overflow: 'hidden' }}>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const next = Math.max(0, todayPots - 1);
+                                      handleSaveDailyBatchLog(selectedBookkeepingDate, tmpl.id, next, currentCost, currentNotes);
+                                      setDailyPotSavedFeedback(true);
+                                      setTimeout(() => setDailyPotSavedFeedback(false), 2000);
+                                    }}
+                                    style={{
+                                      padding: '4px 10px',
+                                      backgroundColor: 'var(--bg-body)',
+                                      border: 'none',
+                                      borderRight: '1px solid #8b5cf6',
+                                      color: 'var(--text-main)',
+                                      cursor: 'pointer',
+                                      fontWeight: 'bold',
+                                      fontSize: '0.9rem'
+                                    }}
+                                    title="減少 1 鍋"
+                                  >
+                                    -
+                                  </button>
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    step="1"
+                                    value={todayPots === 0 ? '' : todayPots}
+                                    placeholder="0"
+                                    onChange={(e) => {
+                                      const val = e.target.value === '' ? 0 : Number(e.target.value);
+                                      handleSaveDailyBatchLog(selectedBookkeepingDate, tmpl.id, val, currentCost, currentNotes);
+                                      setDailyPotSavedFeedback(true);
+                                      setTimeout(() => setDailyPotSavedFeedback(false), 2000);
+                                    }}
+                                    style={{
+                                      width: '46px',
+                                      textAlign: 'center',
+                                      padding: '4px 0',
+                                      border: 'none',
+                                      backgroundColor: 'var(--bg-card)',
+                                      color: todayPots > 0 ? '#7c3aed' : 'var(--text-muted)',
+                                      fontWeight: 'bold',
+                                      fontSize: '0.95rem'
+                                    }}
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const next = todayPots + 1;
+                                      handleSaveDailyBatchLog(selectedBookkeepingDate, tmpl.id, next, currentCost, currentNotes);
+                                      setDailyPotSavedFeedback(true);
+                                      setTimeout(() => setDailyPotSavedFeedback(false), 2000);
+                                    }}
+                                    style={{
+                                      padding: '4px 10px',
+                                      backgroundColor: '#8b5cf6',
+                                      border: 'none',
+                                      borderLeft: '1px solid #8b5cf6',
+                                      color: 'white',
+                                      cursor: 'pointer',
+                                      fontWeight: 'bold',
+                                      fontSize: '0.9rem'
+                                    }}
+                                    title="增加 1 鍋"
+                                  >
+                                    +
+                                  </button>
+                                </div>
+                                <span style={{ fontSize: '0.82rem', fontWeight: 'bold', color: 'var(--text-main)' }}>
+                                  {tmpl.batchUnit}
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
                   );
                 })()}
@@ -5814,13 +6101,21 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                           type="button"
                           onClick={() => {
                             const currentYM = reportRangeType === 'thisMonth' ? getTodayLocalDate().slice(0, 7) : (targetReports.length > 0 ? targetReports[0].month.slice(0, 7) : getTodayLocalDate().slice(0, 7));
+                            const defaultTmplId = (batchYieldTemplates && batchYieldTemplates[0] ? batchYieldTemplates[0].id : "mee-sua") || 'mee-sua';
                             setBatchLogMonth(currentYM);
-                            setBatchLogTemplateId((batchYieldTemplates && batchYieldTemplates[0] ? batchYieldTemplates[0].id : "mee-sua") || 'mee-sua');
-                            const existingCount = monthlyBatchLogs[currentYM]?.[(batchYieldTemplates && batchYieldTemplates[0] ? batchYieldTemplates[0].id : "mee-sua") || 'mee-sua'] || '';
-                            const existingCost = monthlyBatchLogs[currentYM]?.[((batchYieldTemplates && batchYieldTemplates[0] ? batchYieldTemplates[0].id : "mee-sua") || 'mee-sua') + '_cost'] || batchYieldTemplates[0]?.batchCost || '350';
+                            setBatchLogTemplateId(defaultTmplId);
+                            setBatchLogTab('daily');
+                            setBatchLogEntryDate(getTodayLocalDate());
+                            const existingDaily = monthlyBatchLogs[currentYM]?.daily?.[getTodayLocalDate()]?.[defaultTmplId];
+                            setBatchLogEntryCount(existingDaily !== undefined ? String(existingDaily) : '');
+                            setBatchLogEntryCost(String(monthlyBatchLogs[currentYM]?.daily?.[getTodayLocalDate()]?.[defaultTmplId + '_cost'] || batchYieldTemplates[0]?.batchCost || '350'));
+                            setBatchLogEntryNotes(monthlyBatchLogs[currentYM]?.daily?.[getTodayLocalDate()]?.[defaultTmplId + '_notes'] || '');
+
+                            const existingCount = monthlyBatchLogs[currentYM]?.[defaultTmplId] || '';
+                            const existingCost = monthlyBatchLogs[currentYM]?.[defaultTmplId + '_cost'] || batchYieldTemplates[0]?.batchCost || '350';
                             setBatchLogCount(existingCount ? String(existingCount) : '');
                             setBatchLogCost(String(existingCost));
-                            setBatchLogNotes(monthlyBatchLogs[currentYM]?.[((batchYieldTemplates && batchYieldTemplates[0] ? batchYieldTemplates[0].id : "mee-sua") || 'mee-sua') + '_notes'] || '');
+                            setBatchLogNotes(monthlyBatchLogs[currentYM]?.[defaultTmplId + '_notes'] || '');
                             setShowBatchLogModal(true);
                           }}
                           style={{
@@ -5838,7 +6133,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                             boxShadow: '0 2px 6px rgba(139, 92, 246, 0.3)'
                           }}
                         >
-                          ✍️ 登錄本月製作量 (煮了幾鍋)
+                          ✍️ 登錄製作量 / 每日鍋數管理
                         </button>
 
                         <button
@@ -5935,15 +6230,13 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                       const activeReportMonths = Array.from(new Set(targetReports.map(r => r.month.slice(0, 7))));
                       let totalBatchesCooked = 0;
                       let totalBatchCost = 0;
+                      let totalLoggedDays = 0;
 
                       if (activeReportMonths.length > 0) {
                         activeReportMonths.forEach(m => {
-                          const logForMonth = monthlyBatchLogs[m]?.[tmpl.id];
-                          if (logForMonth) {
-                            totalBatchesCooked += Number(logForMonth) || 0;
-                            const costUnit = Number(monthlyBatchLogs[m]?.[tmpl.id + '_cost']) || tmpl.batchCost || 0;
-                            totalBatchCost += (Number(logForMonth) || 0) * costUnit;
-                          }
+                          totalBatchesCooked += getBatchPotsForMonth(m, tmpl.id);
+                          totalBatchCost += getBatchCostForMonth(m, tmpl.id, tmpl.batchCost || 0);
+                          totalLoggedDays += getBatchDailyDaysCount(m, tmpl.id);
                         });
                       }
 
@@ -5988,6 +6281,31 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                               <button
                                 type="button"
                                 onClick={() => {
+                                  const currentYM = reportRangeType === 'thisMonth' ? getTodayLocalDate().slice(0, 7) : (targetReports.length > 0 ? targetReports[0].month.slice(0, 7) : getTodayLocalDate().slice(0, 7));
+                                  setBatchLogMonth(currentYM);
+                                  setBatchLogTemplateId(tmpl.id);
+                                  setBatchLogTab('daily');
+                                  setBatchLogEntryDate(getTodayLocalDate());
+                                  const existingDaily = monthlyBatchLogs[currentYM]?.daily?.[getTodayLocalDate()]?.[tmpl.id];
+                                  setBatchLogEntryCount(existingDaily !== undefined ? String(existingDaily) : '');
+                                  setBatchLogEntryCost(String(monthlyBatchLogs[currentYM]?.daily?.[getTodayLocalDate()]?.[tmpl.id + '_cost'] || tmpl.batchCost || '350'));
+                                  setBatchLogEntryNotes(monthlyBatchLogs[currentYM]?.daily?.[getTodayLocalDate()]?.[tmpl.id + '_notes'] || '');
+
+                                  const existingCount = monthlyBatchLogs[currentYM]?.[tmpl.id] || '';
+                                  const existingCost = monthlyBatchLogs[currentYM]?.[tmpl.id + '_cost'] || tmpl.batchCost || '350';
+                                  setBatchLogCount(existingCount ? String(existingCount) : '');
+                                  setBatchLogCost(String(existingCost));
+                                  setBatchLogNotes(monthlyBatchLogs[currentYM]?.[tmpl.id + '_notes'] || '');
+                                  setShowBatchLogModal(true);
+                                }}
+                                style={{ padding: '3px 8px', fontSize: '0.7rem', border: '1px solid #8b5cf6', backgroundColor: 'rgba(139, 92, 246, 0.08)', color: '#7c3aed', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}
+                              >
+                                ✍️ 登錄/每日明細
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => {
                                   setEditingBatchTemplate(tmpl);
                                   setTmplName(tmpl.name);
                                   setTmplUnit(tmpl.batchUnit);
@@ -6002,7 +6320,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                                 }}
                                 style={{ padding: '3px 8px', fontSize: '0.7rem', border: '1px solid var(--border)', backgroundColor: 'transparent', color: 'var(--text-muted)', borderRadius: '4px', cursor: 'pointer' }}
                               >
-                                ✏️ 編輯設定
+                                ⚙️ 編輯設定
                               </button>
                             </div>
                           </div>
@@ -6025,6 +6343,15 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                                   <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: '2px' }}>
                                     物料總成本: NT$ {totalBatchCost.toLocaleString()}
                                   </div>
+                                  {totalLoggedDays > 0 ? (
+                                    <div style={{ fontSize: '0.68rem', color: '#7c3aed', fontWeight: 'bold', marginTop: '2px' }}>
+                                      📅 依每日累計 (已登記 {totalLoggedDays} 天)
+                                    </div>
+                                  ) : (
+                                    <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                                      🗓️ 整月快速設定
+                                    </div>
+                                  )}
                                 </div>
 
                                 {/* 2. 實際總售出碗數 */}
@@ -7589,18 +7916,23 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
         </div>
       )}
 
-            {/* ✍️ 登錄大單位製作量彈窗 (Batch Log Modal) */}
+      {/* ✍️ 登錄大單位製作量彈窗 (Batch Log Modal - 每日登記與月度統計) */}
       {showBatchLogModal && (
         <div className="modal-backdrop" style={{ zIndex: 1100 }}>
-          <div className="modal-content" style={{ maxWidth: '440px', borderRadius: '16px', padding: '24px', textAlign: 'left' }}>
+          <div className="modal-content" style={{ maxWidth: '680px', width: '95%', maxHeight: '90vh', overflowY: 'auto', borderRadius: '16px', padding: '24px', textAlign: 'left' }}>
+            {/* Header */}
             <div className="modal-header" style={{ padding: 0, borderBottom: 'none', marginBottom: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <h3 style={{ margin: 0, fontSize: '1.15rem', color: 'var(--primary)', fontWeight: 'bold' }}>
-                ✍️ 登錄月份大單位製作量
-              </h3>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ fontSize: '1.25rem' }}>🍲</span>
+                <h3 style={{ margin: 0, fontSize: '1.15rem', color: 'var(--primary)', fontWeight: 'bold' }}>
+                  大單位物料製作量登記 (每日登記與月度統計)
+                </h3>
+              </div>
               <button className="close-btn" onClick={() => setShowBatchLogModal(false)}>&times;</button>
             </div>
 
-            <form onSubmit={handleSaveBatchLog} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            {/* Selectors: Month & Template */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px', marginBottom: '14px' }}>
               <div>
                 <label style={{ fontSize: '0.8rem', fontWeight: 'bold', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>
                   📅 目標對帳月份
@@ -7611,8 +7943,12 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                   onChange={(e) => {
                     const ym = e.target.value;
                     setBatchLogMonth(ym);
-                    const existing = monthlyBatchLogs[ym]?.[batchLogTemplateId] || '';
-                    setBatchLogCount(existing ? String(existing) : '');
+                    // Update entry date to match selected month if not in same month
+                    if (!batchLogEntryDate.startsWith(ym)) {
+                      setBatchLogEntryDate(`${ym}-01`);
+                    }
+                    const existingMonthCount = monthlyBatchLogs[ym]?.[batchLogTemplateId] || '';
+                    setBatchLogCount(existingMonthCount ? String(existingMonthCount) : '');
                   }}
                   required
                   style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-input)', color: 'var(--text-main)', fontSize: '0.9rem' }}
@@ -7628,10 +7964,17 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                   onChange={(e) => {
                     const tid = e.target.value;
                     setBatchLogTemplateId(tid);
-                    const existing = monthlyBatchLogs[batchLogMonth]?.[tid] || '';
-                    setBatchLogCount(existing ? String(existing) : '');
                     const matched = (batchYieldTemplates || []).find(t => t.id === tid);
-                    if (matched) setBatchLogCost(String(matched.batchCost || 350));
+                    if (matched) {
+                      setBatchLogCost(String(matched.batchCost || 350));
+                      setBatchLogEntryCost(String(matched.batchCost || 350));
+                    }
+                    const existingMonthCount = monthlyBatchLogs[batchLogMonth]?.[tid] || '';
+                    setBatchLogCount(existingMonthCount ? String(existingMonthCount) : '');
+                    // Load entry date count
+                    const dayCount = monthlyBatchLogs[batchLogMonth]?.daily?.[batchLogEntryDate]?.[tid];
+                    setBatchLogEntryCount(dayCount !== undefined ? String(dayCount) : '');
+                    setBatchLogEntryNotes(monthlyBatchLogs[batchLogMonth]?.daily?.[batchLogEntryDate]?.[`${tid}_notes`] || '');
                   }}
                   style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-input)', color: 'var(--text-main)', fontSize: '0.9rem' }}
                 >
@@ -7640,112 +7983,470 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                   ))}
                 </select>
               </div>
+            </div>
 
-              {/* Live POS Sales Reference for this Month and Template */}
-              {(() => {
-                const matchedTmpl = (batchYieldTemplates || []).find(t => t.id === batchLogTemplateId);
-                const monthOrders = orders.filter(o => {
-                  if (o.status !== 'completed' && o.status !== 'received') return false;
-                  let dStr = '';
-                  if (o.timestamp) dStr = new Date(o.timestamp).toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' });
-                  else if (o.time) dStr = o.time.slice(0, 10);
-                  else if (o.created_at) dStr = new Date(o.created_at).toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' });
-                  return dStr.startsWith(batchLogMonth);
-                });
+            {/* Month Summary Stats Box */}
+            {(() => {
+              const matchedTmpl = (batchYieldTemplates || []).find(t => t.id === batchLogTemplateId);
+              const monthOrders = orders.filter(o => {
+                if (o.status !== 'completed' && o.status !== 'received') return false;
+                let dStr = '';
+                if (o.timestamp) dStr = new Date(o.timestamp).toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' });
+                else if (o.time) dStr = o.time.slice(0, 10);
+                else if (o.created_at) dStr = new Date(o.created_at).toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' });
+                return dStr.startsWith(batchLogMonth);
+              });
 
-                let mBig = 0, mSmall = 0;
-                monthOrders.forEach(o => {
-                  const itArr = Array.isArray(o.items) ? o.items : (o.items?.cart || []);
-                  itArr.forEach(it => {
-                    const isMatch = (it.category === matchedTmpl?.category) ||
-                                    (matchedTmpl?.category === 'mee-sua' && (it.name?.includes('麵線') || it.name?.includes('清麵線') || it.name?.includes('綜合')));
-                    if (isMatch) {
-                      const qty = Number(it.quantity) || 1;
-                      const specStr = String(it.specs || it.spec || '');
-                      if (specStr.includes(matchedTmpl?.portionSpecs[1]?.label || '大碗') || specStr.includes('大')) {
-                        mBig += qty;
-                      } else {
-                        mSmall += qty;
-                      }
+              let mBig = 0, mSmall = 0;
+              monthOrders.forEach(o => {
+                const itArr = Array.isArray(o.items) ? o.items : (o.items?.cart || []);
+                itArr.forEach(it => {
+                  const isMatch = (it.category === matchedTmpl?.category) ||
+                                  (matchedTmpl?.category === 'mee-sua' && (it.name?.includes('麵線') || it.name?.includes('清麵線') || it.name?.includes('綜合')));
+                  if (isMatch) {
+                    const qty = Number(it.quantity) || 1;
+                    const specStr = String(it.specs || it.spec || '');
+                    if (specStr.includes(matchedTmpl?.portionSpecs[1]?.label || '大碗') || specStr.includes('大')) {
+                      mBig += qty;
+                    } else {
+                      mSmall += qty;
                     }
-                  });
+                  }
                 });
+              });
 
-                return (
-                  <div style={{ backgroundColor: 'rgba(139, 92, 246, 0.08)', border: '1px solid rgba(139, 92, 246, 0.25)', borderRadius: '8px', padding: '10px 12px', fontSize: '0.78rem' }}>
-                    <div style={{ color: '#7c3aed', fontWeight: 'bold', marginBottom: '2px' }}>
-                      💡 {batchLogMonth} 月份 POS 雲端實際售出參考：
+              const totalPotsMonth = getBatchPotsForMonth(batchLogMonth, batchLogTemplateId);
+              const totalCostMonth = getBatchCostForMonth(batchLogMonth, batchLogTemplateId, matchedTmpl?.batchCost || 350);
+              const loggedDaysMonth = getBatchDailyDaysCount(batchLogMonth, batchLogTemplateId);
+
+              return (
+                <div style={{
+                  backgroundColor: 'rgba(139, 92, 246, 0.08)',
+                  border: '1px solid rgba(139, 92, 246, 0.25)',
+                  borderRadius: '10px',
+                  padding: '12px 16px',
+                  marginBottom: '16px',
+                  fontSize: '0.85rem'
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px', marginBottom: '8px' }}>
+                    <div style={{ color: '#7c3aed', fontWeight: 'bold' }}>
+                      📊 {batchLogMonth} 月份統計概況：
                     </div>
-                    <div style={{ color: 'var(--text-main)' }}>
-                      大碗 <strong>{mBig}</strong> 碗 ＋ 小碗 <strong>{mSmall}</strong> 碗（總計 <strong>{mBig + mSmall}</strong> 碗）
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                      💡 POS 實售：大碗 <strong>{mBig}</strong> 碗 ＋ 小碗 <strong>{mSmall}</strong> 碗（共 <strong>{mBig + mSmall}</strong> 碗）
                     </div>
                   </div>
-                );
-              })()}
 
-              <div>
-                <label style={{ fontSize: '0.8rem', fontWeight: 'bold', color: 'var(--primary)', display: 'block', marginBottom: '4px' }}>
-                  🔢 該月份實際製作/消耗量 (鍋數/桶數) <span style={{ color: '#ef4444' }}>*</span>
-                </label>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '10px' }}>
+                    <div style={{ backgroundColor: 'var(--bg-card)', padding: '8px 12px', borderRadius: '6px', border: '1px solid var(--border)' }}>
+                      <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>🍲 本月累計製作</div>
+                      <div style={{ fontSize: '1.15rem', fontWeight: 'bold', color: '#8b5cf6' }}>
+                        {totalPotsMonth} <span style={{ fontSize: '0.75rem' }}>{matchedTmpl?.batchUnit || '大鍋'}</span>
+                      </div>
+                    </div>
+
+                    <div style={{ backgroundColor: 'var(--bg-card)', padding: '8px 12px', borderRadius: '6px', border: '1px solid var(--border)' }}>
+                      <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>💰 本月物料總成本</div>
+                      <div style={{ fontSize: '1.15rem', fontWeight: 'bold', color: '#ef4444' }}>
+                        NT$ {totalCostMonth.toLocaleString()}
+                      </div>
+                    </div>
+
+                    <div style={{ backgroundColor: 'var(--bg-card)', padding: '8px 12px', borderRadius: '6px', border: '1px solid var(--border)' }}>
+                      <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>📅 逐日登記天數</div>
+                      <div style={{ fontSize: '1.15rem', fontWeight: 'bold', color: 'var(--text-main)' }}>
+                        {loggedDaysMonth} <span style={{ fontSize: '0.75rem' }}>天</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Tab Navigation: Daily Logging vs Monthly Lump Sum */}
+            <div style={{ display: 'flex', borderBottom: '1px solid var(--border)', marginBottom: '16px', gap: '8px' }}>
+              <button
+                type="button"
+                onClick={() => setBatchLogTab('daily')}
+                style={{
+                  padding: '8px 16px',
+                  fontSize: '0.85rem',
+                  fontWeight: 'bold',
+                  border: 'none',
+                  borderBottom: batchLogTab === 'daily' ? '3px solid #8b5cf6' : '3px solid transparent',
+                  backgroundColor: 'transparent',
+                  color: batchLogTab === 'daily' ? '#8b5cf6' : 'var(--text-muted)',
+                  cursor: 'pointer'
+                }}
+              >
+                📅 依每日逐日登記 (推薦)
+              </button>
+              <button
+                type="button"
+                onClick={() => setBatchLogTab('monthly')}
+                style={{
+                  padding: '8px 16px',
+                  fontSize: '0.85rem',
+                  fontWeight: 'bold',
+                  border: 'none',
+                  borderBottom: batchLogTab === 'monthly' ? '3px solid #8b5cf6' : '3px solid transparent',
+                  backgroundColor: 'transparent',
+                  color: batchLogTab === 'monthly' ? '#8b5cf6' : 'var(--text-muted)',
+                  cursor: 'pointer'
+                }}
+              >
+                🗓️ 整月快速設定 (歷史月份)
+              </button>
+            </div>
+
+            {/* TAB 1: DAILY LOGGING */}
+            {batchLogTab === 'daily' && (() => {
+              const matchedTmpl = (batchYieldTemplates || []).find(t => t.id === batchLogTemplateId);
+              const mData = monthlyBatchLogs[batchLogMonth] || {};
+              const dailyLogs = mData.daily || {};
+              const recordedDates = Object.keys(dailyLogs).filter(d => Number(dailyLogs[d]?.[batchLogTemplateId]) > 0).sort();
+
+              const handleQuickSaveEntry = (e) => {
+                if (e && e.preventDefault) e.preventDefault();
+                const cnt = Number(batchLogEntryCount) || 0;
+                if (cnt <= 0) {
+                  alert("請輸入大於 0 的鍋數！如需清除該日紀錄請點擊「清除此日紀錄」按鈕。");
+                  return;
+                }
+                handleSaveDailyBatchLog(batchLogEntryDate, batchLogTemplateId, cnt, batchLogEntryCost, batchLogEntryNotes);
+                alert(`✓ 已儲存 ${batchLogEntryDate} 製作量：${cnt} ${matchedTmpl?.batchUnit || '大鍋'}`);
+              };
+
+              const existingForSelectedDate = dailyLogs[batchLogEntryDate]?.[batchLogTemplateId];
+
+              return (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  {/* Single Day Edit Box */}
+                  <div style={{
+                    backgroundColor: 'var(--bg-card)',
+                    border: '1px solid var(--border)',
+                    borderRadius: '10px',
+                    padding: '14px 16px'
+                  }}>
+                    <div style={{ fontSize: '0.85rem', fontWeight: 'bold', color: 'var(--text-main)', marginBottom: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span>✍️ 單日快速登記 / 修改：</span>
+                      {existingForSelectedDate !== undefined && Number(existingForSelectedDate) > 0 && (
+                        <span style={{ fontSize: '0.75rem', color: '#8b5cf6', fontWeight: 'bold' }}>
+                          (目前該日已記錄: {existingForSelectedDate} {matchedTmpl?.batchUnit})
+                        </span>
+                      )}
+                    </div>
+
+                    <form onSubmit={handleQuickSaveEntry} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '10px', alignItems: 'flex-end' }}>
+                      <div>
+                        <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', marginBottom: '3px' }}>
+                          登記日期
+                        </label>
+                        <input
+                          type="date"
+                          value={batchLogEntryDate}
+                          onChange={(e) => {
+                            const newD = e.target.value;
+                            setBatchLogEntryDate(newD);
+                            const dayYm = newD.slice(0, 7);
+                            const dayLog = monthlyBatchLogs[dayYm]?.daily?.[newD];
+                            const dayCnt = dayLog?.[batchLogTemplateId];
+                            setBatchLogEntryCount(dayCnt !== undefined ? String(dayCnt) : '');
+                            setBatchLogEntryCost(String(dayLog?.[`${batchLogTemplateId}_cost`] || matchedTmpl?.batchCost || '350'));
+                            setBatchLogEntryNotes(dayLog?.[`${batchLogTemplateId}_notes`] || '');
+                          }}
+                          required
+                          style={{ width: '100%', padding: '6px 10px', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-input)', color: 'var(--text-main)', fontSize: '0.85rem' }}
+                        />
+                      </div>
+
+                      <div>
+                        <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', marginBottom: '3px' }}>
+                          當日製作量 ({matchedTmpl?.batchUnit || '大鍋'}) *
+                        </label>
+                        <div style={{ display: 'inline-flex', width: '100%', border: '1px solid var(--border)', borderRadius: '6px', overflow: 'hidden' }}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const curr = Number(batchLogEntryCount) || 0;
+                              setBatchLogEntryCount(String(Math.max(0, curr - 1)));
+                            }}
+                            style={{ padding: '6px 8px', border: 'none', backgroundColor: 'var(--bg-body)', cursor: 'pointer', fontWeight: 'bold' }}
+                          >
+                            -
+                          </button>
+                          <input
+                            type="number"
+                            min="1"
+                            step="1"
+                            value={batchLogEntryCount}
+                            onChange={(e) => setBatchLogEntryCount(e.target.value)}
+                            placeholder="鍋數"
+                            required
+                            style={{ flex: 1, textAlign: 'center', border: 'none', backgroundColor: 'var(--bg-input)', color: 'var(--text-main)', fontWeight: 'bold', fontSize: '0.95rem' }}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const curr = Number(batchLogEntryCount) || 0;
+                              setBatchLogEntryCount(String(curr + 1));
+                            }}
+                            style={{ padding: '6px 8px', border: 'none', backgroundColor: '#8b5cf6', color: 'white', cursor: 'pointer', fontWeight: 'bold' }}
+                          >
+                            +
+                          </button>
+                        </div>
+                      </div>
+
+                      <div>
+                        <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', marginBottom: '3px' }}>
+                          單鍋成本 (元)
+                        </label>
+                        <input
+                          type="number"
+                          value={batchLogEntryCost}
+                          onChange={(e) => setBatchLogEntryCost(e.target.value)}
+                          placeholder="350"
+                          style={{ width: '100%', padding: '6px 10px', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-input)', color: 'var(--text-main)', fontSize: '0.85rem' }}
+                        />
+                      </div>
+
+                      <div>
+                        <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', marginBottom: '3px' }}>
+                          當日備註 (選填)
+                        </label>
+                        <input
+                          type="text"
+                          value={batchLogEntryNotes}
+                          onChange={(e) => setBatchLogEntryNotes(e.target.value)}
+                          placeholder="例: 加煮/連假"
+                          style={{ width: '100%', padding: '6px 10px', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-input)', color: 'var(--text-main)', fontSize: '0.85rem' }}
+                        />
+                      </div>
+
+                      <div style={{ display: 'flex', gap: '6px' }}>
+                        <button
+                          type="submit"
+                          style={{
+                            flex: 1,
+                            padding: '7px 12px',
+                            borderRadius: '6px',
+                            border: 'none',
+                            backgroundColor: '#8b5cf6',
+                            color: 'white',
+                            fontWeight: 'bold',
+                            fontSize: '0.82rem',
+                            cursor: 'pointer',
+                            whiteSpace: 'nowrap'
+                          }}
+                        >
+                          💾 儲存該日
+                        </button>
+                        {existingForSelectedDate !== undefined && Number(existingForSelectedDate) > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (window.confirm(`確定要清除 ${batchLogEntryDate} 的製作紀錄嗎？`)) {
+                                handleDeleteDailyBatchLog(batchLogEntryDate, batchLogTemplateId);
+                                setBatchLogEntryCount('');
+                                setBatchLogEntryNotes('');
+                              }
+                            }}
+                            style={{
+                              padding: '7px 10px',
+                              borderRadius: '6px',
+                              border: '1px solid #ef4444',
+                              backgroundColor: 'transparent',
+                              color: '#ef4444',
+                              fontWeight: 'bold',
+                              fontSize: '0.82rem',
+                              cursor: 'pointer'
+                            }}
+                            title="清除此日紀錄"
+                          >
+                            🗑️
+                          </button>
+                        )}
+                      </div>
+                    </form>
+                  </div>
+
+                  {/* Daily Records Table for this Month */}
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                      <span style={{ fontSize: '0.85rem', fontWeight: 'bold', color: 'var(--text-main)' }}>
+                        📋 {batchLogMonth} 月份每日登記明細 ({recordedDates.length} 天已登記)
+                      </span>
+                    </div>
+
+                    {recordedDates.length === 0 ? (
+                      <div style={{
+                        padding: '24px',
+                        textAlign: 'center',
+                        backgroundColor: 'var(--bg-body)',
+                        borderRadius: '8px',
+                        border: '1px dashed var(--border)',
+                        color: 'var(--text-muted)',
+                        fontSize: '0.85rem'
+                      }}>
+                        💡 {batchLogMonth} 月份尚無逐日登記紀錄。<br />
+                        請在上方選擇日期並輸入製作鍋數儲存，系統將會自動即時累計！
+                      </div>
+                    ) : (
+                      <div style={{ maxHeight: '240px', overflowY: 'auto', border: '1px solid var(--border)', borderRadius: '8px' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem', textAlign: 'left' }}>
+                          <thead>
+                            <tr style={{ backgroundColor: 'var(--bg-body)', borderBottom: '1px solid var(--border)' }}>
+                              <th style={{ padding: '8px 10px' }}>日期</th>
+                              <th style={{ padding: '8px 10px' }}>星期</th>
+                              <th style={{ padding: '8px 10px' }}>製作量</th>
+                              <th style={{ padding: '8px 10px' }}>單鍋成本</th>
+                              <th style={{ padding: '8px 10px' }}>物料金額</th>
+                              <th style={{ padding: '8px 10px' }}>備註</th>
+                              <th style={{ padding: '8px 10px', textAlign: 'center' }}>操作</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {recordedDates.map(dateStr => {
+                              const dLog = dailyLogs[dateStr] || {};
+                              const cnt = Number(dLog[batchLogTemplateId]) || 0;
+                              const cost = Number(dLog[`${batchLogTemplateId}_cost`]) || matchedTmpl?.batchCost || 350;
+                              const notes = dLog[`${batchLogTemplateId}_notes`] || '';
+                              const subtotal = cnt * cost;
+                              
+                              const d = new Date(dateStr + 'T00:00:00');
+                              const dayNames = ['週日', '週一', '週二', '週三', '週四', '週五', '週六'];
+                              const dayName = dayNames[d.getDay()] || '';
+                              const isWeekend = d.getDay() === 0 || d.getDay() === 6;
+
+                              return (
+                                <tr key={dateStr} style={{ borderBottom: '1px solid var(--border)' }}>
+                                  <td style={{ padding: '8px 10px', fontWeight: 'bold' }}>{dateStr}</td>
+                                  <td style={{ padding: '8px 10px', color: isWeekend ? '#ef4444' : 'var(--text-muted)', fontWeight: isWeekend ? 'bold' : 'normal' }}>
+                                    {dayName}
+                                  </td>
+                                  <td style={{ padding: '8px 10px', fontWeight: 'bold', color: '#8b5cf6' }}>
+                                    {cnt} {matchedTmpl?.batchUnit}
+                                  </td>
+                                  <td style={{ padding: '8px 10px' }}>NT$ {cost}</td>
+                                  <td style={{ padding: '8px 10px', fontWeight: 'bold' }}>NT$ {subtotal.toLocaleString()}</td>
+                                  <td style={{ padding: '8px 10px', color: 'var(--text-muted)' }}>{notes || '-'}</td>
+                                  <td style={{ padding: '8px 10px', textAlign: 'center' }}>
+                                    <div style={{ display: 'inline-flex', gap: '4px' }}>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setBatchLogEntryDate(dateStr);
+                                          setBatchLogEntryCount(String(cnt));
+                                          setBatchLogEntryCost(String(cost));
+                                          setBatchLogEntryNotes(notes);
+                                        }}
+                                        style={{ padding: '2px 6px', fontSize: '0.72rem', borderRadius: '4px', border: '1px solid var(--border)', backgroundColor: 'transparent', cursor: 'pointer' }}
+                                        title="載入上方修改"
+                                      >
+                                        ✏️ 修改
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          if (window.confirm(`確定要清除 ${dateStr} 的製作紀錄嗎？`)) {
+                                            handleDeleteDailyBatchLog(dateStr, batchLogTemplateId);
+                                          }
+                                        }}
+                                        style={{ padding: '2px 6px', fontSize: '0.72rem', borderRadius: '4px', border: '1px solid #ef4444', backgroundColor: 'transparent', color: '#ef4444', cursor: 'pointer' }}
+                                        title="刪除"
+                                      >
+                                        🗑️
+                                      </button>
+                                    </div>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* TAB 2: MONTHLY LUMP SUM */}
+            {batchLogTab === 'monthly' && (
+              <form onSubmit={handleSaveBatchLog} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                <div style={{ backgroundColor: 'rgba(234, 88, 12, 0.08)', border: '1px solid rgba(234, 88, 12, 0.3)', borderRadius: '8px', padding: '10px 14px', fontSize: '0.8rem', color: '#c2410c' }}>
+                  ⚠️ 提示：若該月份已有上方「逐日登記」明細，系統會優先自動累計每日數據。此處供過去歷史月份一次輸入整月總鍋數使用。
+                </div>
+
+                <div>
+                  <label style={{ fontSize: '0.8rem', fontWeight: 'bold', color: 'var(--primary)', display: 'block', marginBottom: '4px' }}>
+                    🔢 該月份指定總製作量 (鍋數/桶數) <span style={{ color: '#ef4444' }}>*</span>
+                  </label>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <input
+                      type="number"
+                      step="1"
+                      min="1"
+                      placeholder="例如: 50"
+                      value={batchLogCount}
+                      onChange={(e) => setBatchLogCount(e.target.value)}
+                      required
+                      style={{ flex: 1, padding: '10px 12px', borderRadius: '8px', border: '2px solid var(--primary)', backgroundColor: 'var(--bg-input)', color: 'var(--text-main)', fontSize: '1.1rem', fontWeight: 'bold' }}
+                    />
+                    <span style={{ fontSize: '1rem', fontWeight: 'bold', color: 'var(--text-main)' }}>
+                      {(batchYieldTemplates || []).find(t => t.id === batchLogTemplateId)?.batchUnit || '大鍋'}
+                    </span>
+                  </div>
+                </div>
+
+                <div>
+                  <label style={{ fontSize: '0.8rem', fontWeight: 'bold', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>
+                    💰 單一單位物料成本 (元 / 鍋)
+                  </label>
                   <input
                     type="number"
-                    step="1"
-                    min="1"
-                    placeholder="例如: 50"
-                    value={batchLogCount}
-                    onChange={(e) => setBatchLogCount(e.target.value)}
-                    required
-                    style={{ flex: 1, padding: '10px 12px', borderRadius: '8px', border: '2px solid var(--primary)', backgroundColor: 'var(--bg-input)', color: 'var(--text-main)', fontSize: '1.1rem', fontWeight: 'bold' }}
+                    placeholder="例如: 350"
+                    value={batchLogCost}
+                    onChange={(e) => setBatchLogCost(e.target.value)}
+                    style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-input)', color: 'var(--text-main)', fontSize: '0.9rem' }}
                   />
-                  <span style={{ fontSize: '1rem', fontWeight: 'bold', color: 'var(--text-main)' }}>
-                    {(batchYieldTemplates || []).find(t => t.id === batchLogTemplateId)?.batchUnit || '大鍋'}
-                  </span>
                 </div>
-              </div>
 
-              <div>
-                <label style={{ fontSize: '0.8rem', fontWeight: 'bold', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>
-                  💰 單一單位物料成本 (元 / 鍋)
-                </label>
-                <input
-                  type="number"
-                  placeholder="例如: 350"
-                  value={batchLogCost}
-                  onChange={(e) => setBatchLogCost(e.target.value)}
-                  style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-input)', color: 'var(--text-main)', fontSize: '0.9rem' }}
-                />
-              </div>
+                <div>
+                  <label style={{ fontSize: '0.8rem', fontWeight: 'bold', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>
+                    📝 備註說明 (選填)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="例: 歷史月份整月設定"
+                    value={batchLogNotes}
+                    onChange={(e) => setBatchLogNotes(e.target.value)}
+                    style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-input)', color: 'var(--text-main)', fontSize: '0.85rem' }}
+                  />
+                </div>
 
-              <div>
-                <label style={{ fontSize: '0.8rem', fontWeight: 'bold', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>
-                  📝 備註說明 (選填)
-                </label>
-                <input
-                  type="text"
-                  placeholder="例: 中秋連假加煮5鍋"
-                  value={batchLogNotes}
-                  onChange={(e) => setBatchLogNotes(e.target.value)}
-                  style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-input)', color: 'var(--text-main)', fontSize: '0.85rem' }}
-                />
-              </div>
+                <div style={{ display: 'flex', gap: '10px', marginTop: '6px' }}>
+                  <button
+                    type="submit"
+                    style={{ flex: 1, padding: '10px', borderRadius: '8px', border: 'none', backgroundColor: '#8b5cf6', color: 'white', fontWeight: 'bold', cursor: 'pointer' }}
+                  >
+                    確認儲存整月總量
+                  </button>
+                </div>
+              </form>
+            )}
 
-              <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
-                <button
-                  type="button"
-                  onClick={() => setShowBatchLogModal(false)}
-                  style={{ flex: 1, padding: '10px', borderRadius: '8px', border: '1px solid var(--border)', backgroundColor: 'transparent', color: 'var(--text-main)', cursor: 'pointer' }}
-                >
-                  取消
-                </button>
-                <button
-                  type="submit"
-                  style={{ flex: 1.5, padding: '10px', borderRadius: '8px', border: 'none', backgroundColor: '#8b5cf6', color: 'white', fontWeight: 'bold', cursor: 'pointer' }}
-                >
-                  確認儲存
-                </button>
-              </div>
-            </form>
+            {/* Bottom Close Bar */}
+            <div style={{ marginTop: '16px', paddingTop: '12px', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end' }}>
+              <button
+                type="button"
+                onClick={() => setShowBatchLogModal(false)}
+                style={{ padding: '8px 18px', borderRadius: '8px', border: '1px solid var(--border)', backgroundColor: 'transparent', color: 'var(--text-main)', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.85rem' }}
+              >
+                關閉視窗
+              </button>
+            </div>
           </div>
         </div>
       )}
