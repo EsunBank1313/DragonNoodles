@@ -3202,13 +3202,13 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
       let hasDailyEntry = false;
       Object.values(daily).forEach(d => {
         if (d && d[tmplId] !== undefined && d[tmplId] !== null) {
-          sum += Number(d[tmplId]) || 0;
+          sum += parseFloat(d[tmplId]) || 0;
           hasDailyEntry = true;
         }
       });
-      if (hasDailyEntry) return sum;
+      if (hasDailyEntry) return Math.round(sum * 10) / 10;
     }
-    return Number(mData[tmplId]) || 0;
+    return Math.round((parseFloat(mData[tmplId]) || 0) * 10) / 10;
   };
 
   const getBatchCostForMonth = (m, tmplId, fallbackCost = 0) => {
@@ -3220,17 +3220,17 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
       let hasDailyEntry = false;
       Object.values(daily).forEach(d => {
         if (d && d[tmplId] !== undefined && d[tmplId] !== null) {
-          const cnt = Number(d[tmplId]) || 0;
+          const cnt = parseFloat(d[tmplId]) || 0;
           const costUnit = Number(d[tmplId + '_cost']) || Number(mData[tmplId + '_cost']) || fallbackCost;
           totalCost += cnt * costUnit;
           hasDailyEntry = true;
         }
       });
-      if (hasDailyEntry) return totalCost;
+      if (hasDailyEntry) return Math.round(totalCost);
     }
-    const directCnt = Number(mData[tmplId]) || 0;
+    const directCnt = parseFloat(mData[tmplId]) || 0;
     const costUnit = Number(mData[tmplId + '_cost']) || fallbackCost;
-    return directCnt * costUnit;
+    return Math.round(directCnt * costUnit);
   };
 
   const getBatchDailyDaysCount = (m, tmplId) => {
@@ -3248,7 +3248,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
   const handleSaveDailyBatchLog = (dateStr, tmplId, count, cost, notes) => {
     if (!dateStr) return;
     const ym = dateStr.slice(0, 7);
-    const numCount = Number(count) || 0;
+    const numCount = parseFloat(count) || 0;
     const currentLogs = monthlyBatchLogs || {};
     const monthData = currentLogs[ym] || {};
     const dailyLogs = { ...(monthData.daily || {}) };
@@ -3268,7 +3268,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
     } else {
       dailyLogs[dateStr] = {
         ...(dailyLogs[dateStr] || {}),
-        [tmplId]: numCount,
+        [tmplId]: Math.round(numCount * 10) / 10,
         [`${tmplId}_cost`]: Number(cost) || 0,
         [`${tmplId}_notes`]: (notes || '').trim()
       };
@@ -3279,10 +3279,11 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
     let hasDaily = false;
     Object.keys(dailyLogs).forEach(d => {
       if (dailyLogs[d] && dailyLogs[d][tmplId] !== undefined) {
-        monthlySum += Number(dailyLogs[d][tmplId]) || 0;
+        monthlySum += parseFloat(dailyLogs[d][tmplId]) || 0;
         hasDaily = true;
       }
     });
+    monthlySum = Math.round(monthlySum * 10) / 10;
 
     const updated = {
       ...currentLogs,
@@ -3305,17 +3306,18 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
 
   const handleSaveBatchLog = (e) => {
     if (e && e.preventDefault) e.preventDefault();
-    const count = Number(batchLogCount) || 0;
+    const count = parseFloat(batchLogCount) || 0;
     if (count <= 0) {
-      alert("請輸入有效的製作數量（大於 0 的鍋數/桶數）！");
+      alert("請輸入有效的製作數量（大於 0 的鍋數/桶數，最小單位為 0.5 鍋）！");
       return;
     }
+    const cleanCount = Math.round(count * 10) / 10;
     const currentLogs = monthlyBatchLogs || {};
     const updated = {
       ...currentLogs,
       [batchLogMonth]: {
         ...(currentLogs[batchLogMonth] || {}),
-        [batchLogTemplateId]: count,
+        [batchLogTemplateId]: cleanCount,
         [`${batchLogTemplateId}_cost`]: Number(batchLogCost) || 0,
         [`${batchLogTemplateId}_notes`]: (batchLogNotes || '').trim()
       }
@@ -3324,7 +3326,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
     localStorage.setItem(`${storeCode}_restaurant_monthly_batch_logs`, JSON.stringify(updated));
     saveMonthlyBatchLogsToCloud(updated);
     setShowBatchLogModal(false);
-    alert(`🎉 成功儲存 ${batchLogMonth} 月份製作量：${count} 鍋/桶！`);
+    alert(`🎉 成功儲存 ${batchLogMonth} 月份製作量：${cleanCount} 鍋/桶！`);
   };
 
   const handleSaveBatchTemplate = (e) => {
@@ -4645,7 +4647,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                                   <button
                                     type="button"
                                     onClick={() => {
-                                      const next = Math.max(0, todayPots - 1);
+                                      const next = Math.max(0, Math.round((todayPots - 0.5) * 10) / 10);
                                       handleSaveDailyBatchLog(selectedBookkeepingDate, tmpl.id, next, currentCost, currentNotes);
                                       setDailyPotSavedFeedback(true);
                                       setTimeout(() => setDailyPotSavedFeedback(false), 2000);
@@ -4660,24 +4662,24 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                                       fontWeight: 'bold',
                                       fontSize: '0.9rem'
                                     }}
-                                    title="減少 1 鍋"
+                                    title="減少半鍋 (-0.5)"
                                   >
                                     -
                                   </button>
                                   <input
                                     type="number"
                                     min="0"
-                                    step="1"
+                                    step="0.5"
                                     value={todayPots === 0 ? '' : todayPots}
                                     placeholder="0"
                                     onChange={(e) => {
-                                      const val = e.target.value === '' ? 0 : Number(e.target.value);
+                                      const val = e.target.value === '' ? 0 : parseFloat(e.target.value);
                                       handleSaveDailyBatchLog(selectedBookkeepingDate, tmpl.id, val, currentCost, currentNotes);
                                       setDailyPotSavedFeedback(true);
                                       setTimeout(() => setDailyPotSavedFeedback(false), 2000);
                                     }}
                                     style={{
-                                      width: '46px',
+                                      width: '52px',
                                       textAlign: 'center',
                                       padding: '4px 0',
                                       border: 'none',
@@ -4690,7 +4692,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                                   <button
                                     type="button"
                                     onClick={() => {
-                                      const next = todayPots + 1;
+                                      const next = Math.round((todayPots + 0.5) * 10) / 10;
                                       handleSaveDailyBatchLog(selectedBookkeepingDate, tmpl.id, next, currentCost, currentNotes);
                                       setDailyPotSavedFeedback(true);
                                       setTimeout(() => setDailyPotSavedFeedback(false), 2000);
@@ -4705,7 +4707,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                                       fontWeight: 'bold',
                                       fontSize: '0.9rem'
                                     }}
-                                    title="增加 1 鍋"
+                                    title="增加半鍋 (+0.5)"
                                   >
                                     +
                                   </button>
@@ -8168,30 +8170,32 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                           <button
                             type="button"
                             onClick={() => {
-                              const curr = Number(batchLogEntryCount) || 0;
-                              setBatchLogEntryCount(String(Math.max(0, curr - 1)));
+                              const curr = parseFloat(batchLogEntryCount) || 0;
+                              setBatchLogEntryCount(String(Math.max(0, Math.round((curr - 0.5) * 10) / 10)));
                             }}
                             style={{ padding: '6px 8px', border: 'none', backgroundColor: 'var(--bg-body)', cursor: 'pointer', fontWeight: 'bold' }}
+                            title="減少半鍋 (-0.5)"
                           >
                             -
                           </button>
                           <input
                             type="number"
-                            min="1"
-                            step="1"
+                            min="0.5"
+                            step="0.5"
                             value={batchLogEntryCount}
                             onChange={(e) => setBatchLogEntryCount(e.target.value)}
-                            placeholder="鍋數"
+                            placeholder="鍋數 (如: 0.5 或 1)"
                             required
                             style={{ flex: 1, textAlign: 'center', border: 'none', backgroundColor: 'var(--bg-input)', color: 'var(--text-main)', fontWeight: 'bold', fontSize: '0.95rem' }}
                           />
                           <button
                             type="button"
                             onClick={() => {
-                              const curr = Number(batchLogEntryCount) || 0;
-                              setBatchLogEntryCount(String(curr + 1));
+                              const curr = parseFloat(batchLogEntryCount) || 0;
+                              setBatchLogEntryCount(String(Math.round((curr + 0.5) * 10) / 10));
                             }}
                             style={{ padding: '6px 8px', border: 'none', backgroundColor: '#8b5cf6', color: 'white', cursor: 'pointer', fontWeight: 'bold' }}
+                            title="增加半鍋 (+0.5)"
                           >
                             +
                           </button>
@@ -8386,9 +8390,9 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <input
                       type="number"
-                      step="1"
-                      min="1"
-                      placeholder="例如: 50"
+                      step="0.5"
+                      min="0.5"
+                      placeholder="例如: 50 或 50.5"
                       value={batchLogCount}
                       onChange={(e) => setBatchLogCount(e.target.value)}
                       required
