@@ -3789,14 +3789,14 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
     };
 
     const idIdx = findCol(['訂單 ID', '訂單ID', '訂單編號', '訂單號', '訂單序號', 'Order ID', 'OrderID', 'Order Id', 'order_id', 'Order #']);
-    const timeIdx = findCol(['接收訂單時間', '訂單接收時間', '接單時間', '訂單時間', '接受時間', '下單時間', '建立時間', 'Order placement time', 'Order received time', 'Order time', 'Received time', 'Order placed at', 'Created at']);
+    const timeIdx = findCol(['接收訂單時間', '訂單接收時間', '接單時間', '訂單時間', '接受時間', '下單時間', '建立時間', 'Order received at', 'Order placement time', 'Order received time', 'Order time', 'Received time', 'Order placed at', 'Created at']);
     const subtotalIdx = findCol(['小計', '餐點小計', '訂單小計', '餐點金額', 'Subtotal', 'Sub total', 'Food subtotal']);
     const commissionIdx = findCol(['佣金', '平台佣金', '抽成', '手續費', 'Commission', 'Commission fee']);
-    const netIdx = findCol(['預計營收', '實收金額', '店家淨營收', '實收', '淨營收', '預計收益', '商家營收', '淨額', 'Estimated revenue', 'Vendor payout', 'Net sales', 'Net payout', 'Payout', 'Net amount']);
-    const paidIdx = findCol(['付款金額', '實付金額', '消費者支付', 'Paid amount', 'Collected amount', 'Customer paid']);
+    const netIdx = findCol(['預計營收', '實收金額', '店家淨營收', '實收', '淨營收', '預計收益', '商家營收', '淨額', 'Estimated earnings', 'Payout Amount', 'Estimated revenue', 'Vendor payout', 'Net sales', 'Net payout', 'Payout', 'Net amount']);
+    const paidIdx = findCol(['付款金額', '實付金額', '消費者支付', 'Payout Amount', 'Paid amount', 'Collected amount', 'Customer paid']);
     const statusIdx = findCol(['訂單狀態', '狀態', 'Order status', 'Status']);
     const cancelIdx = findCol(['取消原因', '廢單原因', 'Cancellation reason', 'Cancel reason']);
-    const itemsIdx = findCol(['訂單品項', '餐點品項', '品項明細', '品項', '餐點', 'Order items', 'Items', 'Item details', 'Dishes']);
+    const itemsIdx = findCol(['訂單品項', '餐點品項', '品項明細', '品項', '餐點', 'Order items', 'Order Items', 'Items', 'Item details', 'Dishes']);
 
     if (idIdx === -1 || timeIdx === -1) {
       const previewCols = rawHeaders.filter(Boolean).slice(0, 10).join('、');
@@ -3838,7 +3838,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
 
       const status = row[statusIdx]?.trim() || '訂單已送達';
       const cancelReason = (cancelIdx !== -1 && row[cancelIdx]) ? row[cancelIdx].trim() : '';
-      const isCanceled = Boolean(cancelReason) || status.includes('取消');
+      const isCanceled = Boolean(cancelReason) || status.includes('取消') || status.toLowerCase().includes('cancel');
       const isExisting = existingSet.has(orderNumber) || existingSet.has(rawOrderId);
 
       let dateStr = '';
