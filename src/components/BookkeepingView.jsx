@@ -3602,8 +3602,20 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
   };
 
   // --- foodpanda (熊貓外送) CSV 解析與匯入模組 ---
+  // --- foodpanda (熊貓外送) CSV 解析與匯入模組 ---
   const parseCSV = (text) => {
     const cleanText = text.replace(/^\uFEFF/, '').trim();
+    if (!cleanText) return [];
+
+    // 自動偵測欄位分隔符號 (判斷逗號、分號或定位點)
+    const sampleLine = cleanText.split(/\r\n|\n|\r/)[0] || '';
+    let delimiter = ',';
+    if (!sampleLine.includes(',') && sampleLine.includes(';')) {
+      delimiter = ';';
+    } else if (!sampleLine.includes(',') && sampleLine.includes('\t')) {
+      delimiter = '\t';
+    }
+
     const rows = [];
     let currentRow = [];
     let currentVal = '';
@@ -3620,7 +3632,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
         } else {
           insideQuotes = !insideQuotes;
         }
-      } else if (char === ',' && !insideQuotes) {
+      } else if (char === delimiter && !insideQuotes) {
         currentRow.push(currentVal.trim());
         currentVal = '';
       } else if ((char === '\r' || char === '\n') && !insideQuotes) {
@@ -3705,13 +3717,35 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
     const reader = new FileReader();
     reader.onload = (event) => {
       try {
-        const text = event.target.result;
+        const buffer = event.target.result;
+        // 先嘗試以 UTF-8 解碼
+        let text = '';
+        try {
+          text = new TextDecoder('utf-8', { fatal: false }).decode(buffer);
+        } catch (err) {
+          text = '';
+        }
+
+        // 檢查是否含有亂碼 (\uFFFD) 或完全沒有出現常見中英關鍵字（可能為 Excel 在 Windows 上另存的 ANSI/Big5 編碼）
+        const hasGarbled = text.includes('\uFFFD');
+        const lower = text.toLowerCase();
+        const hasKeywords = lower.includes('訂單') || lower.includes('order') || lower.includes('foodpanda');
+        if (hasGarbled || !hasKeywords) {
+          try {
+            const big5Text = new TextDecoder('big5').decode(buffer);
+            if (big5Text.includes('訂單') || big5Text.toLowerCase().includes('order')) {
+              text = big5Text;
+            }
+          } catch (e) {
+            // big5 解碼失敗，保留原 utf-8 text
+          }
+        }
         processPandaCSV(text);
       } catch (err) {
         alert('解析熊貓 CSV 報表失敗: ' + err.message);
       }
     };
-    reader.readAsText(file);
+    reader.readAsArrayBuffer(file);
     e.target.value = '';
   };
 
@@ -3722,20 +3756,51 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
       return;
     }
 
-    const headers = rows[0].map(h => h.trim());
-    const idIdx = headers.indexOf('訂單 ID');
-    const timeIdx = headers.indexOf('接收訂單時間');
-    const subtotalIdx = headers.indexOf('小計');
-    const commissionIdx = headers.indexOf('佣金');
-    let netIdx = headers.indexOf('預計營收');
-    if (netIdx === -1) netIdx = headers.findIndex(h => h.includes('預計營收'));
-    const paidIdx = headers.indexOf('付款金額');
-    const statusIdx = headers.indexOf('訂單狀態');
-    const cancelIdx = headers.indexOf('取消原因');
-    const itemsIdx = headers.indexOf('訂單品項');
+    // 尋找真正的標題列 (跳過可能的檔案前置備註、篩選條件或空白行)
+    let headerRowIdx = -1;
+    for (let i = 0; i < Math.min(rows.length, 10); i++) {
+      const row = rows[i];
+      const rowStr = row.map(c => String(c || '').trim()).join(' ').toLowerCase();
+      if ((rowStr.includes('訂單') || rowStr.includes('order')) && 
+          (rowStr.includes('id') || rowStr.includes('時間') || rowStr.includes('time') || rowStr.includes('狀態') || rowStr.includes('status') || rowStr.includes('小計') || rowStr.includes('subtotal') || rowStr.includes('營收') || rowStr.includes('revenue'))) {
+        headerRowIdx = i;
+        break;
+      }
+    }
+    if (headerRowIdx === -1) headerRowIdx = 0;
+
+    const rawHeaders = rows[headerRowIdx].map(h => (h || '').trim().replace(/^["']|["']$/g, ''));
+
+    // 智慧欄位搜尋工具：支援完全相符、移除空白比對、包含關鍵字、不分大小寫、中英文別名
+    const findCol = (aliases) => {
+      for (const alias of aliases) {
+        const cleanAlias = alias.replace(/\s+/g, '').toLowerCase();
+        // 1. 完全相同比對 (移除空白與不分大小寫)
+        const exactIdx = rawHeaders.findIndex(h => h.replace(/\s+/g, '').toLowerCase() === cleanAlias);
+        if (exactIdx !== -1) return exactIdx;
+      }
+      for (const alias of aliases) {
+        const cleanAlias = alias.replace(/\s+/g, '').toLowerCase();
+        // 2. 包含比對
+        const containIdx = rawHeaders.findIndex(h => h.replace(/\s+/g, '').toLowerCase().includes(cleanAlias));
+        if (containIdx !== -1) return containIdx;
+      }
+      return -1;
+    };
+
+    const idIdx = findCol(['訂單 ID', '訂單ID', '訂單編號', '訂單號', '訂單序號', 'Order ID', 'OrderID', 'Order Id', 'order_id', 'Order #']);
+    const timeIdx = findCol(['接收訂單時間', '訂單接收時間', '接單時間', '訂單時間', '接受時間', '下單時間', '建立時間', 'Order placement time', 'Order received time', 'Order time', 'Received time', 'Order placed at', 'Created at']);
+    const subtotalIdx = findCol(['小計', '餐點小計', '訂單小計', '餐點金額', 'Subtotal', 'Sub total', 'Food subtotal']);
+    const commissionIdx = findCol(['佣金', '平台佣金', '抽成', '手續費', 'Commission', 'Commission fee']);
+    const netIdx = findCol(['預計營收', '實收金額', '店家淨營收', '實收', '淨營收', '預計收益', '商家營收', '淨額', 'Estimated revenue', 'Vendor payout', 'Net sales', 'Net payout', 'Payout', 'Net amount']);
+    const paidIdx = findCol(['付款金額', '實付金額', '消費者支付', 'Paid amount', 'Collected amount', 'Customer paid']);
+    const statusIdx = findCol(['訂單狀態', '狀態', 'Order status', 'Status']);
+    const cancelIdx = findCol(['取消原因', '廢單原因', 'Cancellation reason', 'Cancel reason']);
+    const itemsIdx = findCol(['訂單品項', '餐點品項', '品項明細', '品項', '餐點', 'Order items', 'Items', 'Item details', 'Dishes']);
 
     if (idIdx === -1 || timeIdx === -1) {
-      alert('無法識別此 CSV 欄位！請確認這是由 foodpanda 商家後台匯出的「訂單明細」CSV 檔案（需包含「訂單 ID」與「接收訂單時間」等欄位）。');
+      const previewCols = rawHeaders.filter(Boolean).slice(0, 10).join('、');
+      alert(`無法識別此 CSV 欄位！\n\n系統讀取到的欄位標題為：\n[${previewCols || '無有效欄位'}]\n\n請確認：\n1. 請確認這是從 foodpanda 商家後台「訂單」頁面匯出的「訂單明細」CSV（需含訂單 ID 與接單時間），請勿使用「財務結算對帳單」或「發票」報表。\n2. 若此檔案曾在 Excel 中編輯過，請確認標題列未被更名或刪除。\n3. 若語系為其他語言，系統已自動支援中英文，但需具備訂單 ID 與時間欄位。`);
       return;
     }
 
@@ -3752,7 +3817,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
     let existingCount = 0;
     const dates = [];
 
-    rows.slice(1).forEach(row => {
+    rows.slice(headerRowIdx + 1).forEach(row => {
       const rawOrderId = row[idIdx]?.trim();
       if (!rawOrderId) return;
 
