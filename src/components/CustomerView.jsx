@@ -294,6 +294,46 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
   const [allOrders, setAllOrders] = useState([]);
   const [activeOrderId, setActiveOrderId] = useState(null);
 
+  // Customer Order History Modal State
+  const [showOrderHistoryModal, setShowOrderHistoryModal] = useState(false);
+  const [historyOrders, setHistoryOrders] = useState([]);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+
+  const handleOpenOrderHistory = async () => {
+    setShowOrderHistoryModal(true);
+    setIsLoadingHistory(true);
+    try {
+      const savedActiveId = localStorage.getItem('active_customer_order_id');
+      const authUserId = customerAuth?.userId;
+
+      // Query recent customer orders
+      const { data, error } = await supabase
+        .from('orders')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(30);
+
+      if (error) throw error;
+
+      if (data && data.length > 0) {
+        const formatted = data.map(formatSupabaseOrder).filter(Boolean);
+        const filtered = formatted.filter(o => {
+          if (savedActiveId && String(o.id) === String(savedActiveId)) return true;
+          if (authUserId && (o.authUser?.userId === authUserId || o.lineUser?.userId === authUserId)) return true;
+          if (custPhone && o.customerPhone && o.customerPhone === custPhone) return true;
+          return false;
+        });
+        setHistoryOrders(filtered);
+      } else {
+        setHistoryOrders([]);
+      }
+    } catch (err) {
+      console.warn("Failed to load customer order history:", err);
+    } finally {
+      setIsLoadingHistory(false);
+    }
+  };
+
   const [showCart, setShowCart] = useState(false);
   const [editingCartItem, setEditingCartItem] = useState(null);
   const [remarks, setRemarks] = useState('');
@@ -1571,51 +1611,121 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
               </div>
             )}
 
-            {customerAuth ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
               <button
                 type="button"
-                onClick={() => {
-                  if (window.confirm('確定要切換或登出目前帳號嗎？')) {
-                    logoutCustomerAuth(customerAuth);
-                  }
-                }}
+                onClick={() => handleOpenOrderHistory()}
                 style={{
-                  background: 'transparent',
-                  border: '1px solid #d1d5db',
-                  color: '#6b7280',
-                  fontSize: '0.75rem',
-                  cursor: 'pointer',
-                  padding: '4px 8px',
-                  borderRadius: '6px'
-                }}
-              >
-                登出 / 切換
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setShowAuthModal(true)}
-                style={{
-                  backgroundColor: '#1f2937',
-                  color: 'white',
-                  border: 'none',
+                  backgroundColor: '#ffffff',
+                  color: '#4338ca',
+                  border: '1.5px solid #c7d2fe',
                   borderRadius: '8px',
-                  padding: '7px 12px',
-                  fontSize: '0.8rem',
+                  padding: '5px 9px',
+                  fontSize: '0.78rem',
                   fontWeight: 'bold',
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '5px',
-                  boxShadow: '0 2px 4px rgba(0,0,0,0.15)'
+                  gap: '3px',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+                  whiteSpace: 'nowrap'
                 }}
+                title="查詢歷史訂單與即時出餐進度"
               >
-                <span>🔐</span> 登入 / 驗證
+                <span>📋</span> 查詢訂單
               </button>
-            )}
+
+              {customerAuth ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (window.confirm('確定要切換或登出目前帳號嗎？')) {
+                      logoutCustomerAuth(customerAuth);
+                    }
+                  }}
+                  style={{
+                    background: 'transparent',
+                    border: '1px solid #d1d5db',
+                    color: '#6b7280',
+                    fontSize: '0.75rem',
+                    cursor: 'pointer',
+                    padding: '4px 7px',
+                    borderRadius: '6px',
+                    whiteSpace: 'nowrap'
+                  }}
+                >
+                  登出
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setShowAuthModal(true)}
+                  style={{
+                    backgroundColor: '#1f2937',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '8px',
+                    padding: '6px 10px',
+                    fontSize: '0.78rem',
+                    fontWeight: 'bold',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    boxShadow: '0 2px 4px rgba(0,0,0,0.15)',
+                    whiteSpace: 'nowrap'
+                  }}
+                >
+                  <span>🔐</span> 登入
+                </button>
+              )}
+            </div>
           </div>
         );
       })()}
+
+      {/* ⚡ 進行中訂單即時進度常駐浮動條 */}
+      {viewState === 'menu' && activeOrder && activeOrder.status !== 'completed' && activeOrder.status !== 'deleted' && activeOrder.status !== 'cancelled' && activeOrder.status !== 'rejected' && (
+        <div 
+          onClick={() => setViewState('tracking')}
+          style={{
+            margin: '8px 16px 12px 16px',
+            padding: '12px 14px',
+            borderRadius: '12px',
+            background: activeOrder.status === 'ready' 
+              ? 'linear-gradient(135deg, #059669, #10b981)' 
+              : (activeOrder.status === 'preparing' 
+                ? 'linear-gradient(135deg, #7c3aed, #6366f1)' 
+                : 'linear-gradient(135deg, #ea580c, #f97316)'),
+            color: '#ffffff',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+            cursor: 'pointer'
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden' }}>
+            <span style={{ fontSize: '1.3rem' }}>
+              {activeOrder.status === 'ready' ? '🎉' : (activeOrder.status === 'preparing' ? '🍜' : '⏳')}
+            </span>
+            <div style={{ overflow: 'hidden' }}>
+              <div style={{ fontWeight: 'bold', fontSize: '0.88rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span>訂單【{activeOrder.serialNum || activeOrder.id}】</span>
+                <span style={{ fontSize: '0.7rem', backgroundColor: 'rgba(255,255,255,0.25)', padding: '1px 6px', borderRadius: '8px' }}>
+                  {activeOrder.status === 'ready' ? '製作完成' : (activeOrder.status === 'preparing' ? '收單製作中' : '等待收單')}
+                </span>
+              </div>
+              <div style={{ fontSize: '0.72rem', opacity: 0.92, marginTop: '2px', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                {activeOrder.status === 'ready' ? '餐點已熱騰騰完成，點此查看取餐號碼！' : (activeOrder.status === 'preparing' ? '店家正用心烹調中，點此查看進度' : '已送達店家排單，點此查看即時進度')}
+              </div>
+            </div>
+          </div>
+          <span style={{ backgroundColor: '#ffffff', color: '#1f2937', padding: '5px 10px', borderRadius: '12px', fontSize: '0.75rem', fontWeight: '900', flexShrink: 0, boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>
+            進度 ›
+          </span>
+        </div>
+      )}
 
       {viewState === 'menu' && (
         <>
@@ -2438,6 +2548,201 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
             >
               返回繼續瀏覽菜單
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* 📋 顧客訂單查詢與歷史紀錄彈窗 */}
+      {showOrderHistoryModal && (
+        <div className="modal-backdrop" style={{ zIndex: 600 }} onClick={() => setShowOrderHistoryModal(false)}>
+          <div 
+            className="modal-content" 
+            style={{ maxWidth: '440px', maxHeight: '85vh', borderRadius: '22px', padding: '24px 20px', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 40px rgba(0,0,0,0.2)' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border)', paddingBottom: '12px', marginBottom: '16px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ fontSize: '1.3rem' }}>📋</span>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 'bold', color: 'var(--text-main)' }}>
+                    我的點餐紀錄
+                  </h3>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                    {customerAuth ? `會員：${customerAuth.displayName}` : '訪客裝置訂單查詢'}
+                  </div>
+                </div>
+              </div>
+              <button 
+                type="button" 
+                onClick={() => setShowOrderHistoryModal(false)}
+                style={{ background: 'none', border: 'none', fontSize: '1.4rem', cursor: 'pointer', color: 'var(--text-muted)', padding: '2px 8px' }}
+              >
+                ×
+              </button>
+            </div>
+
+            {/* Orders List */}
+            <div style={{ overflowY: 'auto', flex: 1, paddingRight: '4px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              {isLoadingHistory ? (
+                <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-muted)', fontSize: '0.9rem' }}>
+                  ⏳ 載入訂單紀錄中...
+                </div>
+              ) : historyOrders.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '36px 16px', color: 'var(--text-muted)' }}>
+                  <div style={{ fontSize: '2.5rem', marginBottom: '10px' }}>🥣</div>
+                  <div style={{ fontWeight: 'bold', fontSize: '1rem', color: 'var(--text-main)', marginBottom: '6px' }}>
+                    尚無訂單紀錄
+                  </div>
+                  <div style={{ fontSize: '0.82rem', lineHeight: '1.5', color: '#6b7280' }}>
+                    {customerAuth 
+                      ? '您在此帳號下尚未送出過訂單。送單後即可在此即時追蹤每一筆出餐進度！' 
+                      : '送單完成後將在此顯示取餐進度。登入會員（LINE / Google / Apple）可跨裝置同步紀錄！'}
+                  </div>
+                  {!customerAuth && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowOrderHistoryModal(false);
+                        setShowAuthModal(true);
+                      }}
+                      style={{
+                        marginTop: '16px',
+                        backgroundColor: '#1f2937',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '8px',
+                        padding: '8px 16px',
+                        fontSize: '0.85rem',
+                        fontWeight: 'bold',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      🔐 立即登入會員
+                    </button>
+                  )}
+                </div>
+              ) : (
+                historyOrders.map(order => {
+                  const getStatusBadge = (status) => {
+                    switch (status) {
+                      case 'cancelled':
+                      case 'rejected':
+                        return { text: '❌ 無法提供', bg: '#fee2e2', color: '#dc2626', border: '#fca5a5' };
+                      case 'ready':
+                      case 'completed':
+                        return { text: '✔ 製作完成', bg: '#dcfce7', color: '#15803d', border: '#86efac' };
+                      case 'preparing':
+                        return { text: '🍜 收單製作中', bg: '#ede9fe', color: '#7c3aed', border: '#c4b5fd' };
+                      case 'received':
+                      default:
+                        return { text: '⏳ 等待收單', bg: '#ffedd5', color: '#c2410c', border: '#fdba74' };
+                    }
+                  };
+                  const badge = getStatusBadge(order.status);
+                  const isUnfinished = order.status !== 'completed' && order.status !== 'cancelled' && order.status !== 'rejected' && order.status !== 'deleted';
+
+                  return (
+                    <div 
+                      key={order.id}
+                      onClick={() => {
+                        setActiveOrderId(String(order.id));
+                        setAllOrders([order]);
+                        setViewState('tracking');
+                        setShowOrderHistoryModal(false);
+                      }}
+                      style={{
+                        padding: '12px 14px',
+                        borderRadius: '12px',
+                        border: isUnfinished ? '2px solid #8b5cf6' : '1px solid var(--border)',
+                        backgroundColor: isUnfinished ? '#faf5ff' : 'var(--bg-body)',
+                        boxShadow: isUnfinished ? '0 2px 8px rgba(139, 92, 246, 0.15)' : 'none',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '6px',
+                        textAlign: 'left'
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span style={{ fontWeight: '900', fontSize: '0.98rem', color: 'var(--primary)' }}>
+                            單號: {order.serialNum || order.id}
+                          </span>
+                          <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                            {order.time}
+                          </span>
+                        </div>
+                        <span style={{
+                          padding: '2px 8px',
+                          borderRadius: '12px',
+                          fontSize: '0.72rem',
+                          fontWeight: 'bold',
+                          backgroundColor: badge.bg,
+                          color: badge.color,
+                          border: `1px solid ${badge.border}`
+                        }}>
+                          {badge.text}
+                        </span>
+                      </div>
+
+                      {/* Items preview */}
+                      <div style={{ fontSize: '0.78rem', color: 'var(--text-main)', lineHeight: '1.4' }}>
+                        {(order.items || []).map(i => `${i.name} x${i.quantity}`).join('、')}
+                      </div>
+
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px dashed var(--border)', paddingTop: '6px', marginTop: '2px' }}>
+                        <span style={{ fontSize: '0.82rem', fontWeight: 'bold', color: 'var(--text-main)' }}>
+                          實付總額: NT$ {order.total}
+                        </span>
+                        <span style={{ fontSize: '0.75rem', color: '#7c3aed', fontWeight: 'bold' }}>
+                          查看進度與明細 ›
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            {/* Footer refresh button */}
+            <div style={{ borderTop: '1px solid var(--border)', paddingTop: '12px', marginTop: '12px', display: 'flex', gap: '8px' }}>
+              <button
+                type="button"
+                onClick={handleOpenOrderHistory}
+                disabled={isLoadingHistory}
+                style={{
+                  flex: 1,
+                  padding: '10px',
+                  backgroundColor: 'var(--bg-body)',
+                  border: '1px solid var(--border)',
+                  borderRadius: '8px',
+                  fontSize: '0.85rem',
+                  fontWeight: 'bold',
+                  cursor: 'pointer',
+                  color: 'var(--text-main)'
+                }}
+              >
+                🔄 重新整理
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowOrderHistoryModal(false)}
+                style={{
+                  flex: 1,
+                  padding: '10px',
+                  backgroundColor: '#1f2937',
+                  border: 'none',
+                  borderRadius: '8px',
+                  fontSize: '0.85rem',
+                  fontWeight: 'bold',
+                  color: 'white',
+                  cursor: 'pointer'
+                }}
+              >
+                關閉
+              </button>
+            </div>
           </div>
         </div>
       )}

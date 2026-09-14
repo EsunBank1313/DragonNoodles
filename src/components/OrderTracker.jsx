@@ -29,36 +29,39 @@ export default function OrderTracker({ order, onBackToMenu }) {
   // Map status to progress percentage, badge, and descriptive messages
   const getStatusDetails = (status) => {
     switch (status) {
-      case 'ready':
+      case 'cancelled':
+      case 'rejected':
+      case 'deleted':
         return {
-          title: '🎉 餐點製作完成！',
+          title: '⚠️ 店家無法提供此訂單',
+          desc: '抱歉，店家因品項售罄或尖峰滿單，暫時無法為您提供此筆訂單。如有已付款項將自動為您辦理退款，敬請見諒。',
+          step: 0,
+          color: '#ef4444',
+          isCancelled: true
+        };
+      case 'ready':
+      case 'completed':
+        return {
+          title: '🎉 製作完成 (請取餐)',
           desc: order.type === 'dine-in' 
             ? '您的餐點已熱騰騰製作完成，服務人員即將為您送上桌！' 
-            : '您的餐點已製作完成！請至櫃檯出示此畫面取餐。',
+            : '您的餐點已熱騰騰製作完成！請至櫃檯出示此畫面號碼取餐。',
           step: 3,
-          color: '#10b981'
+          color: '#10b981',
+          isReady: true
         };
       case 'preparing':
         return {
-          title: '🍜 餐點製作中',
-          desc: '店家已接單，正在為您精心現做烹調中，請稍候片刻。',
+          title: '🍜 收單製作中',
+          desc: '店家已確認收單！廚房師傅正在為您用心烹調餐點，請稍候片刻。',
           step: 2,
-          color: 'var(--primary)'
-        };
-      case 'completed':
-        return {
-          title: '🎉 餐點製作完成！',
-          desc: order.type === 'dine-in' 
-            ? '您的餐點已熱騰騰製作完成，服務人員即將為您送上桌！' 
-            : '您的餐點已熱騰騰製作完成！請至櫃檯出示此畫面取餐。',
-          step: 3,
-          color: '#10b981'
+          color: '#7c3aed'
         };
       case 'received':
       default:
         return {
-          title: '📋 已送單 (排單中)',
-          desc: '訂單已送達店家廚房，等待店家排單製作中。',
+          title: '⏳ 等待店家收單',
+          desc: '訂單已成功送達店家！等待店家確認收單製作中，請稍候片刻。',
           step: 1,
           color: '#ea580c'
         };
@@ -66,7 +69,8 @@ export default function OrderTracker({ order, onBackToMenu }) {
   };
 
   const statusDetails = getStatusDetails(order.status);
-  const isReady = order.status === 'ready' || order.status === 'completed';
+  const isReady = statusDetails.isReady || order.status === 'ready' || order.status === 'completed';
+  const isCancelled = statusDetails.isCancelled;
 
   return (
     <div className="order-tracker-card" style={{ maxWidth: '460px', margin: '0 auto' }}>
@@ -82,15 +86,15 @@ export default function OrderTracker({ order, onBackToMenu }) {
         marginTop: '16px',
         padding: '16px',
         borderRadius: '12px',
-        backgroundColor: isReady ? '#ecfdf5' : 'rgba(234, 88, 12, 0.06)',
-        border: isReady ? '2px solid #10b981' : '1px solid var(--border)',
+        backgroundColor: isCancelled ? '#fef2f2' : (isReady ? '#ecfdf5' : (statusDetails.step === 2 ? '#f5f3ff' : 'rgba(234, 88, 12, 0.06)')),
+        border: isCancelled ? '2px solid #ef4444' : (isReady ? '2px solid #10b981' : (statusDetails.step === 2 ? '2px solid #8b5cf6' : '1px solid var(--border)')),
         boxShadow: isReady ? '0 4px 12px rgba(16, 185, 129, 0.2)' : 'none',
         transition: 'all 0.3s ease'
       }}>
         <div className="status-highlight" style={{
           fontSize: isReady ? '1.4rem' : '1.2rem',
           fontWeight: '900',
-          color: isReady ? '#059669' : statusDetails.color,
+          color: isCancelled ? '#dc2626' : (isReady ? '#059669' : statusDetails.color),
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
@@ -98,83 +102,104 @@ export default function OrderTracker({ order, onBackToMenu }) {
         }}>
           {statusDetails.title}
         </div>
-        <div className="status-sub" style={{ fontSize: '0.88rem', color: 'var(--text-main)', marginTop: '6px', lineHeight: '1.5' }}>
+        <div className="status-sub" style={{ fontSize: '0.88rem', color: isCancelled ? '#991b1b' : 'var(--text-main)', marginTop: '6px', lineHeight: '1.5' }}>
           {statusDetails.desc}
         </div>
       </div>
 
-      {/* 3-Step Progress Stepper (已送單 -> 製作中 -> 製作完成) */}
-      <div style={{ margin: '24px 0 16px 0', position: 'relative' }}>
-        {/* Progress Background Track */}
+      {/* Progress Stepper or Cancelled Notice */}
+      {isCancelled ? (
         <div style={{
-          position: 'absolute',
-          top: '16px',
-          left: '15%',
-          right: '15%',
-          height: '4px',
-          backgroundColor: 'var(--border)',
-          zIndex: 1
+          margin: '20px 0 16px 0',
+          padding: '12px 16px',
+          backgroundColor: '#fef2f2',
+          borderRadius: '10px',
+          border: '1px dashed #fca5a5',
+          textAlign: 'left',
+          fontSize: '0.82rem',
+          color: '#b91c1c',
+          lineHeight: '1.5'
         }}>
-          {/* Active Progress Fill */}
+          <div>💡 <strong>溫馨提示：</strong></div>
+          <div>若店家無法提供該餐點，請向櫃檯人員洽詢更換品項或現場退款，造成您的不便敬請見諒！</div>
+        </div>
+      ) : (
+        /* 3-Step Progress Stepper (等待收單 -> 收單製作中 -> 製作完成) */
+        <div style={{ margin: '24px 0 16px 0', position: 'relative' }}>
+          {/* Progress Background Track */}
           <div style={{
-            height: '100%',
-            backgroundColor: isReady ? '#10b981' : 'var(--primary)',
-            width: statusDetails.step === 1 ? '0%' : (statusDetails.step === 2 ? '50%' : '100%'),
-            transition: 'width 0.4s ease'
-          }} />
+            position: 'absolute',
+            top: '16px',
+            left: '15%',
+            right: '15%',
+            height: '4px',
+            backgroundColor: 'var(--border)',
+            zIndex: 1
+          }}>
+            {/* Active Progress Fill */}
+            <div style={{
+              height: '100%',
+              backgroundColor: isReady ? '#10b981' : (statusDetails.step === 2 ? '#8b5cf6' : 'var(--primary)'),
+              width: statusDetails.step === 1 ? '0%' : (statusDetails.step === 2 ? '50%' : '100%'),
+              transition: 'width 0.4s ease'
+            }} />
+          </div>
+
+          {/* Stepper Nodes */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', position: 'relative', zIndex: 2 }}>
+            {/* Step 1: 等待收單 */}
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+              <div style={{
+                width: '32px', height: '32px', borderRadius: '50%',
+                backgroundColor: statusDetails.step >= 1 ? '#ea580c' : 'var(--border)',
+                color: 'white',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontWeight: 'bold', fontSize: '0.85rem', boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+              }}>
+                {statusDetails.step > 1 ? '✓' : '1'}
+              </div>
+              <span style={{ fontSize: '0.78rem', fontWeight: 'bold', color: statusDetails.step >= 1 ? '#ea580c' : 'var(--text-muted)' }}>
+                等待收單
+              </span>
+            </div>
+
+            {/* Step 2: 收單製作中 */}
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+              <div style={{
+                width: '32px', height: '32px', borderRadius: '50%',
+                backgroundColor: statusDetails.step >= 2 ? (isReady ? '#10b981' : '#8b5cf6') : 'var(--bg-card)',
+                color: statusDetails.step >= 2 ? 'white' : 'var(--text-muted)',
+                border: statusDetails.step >= 2 ? 'none' : '2px solid var(--border)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontWeight: 'bold', fontSize: '0.85rem', boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+              }}>
+                {statusDetails.step > 2 ? '✓' : (statusDetails.step === 2 ? '🍜' : '2')}
+              </div>
+              <span style={{ fontSize: '0.78rem', fontWeight: statusDetails.step >= 2 ? 'bold' : 'normal', color: statusDetails.step >= 2 ? (isReady ? '#10b981' : '#7c3aed') : 'var(--text-muted)' }}>
+                收單製作中
+              </span>
+            </div>
+
+            {/* Step 3: 製作完成 / 請取餐 */}
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+              <div style={{
+                width: '32px', height: '32px', borderRadius: '50%',
+                backgroundColor: isReady ? '#10b981' : 'var(--bg-card)',
+                color: isReady ? 'white' : 'var(--text-muted)',
+                border: isReady ? 'none' : '2px solid var(--border)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontWeight: 'bold', fontSize: '0.9rem',
+                boxShadow: isReady ? '0 0 10px rgba(16, 185, 129, 0.6)' : '0 2px 4px rgba(0,0,0,0.1)'
+              }}>
+                {isReady ? '🎉' : '3'}
+              </div>
+              <span style={{ fontSize: '0.78rem', fontWeight: isReady ? 'bold' : 'normal', color: isReady ? '#10b981' : 'var(--text-muted)' }}>
+                製作完成
+              </span>
+            </div>
+          </div>
         </div>
-
-        {/* Stepper Nodes */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', position: 'relative', zIndex: 2 }}>
-          {/* Step 1: 已送單 */}
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
-            <div style={{
-              width: '32px', height: '32px', borderRadius: '50%',
-              backgroundColor: 'var(--primary)', color: 'white',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontWeight: 'bold', fontSize: '0.9rem', boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
-            }}>
-              ✓
-            </div>
-            <span style={{ fontSize: '0.78rem', fontWeight: 'bold', color: 'var(--primary)' }}>已送單</span>
-          </div>
-
-          {/* Step 2: 製作中 */}
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
-            <div style={{
-              width: '32px', height: '32px', borderRadius: '50%',
-              backgroundColor: statusDetails.step >= 2 ? (isReady ? '#10b981' : 'var(--primary)') : 'var(--bg-card)',
-              color: statusDetails.step >= 2 ? 'white' : 'var(--text-muted)',
-              border: statusDetails.step >= 2 ? 'none' : '2px solid var(--border)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontWeight: 'bold', fontSize: '0.9rem', boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
-            }}>
-              {statusDetails.step >= 2 ? '✓' : '2'}
-            </div>
-            <span style={{ fontSize: '0.78rem', fontWeight: statusDetails.step >= 2 ? 'bold' : 'normal', color: statusDetails.step >= 2 ? (isReady ? '#10b981' : 'var(--primary)') : 'var(--text-muted)' }}>
-              製作中
-            </span>
-          </div>
-
-          {/* Step 3: 製作完成 / 請取餐 */}
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
-            <div style={{
-              width: '32px', height: '32px', borderRadius: '50%',
-              backgroundColor: statusDetails.step >= 3 ? '#10b981' : 'var(--bg-card)',
-              color: statusDetails.step >= 3 ? 'white' : 'var(--text-muted)',
-              border: statusDetails.step >= 3 ? 'none' : '2px solid var(--border)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontWeight: 'bold', fontSize: '0.9rem',
-              boxShadow: isReady ? '0 0 10px rgba(16, 185, 129, 0.6)' : '0 2px 4px rgba(0,0,0,0.1)'
-            }}>
-              {statusDetails.step >= 3 ? '🍜' : '3'}
-            </div>
-            <span style={{ fontSize: '0.78rem', fontWeight: statusDetails.step >= 3 ? 'bold' : 'normal', color: statusDetails.step >= 3 ? '#10b981' : 'var(--text-muted)' }}>
-              製作完成
-            </span>
-          </div>
-        </div>
-      </div>
+      )}
 
       {/* Order Success Message & Serial Number Card */}
       <div style={{

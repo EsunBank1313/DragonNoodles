@@ -3110,7 +3110,7 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
 
                     return filteredOrders.map(order => {
                       const isCustomerOrder = Boolean(!order.cashier || order.isOnline || (order.customerPhone && order.customerPhone.length > 0) || order.pickupTime || order.source === 'customer');
-                      const isCustomerUnfinished = isCustomerOrder && order.status !== 'completed' && order.status !== 'deleted';
+                      const isCustomerUnfinished = isCustomerOrder && order.status !== 'completed' && order.status !== 'deleted' && order.status !== 'cancelled' && order.status !== 'rejected';
 
                       return (
                         <div 
@@ -3220,18 +3220,35 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                               })()}
 
                               {/* Status Tag */}
-                              {isCustomerOrder ? (
-                                <span style={{
-                                  padding: '3px 8px',
-                                  borderRadius: '6px',
-                                  fontSize: '0.75rem',
-                                  fontWeight: 'bold',
-                                  backgroundColor: isCustomerUnfinished ? 'rgba(234, 88, 12, 0.12)' : 'rgba(22, 163, 74, 0.12)',
-                                  color: isCustomerUnfinished ? 'var(--primary)' : '#16a34a'
-                                }}>
-                                  {isCustomerUnfinished ? '⏳ 處理中 (待出餐)' : '✔ 已完成'}
-                                </span>
-                              ) : (
+                              {isCustomerOrder ? (() => {
+                                if (order.status === 'cancelled' || order.status === 'rejected') {
+                                  return (
+                                    <span style={{ padding: '3px 8px', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 'bold', backgroundColor: '#fee2e2', color: '#dc2626', border: '1px solid #fca5a5' }}>
+                                      ❌ 無法提供 (已取消)
+                                    </span>
+                                  );
+                                }
+                                if (order.status === 'preparing') {
+                                  return (
+                                    <span style={{ padding: '3px 8px', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 'bold', backgroundColor: '#ede9fe', color: '#7c3aed', border: '1px solid #c4b5fd' }}>
+                                      🍜 收單製作中
+                                    </span>
+                                  );
+                                }
+                                if (order.status === 'completed' || order.status === 'ready') {
+                                  return (
+                                    <span style={{ padding: '3px 8px', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 'bold', backgroundColor: '#dcfce7', color: '#15803d', border: '1px solid #86efac' }}>
+                                      ✔ 製作完成
+                                    </span>
+                                  );
+                                }
+                                // Default: received
+                                return (
+                                  <span style={{ padding: '3px 8px', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 'bold', backgroundColor: '#ffedd5', color: '#c2410c', border: '1px solid #fdba74' }}>
+                                    ⏳ 等待收單
+                                  </span>
+                                );
+                              })() : (
                                 <span style={{
                                   padding: '2px 6px',
                                   borderRadius: '4px',
@@ -3299,29 +3316,122 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                             </div>
 
                             <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                              {/* ONLY Customer Orders show the 【✔ 完成】 button */}
-                              {isCustomerUnfinished && (
-                                <button
-                                  type="button"
-                                  onClick={() => handleUpdateOrderStatus(order.id, 'completed')}
-                                  style={{
-                                    padding: '7px 18px',
-                                    fontSize: '0.88rem',
-                                    backgroundColor: '#10b981',
-                                    color: 'white',
-                                    border: 'none',
-                                    borderRadius: '6px',
-                                    cursor: 'pointer',
-                                    fontWeight: '900',
-                                    boxShadow: '0 2px 8px rgba(16, 185, 129, 0.4)',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '4px'
-                                  }}
-                                  title="標記餐點製作完成，顧客手機端將即時同步顯示已完成通知"
-                                >
-                                  ✔ 完成
-                                </button>
+                              {/* Online Customer Order 4-Stage Controls */}
+                              {isCustomerOrder && order.status !== 'deleted' && (
+                                <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                                  {(order.status === 'received' || !order.status) && (
+                                    <>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleUpdateOrderStatus(order.id, 'preparing')}
+                                        style={{
+                                          padding: '6px 12px',
+                                          fontSize: '0.82rem',
+                                          backgroundColor: '#7c3aed',
+                                          color: 'white',
+                                          border: 'none',
+                                          borderRadius: '6px',
+                                          cursor: 'pointer',
+                                          fontWeight: 'bold',
+                                          display: 'flex',
+                                          alignItems: 'center',
+                                          gap: '4px',
+                                          boxShadow: '0 2px 6px rgba(124, 58, 237, 0.3)'
+                                        }}
+                                        title="確認收單，顧客端將即時顯示【收單製作中】"
+                                      >
+                                        👨‍🍳 接單製作
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          if (window.confirm(`確定要將訂單【${order.serialNum || order.id}】標記為【無法提供】嗎？\n顧客端將即時同步顯示無法提供提示。`)) {
+                                            handleUpdateOrderStatus(order.id, 'cancelled');
+                                          }
+                                        }}
+                                        style={{
+                                          padding: '6px 10px',
+                                          fontSize: '0.82rem',
+                                          backgroundColor: '#fee2e2',
+                                          color: '#dc2626',
+                                          border: '1px solid #fca5a5',
+                                          borderRadius: '6px',
+                                          cursor: 'pointer',
+                                          fontWeight: 'bold'
+                                        }}
+                                        title="食材售罄或尖峰滿單，標記無法提供"
+                                      >
+                                        ❌ 無法提供
+                                      </button>
+                                    </>
+                                  )}
+
+                                  {order.status === 'preparing' && (
+                                    <>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleUpdateOrderStatus(order.id, 'completed')}
+                                        style={{
+                                          padding: '6px 14px',
+                                          fontSize: '0.82rem',
+                                          backgroundColor: '#10b981',
+                                          color: 'white',
+                                          border: 'none',
+                                          borderRadius: '6px',
+                                          cursor: 'pointer',
+                                          fontWeight: '900',
+                                          display: 'flex',
+                                          alignItems: 'center',
+                                          gap: '4px',
+                                          boxShadow: '0 2px 6px rgba(16, 185, 129, 0.3)'
+                                        }}
+                                        title="餐點已完成，顧客端將發出取餐提示音"
+                                      >
+                                        ✔ 製作完成
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          if (window.confirm(`確定要將訂單【${order.serialNum || order.id}】標記為【無法提供】嗎？`)) {
+                                            handleUpdateOrderStatus(order.id, 'cancelled');
+                                          }
+                                        }}
+                                        style={{
+                                          padding: '6px 10px',
+                                          fontSize: '0.82rem',
+                                          backgroundColor: '#fee2e2',
+                                          color: '#dc2626',
+                                          border: '1px solid #fca5a5',
+                                          borderRadius: '6px',
+                                          cursor: 'pointer',
+                                          fontWeight: 'bold'
+                                        }}
+                                        title="標記無法提供"
+                                      >
+                                        ❌ 無法提供
+                                      </button>
+                                    </>
+                                  )}
+
+                                  {(order.status === 'cancelled' || order.status === 'rejected') && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleUpdateOrderStatus(order.id, 'received')}
+                                      style={{
+                                        padding: '5px 8px',
+                                        fontSize: '0.75rem',
+                                        backgroundColor: '#f3f4f6',
+                                        color: '#4b5563',
+                                        border: '1px solid #d1d5db',
+                                        borderRadius: '6px',
+                                        cursor: 'pointer'
+                                      }}
+                                      title="誤按恢復為等待收單"
+                                    >
+                                      ↩ 恢復接單
+                                    </button>
+                                  )}
+                                </div>
                               )}
 
                               <button
