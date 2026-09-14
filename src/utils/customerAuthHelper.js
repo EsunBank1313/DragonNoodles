@@ -47,27 +47,44 @@ export const saveStoredCustomerAuth = (profile) => {
   }
 };
 
+const formatSupabaseUser = (user) => {
+  if (!user) return null;
+  const rawProvider = user.app_metadata?.provider || 'google';
+  const provider = rawProvider.toLowerCase().includes('apple') ? 'apple' : 'google';
+  const meta = user.user_metadata || {};
+  const displayName = meta.full_name || meta.name || meta.user_name || (user.email ? user.email.split('@')[0] : '顧客');
+  const pictureUrl = meta.avatar_url || meta.picture || '';
+
+  return {
+    provider,
+    userId: user.id,
+    displayName,
+    pictureUrl,
+    email: user.email || ''
+  };
+};
+
 export const initCustomerAuth = async (onAuthChange) => {
   let currentAuth = getStoredCustomerAuth();
+
+  // Listen for Supabase OAuth state changes (e.g. Asynchronous PKCE code exchange upon redirect)
+  try {
+    supabase.auth.onAuthStateChange((event, session) => {
+      if (session && session.user) {
+        const formatted = formatSupabaseUser(session.user);
+        saveStoredCustomerAuth(formatted);
+        if (onAuthChange) onAuthChange(formatted);
+      }
+    });
+  } catch (err) {
+    console.warn("Supabase onAuthStateChange warning:", err);
+  }
 
   // 1. Check Supabase OAuth Session (e.g. Returned from Google or Apple OAuth redirect)
   try {
     const { data: { session } } = await supabase.auth.getSession();
     if (session && session.user) {
-      const user = session.user;
-      const rawProvider = user.app_metadata?.provider || 'google';
-      const provider = rawProvider.toLowerCase().includes('apple') ? 'apple' : 'google';
-      const meta = user.user_metadata || {};
-      const displayName = meta.full_name || meta.name || meta.user_name || (user.email ? user.email.split('@')[0] : '顧客');
-      const pictureUrl = meta.avatar_url || meta.picture || '';
-
-      currentAuth = {
-        provider,
-        userId: user.id,
-        displayName,
-        pictureUrl,
-        email: user.email || ''
-      };
+      currentAuth = formatSupabaseUser(session.user);
       saveStoredCustomerAuth(currentAuth);
       if (onAuthChange) onAuthChange(currentAuth);
       return { isReady: true, authUser: currentAuth };
