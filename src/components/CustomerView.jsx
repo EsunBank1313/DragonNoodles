@@ -1563,10 +1563,10 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
               </div>
             ) : (
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#92400e', fontSize: '0.82rem' }}>
-                <span style={{ fontSize: '1.2rem' }}>🛡️</span>
+                <span style={{ fontSize: '1.2rem' }}>📋</span>
                 <div>
-                  <div style={{ fontWeight: 'bold' }}>防惡意點餐保護機制</div>
-                  <div style={{ fontSize: '0.72rem', color: '#b45309' }}>送出訂單前需驗證身分 (LINE / Google / Apple)</div>
+                  <div style={{ fontWeight: 'bold' }}>請註冊/登入會員</div>
+                  <div style={{ fontSize: '0.72rem', color: '#b45309' }}>以查詢訂單記錄</div>
                 </div>
               </div>
             )}
@@ -1845,7 +1845,7 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
                   </div>
                 ) : (
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#fffbeb', padding: '8px 12px', borderRadius: '8px', border: '1px solid #fde68a' }}>
-                    <span style={{ fontSize: '0.8rem', color: '#92400e' }}>防惡意點餐保護：請先登入驗證身分</span>
+                    <span style={{ fontSize: '0.8rem', color: '#92400e' }}>請註冊/登入會員，以查詢訂單記錄</span>
                     <button type="button" onClick={() => setShowAuthModal(true)} style={{ backgroundColor: '#1f2937', color: 'white', border: 'none', borderRadius: '6px', padding: '5px 12px', fontSize: '0.75rem', fontWeight: 'bold', cursor: 'pointer' }}>🔐 登入驗證</button>
                   </div>
                 )}
@@ -1894,8 +1894,8 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
                     border: '1px solid #fde68a'
                   }}>
                     <div style={{ fontSize: '0.85rem', color: '#92400e' }}>
-                      <div>⚠️ 尚未完成身分認證</div>
-                      <div style={{ fontSize: '0.75rem', color: '#b45309' }}>龍城麵線為防惡意點餐，下單前請驗證帳號</div>
+                      <div>👤 尚未登入會員</div>
+                      <div style={{ fontSize: '0.75rem', color: '#b45309' }}>請註冊/登入會員，以查詢訂單記錄</div>
                     </div>
                     <button
                       type="button"
@@ -2295,11 +2295,11 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
             </div>
             
             <h3 style={{ margin: '0 0 6px 0', fontSize: '1.25rem', fontWeight: 'bold', color: '#111827' }}>
-              請先登入驗證身分
+              請註冊 / 登入會員
             </h3>
             
             <p style={{ fontSize: '0.84rem', color: '#4b5563', lineHeight: '1.5', margin: '0 0 20px 0' }}>
-              為維護出餐品質並防止惡意下單，<strong>{storeName}</strong> 支援常用快速授權，請選擇一種方式完成驗證：
+              請註冊/登入會員，以查詢訂單記錄。<strong>{storeName}</strong> 支援常用快速授權，請選擇一種方式登入：
             </p>
 
             {/* 登入選項按鈕列表 */}
