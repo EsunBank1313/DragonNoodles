@@ -86,6 +86,7 @@ export const printThermalReceipt = (order, storeProfile = defaultStoreProfile, r
   const titleSize = is58mm ? '16px' : '20px';
   const subtitleSize = is58mm ? '11px' : '13px';
   const fontSize = is58mm ? '12px' : '14px';
+  const isOnlineOrder = order.source === 'customer' || order.items?.source === 'customer' || String(orderNumStr).startsWith('O-') || !!order.authUser || !!order.lineUser || !!order.customerAuth || order.channel === '線上點餐' || order.items?.channel === '線上點餐';
 
   const html = `
     <!DOCTYPE html>
@@ -114,9 +115,10 @@ export const printThermalReceipt = (order, storeProfile = defaultStoreProfile, r
         ${(receiptConfig.showPhone !== false && storeProfile.storePhone) ? `<div class="center" style="font-size: 11px;">電話: ${storeProfile.storePhone}</div>` : ''}
         ${(receiptConfig.showAddress !== false && storeProfile.storeAddress) ? `<div class="center" style="font-size: 10px;">${storeProfile.storeAddress}</div>` : ''}
         <div class="center subtitle" style="margin-top: 2px;">=== 交易收據明細 ===</div>
+        ${isOnlineOrder ? '<div class="center" style="font-size: 13px; font-weight: bold; margin: 2px 0; border: 1px solid #000; padding: 2px 0;">【 📱 線上點餐 】</div>' : ''}
         <div class="divider"></div>
         <div style="font-size: 14px; font-weight: bold; margin-bottom: 2px;">單號: ${orderNumStr}</div>
-        ${(receiptConfig.printType !== false) ? `<div style="font-weight: bold; color: ${isUber ? '#059669' : '#000'};">類型: ${typeStr} ${tableNameStr ? `(${tableNameStr}桌)` : ''}</div>` : ''}
+        ${(receiptConfig.printType !== false) ? `<div style="font-weight: bold; color: ${isUber ? '#059669' : '#000'};">類型: ${isOnlineOrder ? '【線上點餐】' : ''}${typeStr} ${tableNameStr ? `(${tableNameStr}桌)` : ''}</div>` : ''}
         ${(receiptConfig.printDateTime !== false) ? `<div style="font-size: 11px;">時間: ${new Date(dateStr).toLocaleString('zh-TW', { hour12: false })}</div>` : ''}
         <div class="divider"></div>
         ${cartItems.map(item => {
@@ -183,6 +185,8 @@ export const printKitchenTicket = (order, storeProfile = defaultStoreProfile, re
   const custNameStr = order.customerName || order.custName || '';
   const remarksStr = order.remarks || order.note || '';
 
+  const isOnlineOrder = order.source === 'customer' || order.items?.source === 'customer' || String(orderNumStr).startsWith('O-') || !!order.authUser || !!order.lineUser || !!order.customerAuth || order.channel === '線上點餐' || order.items?.channel === '線上點餐';
+
   const is58mm = (receiptConfig?.paperWidth === '58mm');
   const printWidth = is58mm ? '170px' : '260px';
 
@@ -202,7 +206,7 @@ export const printKitchenTicket = (order, storeProfile = defaultStoreProfile, re
           .bold { font-weight: 900; }
           .badge { font-size: 20px; font-weight: 900; padding: 3px 0; border: 2px solid #000; margin: 4px 0; }
           .divider { border-top: 1px dashed #000; margin: 6px 0; }
-          .double-divider { border-top: 2px solid #000; margin: 6px 0; }
+          .double-divider { border-top: 2px solid #000; margin: 5px 0; }
           .row { display: flex; justify-content: space-between; width: 100%; box-sizing: border-box; }
           .item-row { font-size: 16px; font-weight: 900; margin: 4px 0 2px 0; }
           .spec-row { font-size: 13px; font-weight: 900; padding-left: 10px; color: #000; margin-bottom: 3px; }
@@ -211,8 +215,9 @@ export const printKitchenTicket = (order, storeProfile = defaultStoreProfile, re
       <body onload="setTimeout(function(){ window.focus(); window.print(); }, 150);">
         <div class="center bold" style="font-size: 16px;">=== 廚房備餐單 ===</div>
         <div class="center badge">
-          ${typeStr} ${tableNameStr ? tableNameStr + '桌' : ''}
+          ${isOnlineOrder ? '【線上點餐】' : ''}${typeStr} ${tableNameStr ? tableNameStr + '桌' : ''}
         </div>
+        ${isOnlineOrder ? '<div class="center bold" style="font-size: 12px; margin: 2px 0; letter-spacing: 1px;">★ 顧客手機線上送單 ★</div>' : ''}
         <div class="row bold" style="font-size: 15px;">
           <span>單號: #${orderNumStr}</span>
           <span>${custNameStr ? custNameStr : ''}</span>
@@ -279,6 +284,7 @@ export const printDualReceipts = (order, storeProfile = defaultStoreProfile, rec
   const titleSize = is58mm ? '16px' : '20px';
   const subtitleSize = is58mm ? '11px' : '13px';
   const fontSize = is58mm ? '12px' : '14px';
+  const isOnlineOrder = order.source === 'customer' || order.items?.source === 'customer' || String(orderNumStr).startsWith('O-') || !!order.authUser || !!order.lineUser || !!order.customerAuth || order.channel === '線上點餐' || order.items?.channel === '線上點餐';
 
   // Output both tickets in ONE complete continuous document
   const combinedHtml = `
@@ -316,9 +322,10 @@ export const printDualReceipts = (order, storeProfile = defaultStoreProfile, rec
           ${(receiptConfig.showPhone !== false && storeProfile.storePhone) ? `<div class="center" style="font-size: 11px;">電話: ${storeProfile.storePhone}</div>` : ''}
           ${(receiptConfig.showAddress !== false && storeProfile.storeAddress) ? `<div class="center" style="font-size: 10px;">${storeProfile.storeAddress}</div>` : ''}
           <div class="center subtitle" style="margin-top: 2px;">=== 交易收據明細 ===</div>
+          ${isOnlineOrder ? '<div class="center" style="font-size: 13px; font-weight: bold; margin: 2px 0; border: 1px solid #000; padding: 2px 0;">【 📱 線上點餐 】</div>' : ''}
           <div class="divider"></div>
           <div style="font-size: 14px; font-weight: bold; margin-bottom: 2px;">單號: ${orderNumStr}</div>
-          ${(receiptConfig.printType !== false) ? `<div>類型: ${typeStr} ${tableNameStr ? `(${tableNameStr}桌)` : ''}</div>` : ''}
+          ${(receiptConfig.printType !== false) ? `<div>類型: ${isOnlineOrder ? '【線上點餐】' : ''}${typeStr} ${tableNameStr ? `(${tableNameStr}桌)` : ''}</div>` : ''}
           ${(receiptConfig.printDateTime !== false) ? `<div style="font-size: 11px;">時間: ${new Date(dateStr).toLocaleString('zh-TW', { hour12: false })}</div>` : ''}
           <div class="divider"></div>
           ${cartItems.map(item => {
@@ -375,8 +382,9 @@ export const printDualReceipts = (order, storeProfile = defaultStoreProfile, rec
         <div class="kitchen-ticket-section">
           <div class="center bold" style="font-size: 16px;">=== 廚房備餐單 ===</div>
           <div class="center badge">
-            ${kitchenTypeStr} ${tableNameStr ? tableNameStr + '桌' : ''}
+            ${isOnlineOrder ? '【線上點餐】' : ''}${kitchenTypeStr} ${tableNameStr ? tableNameStr + '桌' : ''}
           </div>
+          ${isOnlineOrder ? '<div class="center bold" style="font-size: 12px; margin: 2px 0; letter-spacing: 1px;">★ 顧客手機線上送單 ★</div>' : ''}
           <div class="row bold" style="font-size: 15px;">
             <span>單號: #${orderNumStr}</span>
             <span>${custNameStr ? custNameStr : ''}</span>

@@ -3138,7 +3138,7 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                                   fontWeight: '900',
                                   letterSpacing: '0.5px'
                                 }}>
-                                  📱 顧客點餐單
+                                  📱 線上點餐
                                 </span>
                               ) : (
                                 <span style={{
@@ -3214,7 +3214,7 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                                     backgroundColor: order.type === 'dine-in' ? 'rgba(59, 130, 246, 0.12)' : 'rgba(249, 115, 22, 0.12)',
                                     color: order.type === 'dine-in' ? '#2563eb' : '#ea580c'
                                   }}>
-                                    {order.type === 'dine-in' ? (order.tableName ? `🪑 內用 ${order.tableName} 桌` : '🪑 內用') : '🥡 現場外帶'}
+                                    {order.type === 'dine-in' ? (order.tableName ? `🪑 ${isCustomerOrder ? '線上內用' : '內用'} ${order.tableName} 桌` : (isCustomerOrder ? '🪑 線上內用' : '🪑 內用')) : (isCustomerOrder ? '🥡 線上外帶' : '🥡 現場外帶')}
                                   </span>
                                 );
                               })()}
@@ -3282,6 +3282,7 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                               gap: '12px',
                               alignItems: 'center'
                             }}>
+                              <span style={{ backgroundColor: '#7c3aed', color: '#fff', padding: '1px 7px', borderRadius: '4px', fontSize: '0.72rem' }}>📱 線上點餐</span>
                               {order.customerName && <span>👤 姓名: {order.customerName}</span>}
                               {order.customerPhone && <span>📞 電話: {order.customerPhone}</span>}
                               {order.pickupTime && <span>⏰ 預計取餐: {order.pickupTime}</span>}

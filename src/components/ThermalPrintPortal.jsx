@@ -82,6 +82,8 @@ export default function ThermalPrintPortal({ printPayload, onClose }) {
     const remarksStr = order.remarks || order.note || '';
     const shouldPrintKitchen = receiptConfig.printKitchenTicket !== false;
 
+    const isOnlineOrder = order.source === 'customer' || order.items?.source === 'customer' || String(orderNumStr).startsWith('O-') || !!order.authUser || !!order.lineUser || !!order.customerAuth || order.channel === '線上點餐' || order.items?.channel === '線上點餐';
+
     printableContent = (
       <div style={{ width: printWidth, boxSizing: 'border-box', color: '#000', fontFamily: 'monospace, sans-serif', fontSize: baseFontSize, lineHeight: 1.35, wordBreak: 'break-all', textAlign: 'left', margin: 0, padding: 0 }}>
         {/* ================= SECTION 1: Customer Receipt ================= */}
@@ -97,10 +99,15 @@ export default function ThermalPrintPortal({ printPayload, onClose }) {
             <div style={{ textAlign: 'center', fontSize: '10px' }}>{storeProfile.storeAddress}</div>
           )}
           <div style={{ textAlign: 'center', fontSize: subFontSize, fontWeight: 'bold', marginTop: '2px' }}>=== 交易收據明細 ===</div>
+          {isOnlineOrder && (
+            <div style={{ textAlign: 'center', fontSize: '13px', fontWeight: '900', margin: '3px 0', padding: '2px 0', border: '1px solid #000' }}>
+              【 📱 線上點餐 】
+            </div>
+          )}
           <div style={{ borderTop: '1px dashed #000', margin: '4px 0' }}></div>
           <div style={{ fontSize: is58mm ? '14px' : '16px', fontWeight: 'bold', marginBottom: '2px' }}>單號: {orderNumStr}</div>
           {receiptConfig.printType !== false && (
-            <div style={{ fontWeight: 'bold' }}>類型: {typeStr} {tableNameStr ? `(${tableNameStr}桌)` : ''}</div>
+            <div style={{ fontWeight: 'bold' }}>類型: {isOnlineOrder ? '【線上點餐】' : ''}{typeStr} {tableNameStr ? `(${tableNameStr}桌)` : ''}</div>
           )}
           {receiptConfig.printDateTime !== false && (
             <div style={{ fontSize: '11px' }}>時間: {new Date(dateStr).toLocaleString('zh-TW', { hour12: false })}</div>
@@ -171,11 +178,16 @@ export default function ThermalPrintPortal({ printPayload, onClose }) {
             <div className="kitchen-ticket-section" style={{ paddingTop: '4px' }}>
               <div style={{ textAlign: 'center', fontSize: is58mm ? '16px' : '18px', fontWeight: '900' }}>=== 廚房備餐單 ===</div>
               <div style={{ textAlign: 'center', fontSize: badgeFontSize, fontWeight: '900', padding: '2px 0', border: '2px solid #000', margin: '3px 0' }}>
-                {typeStr} {tableNameStr ? tableNameStr + '桌' : ''}
+                {isOnlineOrder ? '【線上點餐】' : ''}{typeStr} {tableNameStr ? tableNameStr + '桌' : ''}
               </div>
+              {isOnlineOrder && (
+                <div style={{ textAlign: 'center', fontSize: '13px', fontWeight: '900', margin: '2px 0', letterSpacing: '1px' }}>
+                  ★ 顧客手機線上送單 ★
+                </div>
+              )}
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: is58mm ? '14px' : '16px', fontWeight: '900' }}>
                 <span>單號: #${orderNumStr}</span>
-                <span>${custNameStr}</span>
+                <span>{custNameStr}</span>
               </div>
               <div style={{ fontSize: '11px' }}>時間: {new Date(dateStr).toLocaleTimeString('zh-TW', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })}</div>
               <div style={{ borderTop: '2px solid #000', margin: '4px 0' }}></div>

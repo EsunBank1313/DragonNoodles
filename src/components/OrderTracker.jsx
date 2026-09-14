@@ -74,8 +74,9 @@ export default function OrderTracker({ order, onBackToMenu }) {
 
   return (
     <div className="order-tracker-card" style={{ maxWidth: '460px', margin: '0 auto' }}>
-      <div className="tracker-title" style={{ fontSize: '1.2rem', fontWeight: 'bold' }}>
-        📋 訂單即時追蹤
+      <div className="tracker-title" style={{ fontSize: '1.2rem', fontWeight: 'bold', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+        <span>📋 訂單即時追蹤</span>
+        <span style={{ fontSize: '0.72rem', backgroundColor: '#e0e7ff', color: '#4338ca', padding: '2px 8px', borderRadius: '12px', fontWeight: 'bold' }}>📱 線上點餐</span>
       </div>
       <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: '2px' }}>
         訂單編號: <span style={{ fontFamily: 'monospace', fontWeight: 700 }}>{order.serialNum || order.id}</span>
@@ -241,8 +242,9 @@ export default function OrderTracker({ order, onBackToMenu }) {
 
       {/* Receipt Summary */}
       <div className="tracker-receipt" style={{ marginTop: '14px' }}>
-        <div className="tracker-receipt-title" style={{ fontSize: '0.9rem', fontWeight: 'bold', borderBottom: '1px solid var(--border)', paddingBottom: '6px' }}>
-          餐點明細
+        <div className="tracker-receipt-title" style={{ fontSize: '0.95rem', fontWeight: 'bold', borderBottom: '1px solid var(--border)', paddingBottom: '6px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span>🧾 線上點餐明細</span>
+          <span style={{ fontSize: '0.72rem', backgroundColor: '#e0e7ff', color: '#4338ca', padding: '2px 8px', borderRadius: '4px', fontWeight: 'bold' }}>📱 線上點餐</span>
         </div>
         {order.items.map((item, idx) => (
           <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '16px', padding: '8px 0', borderBottom: '1px solid var(--border)' }}>

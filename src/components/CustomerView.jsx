@@ -1231,6 +1231,8 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
         order_number: serialNum,
         items: {
           source: 'customer',
+          channel: '線上點餐',
+          orderChannel: '線上點餐',
           storeCode: storeCode,
           store_code: storeCode,
           cart: cart,
@@ -2638,6 +2640,9 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                           <span style={{ fontWeight: '900', fontSize: '0.98rem', color: 'var(--primary)' }}>
                             單號: {order.serialNum || order.id}
+                          </span>
+                          <span style={{ fontSize: '0.68rem', backgroundColor: '#e0e7ff', color: '#4338ca', padding: '1px 6px', borderRadius: '4px', fontWeight: 'bold' }}>
+                            📱 線上點餐
                           </span>
                           <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
                             {order.time}

@@ -31,6 +31,8 @@ export default function PosThermalPrintArea({ printPayload }) {
     const remarksStr = order.remarks || order.note || '';
     const shouldPrintKitchen = receiptConfig.printKitchenTicket !== false;
 
+    const isOnlineOrder = order.source === 'customer' || order.items?.source === 'customer' || String(orderNumStr).startsWith('O-') || !!order.authUser || !!order.lineUser || !!order.customerAuth || order.channel === '線上點餐' || order.items?.channel === '線上點餐';
+
     return (
       <div id="pos-thermal-print-area" style={{ width: printWidth }}>
         {/* ================= SECTION 1: Customer Receipt ================= */}
@@ -50,12 +52,17 @@ export default function PosThermalPrintArea({ printPayload }) {
           <div style={{ textAlign: 'center', fontSize: '12px', fontWeight: 'bold', marginTop: '2px' }}>
             === 交易收據明細 ===
           </div>
+          {isOnlineOrder && (
+            <div style={{ textAlign: 'center', fontSize: '13px', fontWeight: '900', margin: '3px 0', padding: '2px 0', border: '1px solid #000' }}>
+              【 📱 線上點餐 】
+            </div>
+          )}
           <div style={{ borderTop: '1px dashed #000', margin: '5px 0' }}></div>
           <div style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '2px' }}>
             單號: {orderNumStr}
           </div>
           {receiptConfig.printType !== false && (
-            <div>類型: {typeStr} {tableNameStr ? `(${tableNameStr}桌)` : ''}</div>
+            <div>類型: {isOnlineOrder ? '【線上點餐】' : ''}{typeStr} {tableNameStr ? `(${tableNameStr}桌)` : ''}</div>
           )}
           {receiptConfig.printDateTime !== false && (
             <div style={{ fontSize: '11px' }}>時間: {new Date(dateStr).toLocaleString('zh-TW', { hour12: false })}</div>
@@ -120,8 +127,13 @@ export default function PosThermalPrintArea({ printPayload }) {
             <div className="kitchen-ticket">
               <div style={{ textAlign: 'center', fontSize: '16px', fontWeight: '900' }}>=== 廚房備餐單 ===</div>
               <div style={{ textAlign: 'center', fontSize: '20px', fontWeight: '900', padding: '3px 0', border: '2px solid #000', margin: '4px 0' }}>
-                {typeStr} {tableNameStr ? tableNameStr + '桌' : ''}
+                {isOnlineOrder ? '【線上點餐】' : ''}{typeStr} {tableNameStr ? tableNameStr + '桌' : ''}
               </div>
+              {isOnlineOrder && (
+                <div style={{ textAlign: 'center', fontSize: '12px', fontWeight: '900', margin: '2px 0', letterSpacing: '1px' }}>
+                  ★ 顧客手機線上送單 ★
+                </div>
+              )}
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '15px', fontWeight: '900' }}>
                 <span>單號: #${orderNumStr}</span>
                 <span>{custNameStr}</span>
