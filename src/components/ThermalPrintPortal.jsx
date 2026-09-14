@@ -109,6 +109,9 @@ export default function ThermalPrintPortal({ printPayload, onClose }) {
           {receiptConfig.printType !== false && (
             <div style={{ fontWeight: 'bold' }}>類型: {isOnlineOrder ? '【線上點餐】' : ''}{typeStr} {tableNameStr ? `(${tableNameStr}桌)` : ''}</div>
           )}
+          {order.pickupTime && (
+            <div style={{ fontWeight: 'bold', fontSize: is58mm ? '13px' : '15px', margin: '2px 0' }}>取餐時間: {order.pickupTime}</div>
+          )}
           {receiptConfig.printDateTime !== false && (
             <div style={{ fontSize: '11px' }}>時間: {new Date(dateStr).toLocaleString('zh-TW', { hour12: false })}</div>
           )}
@@ -183,6 +186,11 @@ export default function ThermalPrintPortal({ printPayload, onClose }) {
               {isOnlineOrder && (
                 <div style={{ textAlign: 'center', fontSize: '13px', fontWeight: '900', margin: '2px 0', letterSpacing: '1px' }}>
                   ★ 顧客手機線上送單 ★
+                </div>
+              )}
+              {order.pickupTime && (
+                <div style={{ textAlign: 'center', fontSize: is58mm ? '14px' : '16px', fontWeight: '900', border: '2px solid #000', padding: '3px 0', margin: '3px 0', backgroundColor: '#000', color: '#fff' }}>
+                  ⏰ 預定取餐: {order.pickupTime}
                 </div>
               )}
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: is58mm ? '14px' : '16px', fontWeight: '900' }}>

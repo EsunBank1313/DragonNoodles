@@ -218,12 +218,30 @@ export default function OrderTracker({ order, onBackToMenu }) {
         <span style={{ fontSize: '3rem', fontWeight: 900, color: isReady ? '#059669' : 'var(--primary)', letterSpacing: '1px', lineHeight: 1 }}>
           {order.serialNum || 'A-001'}
         </span>
-        {order.type === 'takeout' ? (
-          <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: '8px' }}>
-            預計取餐時間: <strong style={{ color: 'var(--text-main)' }}>{order.pickupTime || '即刻製作'}</strong>
-          </span>
+        {order.pickupTime ? (
+          <div style={{
+            marginTop: '8px',
+            padding: '4px 12px',
+            backgroundColor: 'rgba(234, 88, 12, 0.1)',
+            borderRadius: '20px',
+            border: '1px solid rgba(234, 88, 12, 0.25)',
+            fontSize: '0.88rem',
+            color: '#c2410c',
+            fontWeight: 'bold',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px'
+          }}>
+            <span>⏰</span>
+            <span>{order.type === 'dine-in' ? '預定到店時間' : '預定取餐時間'}: <strong>{order.pickupTime}</strong></span>
+          </div>
         ) : (
           <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: '8px' }}>
+            {order.type === 'takeout' ? '預計取餐時間: 即刻製作' : ''}
+          </span>
+        )}
+        {order.type === 'dine-in' && (
+          <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: '4px' }}>
             內用桌位: <strong style={{ color: 'var(--text-main)' }}>{order.tableName} 號桌</strong>
           </span>
         )}

@@ -64,6 +64,9 @@ export default function PosThermalPrintArea({ printPayload }) {
           {receiptConfig.printType !== false && (
             <div>類型: {isOnlineOrder ? '【線上點餐】' : ''}{typeStr} {tableNameStr ? `(${tableNameStr}桌)` : ''}</div>
           )}
+          {order.pickupTime && (
+            <div style={{ fontSize: '13px', fontWeight: 'bold', margin: '2px 0' }}>取餐時間: {order.pickupTime}</div>
+          )}
           {receiptConfig.printDateTime !== false && (
             <div style={{ fontSize: '11px' }}>時間: {new Date(dateStr).toLocaleString('zh-TW', { hour12: false })}</div>
           )}
@@ -132,6 +135,11 @@ export default function PosThermalPrintArea({ printPayload }) {
               {isOnlineOrder && (
                 <div style={{ textAlign: 'center', fontSize: '12px', fontWeight: '900', margin: '2px 0', letterSpacing: '1px' }}>
                   ★ 顧客手機線上送單 ★
+                </div>
+              )}
+              {order.pickupTime && (
+                <div style={{ textAlign: 'center', fontSize: '15px', fontWeight: '900', border: '2px solid #000', padding: '3px 0', margin: '3px 0', backgroundColor: '#000', color: '#fff' }}>
+                  ⏰ 預定取餐: {order.pickupTime}
                 </div>
               )}
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '15px', fontWeight: '900' }}>

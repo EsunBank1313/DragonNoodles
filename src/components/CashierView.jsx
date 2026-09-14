@@ -3285,7 +3285,11 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                               <span style={{ backgroundColor: '#7c3aed', color: '#fff', padding: '1px 7px', borderRadius: '4px', fontSize: '0.72rem' }}>📱 線上點餐</span>
                               {order.customerName && <span>👤 姓名: {order.customerName}</span>}
                               {order.customerPhone && <span>📞 電話: {order.customerPhone}</span>}
-                              {order.pickupTime && <span>⏰ 預計取餐: {order.pickupTime}</span>}
+                              {order.pickupTime && (
+                                <span style={{ backgroundColor: '#fef3c7', color: '#b45309', border: '1px solid #fcd34d', fontWeight: 'bold', padding: '1px 8px', borderRadius: '4px' }}>
+                                  ⏰ 預定取餐: {order.pickupTime}
+                                </span>
+                              )}
                               <span>💰 付款: {order.paymentMethod === 'online' ? '線上已付款' : (order.paymentMethod === 'cash' ? '現場現金' : order.paymentMethod)}</span>
                               {order.remarks && <span style={{ color: '#b91c1c' }}>📝 備註: {order.remarks}</span>}
                             </div>

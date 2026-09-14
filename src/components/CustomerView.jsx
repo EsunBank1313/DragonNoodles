@@ -182,6 +182,36 @@ const getItemIcon = (name = '') => {
   return '🍜';
 };
 
+// Date & time helpers for reservation and pickup scheduling
+const getTomorrowFormatted = () => {
+  const d = new Date();
+  d.setDate(d.getDate() + 1);
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${m}/${day}`;
+};
+
+const getDayAfterTomorrowFormatted = () => {
+  const d = new Date();
+  d.setDate(d.getDate() + 2);
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${m}/${day}`;
+};
+
+const getRelativeClockTime = (minutes) => {
+  const d = new Date(Date.now() + minutes * 60000);
+  return d.toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit', hour12: false });
+};
+
+const getTodayISODate = () => {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+};
+
 // Component to gracefully render menu item photo (90x90 standard thumbnail) or warm appetizing gradient card
 const MenuItemImage = ({ item }) => {
   if (item && item.image) {
@@ -287,8 +317,45 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
   const [lineNotifyToken, setLineNotifyToken] = useState('');
   const [generatedLineCode, setGeneratedLineCode] = useState('');
   const [simulatedNotification, setSimulatedNotification] = useState(null);
-  const [pickupTime, setPickupTime] = useState('10-15分鐘後');
-  const [customPickupTime, setCustomPickupTime] = useState('');
+  const [pickupMode, setPickupMode] = useState('asap'); // 'asap', 'today_later', 'future_date'
+  const [quickMinutes, setQuickMinutes] = useState(20);
+  const [specificTime, setSpecificTime] = useState('');
+  const [futureDate, setFutureDate] = useState('tomorrow');
+  const [customDateInput, setCustomDateInput] = useState('');
+  const [customPickupNote, setCustomPickupNote] = useState('');
+
+  const getFinalPickupTimeDisplay = () => {
+    if (customPickupNote && customPickupNote.trim()) {
+      return customPickupNote.trim();
+    }
+    if (pickupMode === 'asap') {
+      const est = getRelativeClockTime(15);
+      return `儘速取餐 (約10-15分鐘，約 ${est})`;
+    }
+    if (pickupMode === 'today_later') {
+      if (specificTime) {
+        return `今天 ${specificTime} (預約取餐)`;
+      }
+      const est = getRelativeClockTime(quickMinutes);
+      return `今日約 ${quickMinutes} 分鐘後 (約 ${est})`;
+    }
+    if (pickupMode === 'future_date') {
+      let dateLabel = '';
+      if (futureDate === 'tomorrow') {
+        dateLabel = `明天 (${getTomorrowFormatted()})`;
+      } else if (futureDate === 'day_after') {
+        dateLabel = `後天 (${getDayAfterTomorrowFormatted()})`;
+      } else if (customDateInput) {
+        dateLabel = customDateInput;
+      } else {
+        dateLabel = '預約日';
+      }
+      const timeLabel = specificTime || '12:00';
+      return `${dateLabel} ${timeLabel} (預約取餐)`;
+    }
+    return '儘速取餐 (約10-15分鐘)';
+  };
+
   const [paymentMethod, setPaymentMethod] = useState('counter');
 
   const [allOrders, setAllOrders] = useState([]);
@@ -1238,7 +1305,7 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
           cart: cart,
           customerName: finalCustomerName,
           customerPhone: tableNumber ? '' : custPhone,
-          pickupTime: tableNumber ? '' : (pickupTime === 'custom' ? customPickupTime : pickupTime),
+          pickupTime: tableNumber ? '' : getFinalPickupTimeDisplay(),
           paymentMethod,
           remarks,
           customerAuth: authUser ? {
@@ -1903,7 +1970,7 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '0.85rem', marginBottom: '12px' }}>
                 <div><strong>取餐方式：</strong>{tableNumber ? `內用 (${tableNumber} 號桌)` : '外帶自取'}</div>
                 {!tableNumber && (
-                  <div><strong>預計取餐時間：</strong>{pickupTime === 'custom' ? customPickupTime : pickupTime}</div>
+                  <div><strong>預計取餐時間：</strong><span style={{ color: '#ea580c', fontWeight: 'bold' }}>{getFinalPickupTimeDisplay()}</span></div>
                 )}
               </div>
 
@@ -2052,42 +2119,311 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
                 </div>
 
                 <div className="form-group">
-                  <label htmlFor="pickup-time">預計取餐時間</label>
-                  <select 
-                    id="pickup-time"
-                    value={pickupTime}
-                    onChange={(e) => {
-                      setPickupTime(e.target.value);
-                      if (e.target.value !== 'custom') {
-                        setCustomPickupTime('');
-                      }
-                    }}
-                  >
-                    <option value="10-15分鐘後">10-15 分鐘後 (儘速製作)</option>
-                    <option value="20分鐘後">20 分鐘後</option>
-                    <option value="30分鐘後">30 分鐘後</option>
-                    <option value="1小時後">1 小時後</option>
-                    <option value="custom">自訂時間</option>
-                  </select>
-                  {pickupTime === 'custom' && (
-                    <div style={{ marginTop: '8px' }}>
-                      <input 
-                        type="text" 
-                        placeholder="請輸入自訂取餐時間 (如: 18:30 或 2小時後)"
-                        value={customPickupTime}
-                        onChange={(e) => setCustomPickupTime(e.target.value)}
-                        style={{
-                          width: '100%',
-                          padding: '10px',
-                          fontSize: '0.85rem',
-                          borderRadius: '8px',
-                          border: '1px solid var(--border)',
-                          backgroundColor: 'var(--bg-card)',
-                          color: 'var(--text-main)'
-                        }}
-                      />
+                  <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                    <span style={{ fontWeight: 'bold', fontSize: '0.9rem' }}>⏰ 取餐 / 預定時間</span>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>提供預約與即時排單</span>
+                  </label>
+
+                  {/* Mode Tabs: 儘速取餐 / 今日稍後 / 預約日期 */}
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: '1fr 1fr 1fr',
+                    gap: '6px',
+                    marginBottom: '10px'
+                  }}>
+                    <button
+                      type="button"
+                      onClick={() => setPickupMode('asap')}
+                      style={{
+                        padding: '8px 4px',
+                        borderRadius: '8px',
+                        border: pickupMode === 'asap' ? '2px solid var(--primary)' : '1px solid var(--border)',
+                        backgroundColor: pickupMode === 'asap' ? '#fff7ed' : 'var(--bg-card)',
+                        color: pickupMode === 'asap' ? 'var(--primary)' : 'var(--text-main)',
+                        fontWeight: pickupMode === 'asap' ? 'bold' : 'normal',
+                        fontSize: '0.8rem',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        gap: '2px'
+                      }}
+                    >
+                      <span>⚡ 儘速製作</span>
+                      <span style={{ fontSize: '0.68rem', color: pickupMode === 'asap' ? 'var(--primary)' : 'var(--text-muted)' }}>10-15分</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setPickupMode('today_later')}
+                      style={{
+                        padding: '8px 4px',
+                        borderRadius: '8px',
+                        border: pickupMode === 'today_later' ? '2px solid var(--primary)' : '1px solid var(--border)',
+                        backgroundColor: pickupMode === 'today_later' ? '#fff7ed' : 'var(--bg-card)',
+                        color: pickupMode === 'today_later' ? 'var(--primary)' : 'var(--text-main)',
+                        fontWeight: pickupMode === 'today_later' ? 'bold' : 'normal',
+                        fontSize: '0.8rem',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        gap: '2px'
+                      }}
+                    >
+                      <span>⏰ 今日稍後</span>
+                      <span style={{ fontSize: '0.68rem', color: pickupMode === 'today_later' ? 'var(--primary)' : 'var(--text-muted)' }}>指定時間</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setPickupMode('future_date')}
+                      style={{
+                        padding: '8px 4px',
+                        borderRadius: '8px',
+                        border: pickupMode === 'future_date' ? '2px solid var(--primary)' : '1px solid var(--border)',
+                        backgroundColor: pickupMode === 'future_date' ? '#fff7ed' : 'var(--bg-card)',
+                        color: pickupMode === 'future_date' ? 'var(--primary)' : 'var(--text-main)',
+                        fontWeight: pickupMode === 'future_date' ? 'bold' : 'normal',
+                        fontSize: '0.8rem',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        gap: '2px'
+                      }}
+                    >
+                      <span>📅 預約日期</span>
+                      <span style={{ fontSize: '0.68rem', color: pickupMode === 'future_date' ? 'var(--primary)' : 'var(--text-muted)' }}>明天/後天</span>
+                    </button>
+                  </div>
+
+                  {/* Mode Sub-options */}
+                  {pickupMode === 'asap' && (
+                    <div style={{
+                      padding: '8px 12px',
+                      backgroundColor: '#f8fafc',
+                      borderRadius: '8px',
+                      fontSize: '0.78rem',
+                      color: 'var(--text-muted)',
+                      border: '1px solid var(--border)'
+                    }}>
+                      ⚡ 現點現做，送單後廚房將立即備料排單（預計約 10~15 分鐘後完成）。
                     </div>
                   )}
+
+                  {pickupMode === 'today_later' && (
+                    <div style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '8px',
+                      padding: '10px',
+                      backgroundColor: '#f8fafc',
+                      borderRadius: '8px',
+                      border: '1px solid var(--border)'
+                    }}>
+                      <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 'bold' }}>
+                        快捷時間選擇：
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '6px' }}>
+                        {[20, 30, 45, 60].map(mins => (
+                          <button
+                            key={mins}
+                            type="button"
+                            onClick={() => {
+                              setQuickMinutes(mins);
+                              setSpecificTime('');
+                            }}
+                            style={{
+                              padding: '6px 2px',
+                              borderRadius: '6px',
+                              border: (!specificTime && quickMinutes === mins) ? '2px solid #ea580c' : '1px solid #cbd5e1',
+                              backgroundColor: (!specificTime && quickMinutes === mins) ? '#fff7ed' : '#ffffff',
+                              color: (!specificTime && quickMinutes === mins) ? '#ea580c' : '#334155',
+                              fontWeight: (!specificTime && quickMinutes === mins) ? 'bold' : 'normal',
+                              fontSize: '0.78rem',
+                              cursor: 'pointer'
+                            }}
+                          >
+                            +{mins}分鐘
+                          </button>
+                        ))}
+                      </div>
+
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
+                        <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>或指定時間：</span>
+                        <input
+                          type="time"
+                          value={specificTime}
+                          onChange={(e) => setSpecificTime(e.target.value)}
+                          style={{
+                            flex: 1,
+                            padding: '6px 10px',
+                            fontSize: '0.85rem',
+                            borderRadius: '6px',
+                            border: '1px solid var(--border)',
+                            backgroundColor: '#fff'
+                          }}
+                        />
+                        {specificTime && (
+                          <button
+                            type="button"
+                            onClick={() => setSpecificTime('')}
+                            style={{
+                              padding: '4px 8px',
+                              fontSize: '0.72rem',
+                              color: '#64748b',
+                              background: '#e2e8f0',
+                              border: 'none',
+                              borderRadius: '4px',
+                              cursor: 'pointer'
+                            }}
+                          >
+                            清除
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {pickupMode === 'future_date' && (
+                    <div style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '8px',
+                      padding: '10px',
+                      backgroundColor: '#f8fafc',
+                      borderRadius: '8px',
+                      border: '1px solid var(--border)'
+                    }}>
+                      <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 'bold' }}>
+                        選擇預約日期：
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px' }}>
+                        <button
+                          type="button"
+                          onClick={() => { setFutureDate('tomorrow'); setCustomDateInput(''); }}
+                          style={{
+                            padding: '6px 4px',
+                            borderRadius: '6px',
+                            border: futureDate === 'tomorrow' ? '2px solid #ea580c' : '1px solid #cbd5e1',
+                            backgroundColor: futureDate === 'tomorrow' ? '#fff7ed' : '#ffffff',
+                            color: futureDate === 'tomorrow' ? '#ea580c' : '#334155',
+                            fontWeight: futureDate === 'tomorrow' ? 'bold' : 'normal',
+                            fontSize: '0.78rem',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          明天 ({getTomorrowFormatted()})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => { setFutureDate('day_after'); setCustomDateInput(''); }}
+                          style={{
+                            padding: '6px 4px',
+                            borderRadius: '6px',
+                            border: futureDate === 'day_after' ? '2px solid #ea580c' : '1px solid #cbd5e1',
+                            backgroundColor: futureDate === 'day_after' ? '#fff7ed' : '#ffffff',
+                            color: futureDate === 'day_after' ? '#ea580c' : '#334155',
+                            fontWeight: futureDate === 'day_after' ? 'bold' : 'normal',
+                            fontSize: '0.78rem',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          後天 ({getDayAfterTomorrowFormatted()})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setFutureDate('custom')}
+                          style={{
+                            padding: '6px 4px',
+                            borderRadius: '6px',
+                            border: futureDate === 'custom' ? '2px solid #ea580c' : '1px solid #cbd5e1',
+                            backgroundColor: futureDate === 'custom' ? '#fff7ed' : '#ffffff',
+                            color: futureDate === 'custom' ? '#ea580c' : '#334155',
+                            fontWeight: futureDate === 'custom' ? 'bold' : 'normal',
+                            fontSize: '0.78rem',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          其他日期
+                        </button>
+                      </div>
+
+                      {futureDate === 'custom' && (
+                        <input
+                          type="date"
+                          min={getTodayISODate()}
+                          value={customDateInput}
+                          onChange={(e) => setCustomDateInput(e.target.value)}
+                          style={{
+                            width: '100%',
+                            padding: '6px 10px',
+                            fontSize: '0.85rem',
+                            borderRadius: '6px',
+                            border: '1px solid var(--border)',
+                            backgroundColor: '#fff'
+                          }}
+                        />
+                      )}
+
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
+                        <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>預定取餐時間：</span>
+                        <input
+                          type="time"
+                          value={specificTime || '12:00'}
+                          onChange={(e) => setSpecificTime(e.target.value)}
+                          style={{
+                            flex: 1,
+                            padding: '6px 10px',
+                            fontSize: '0.85rem',
+                            borderRadius: '6px',
+                            border: '1px solid var(--border)',
+                            backgroundColor: '#fff'
+                          }}
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 補充自訂備註 */}
+                  <div style={{ marginTop: '8px' }}>
+                    <input
+                      type="text"
+                      placeholder="補充自訂備註 (選填，如: 請於12:30前備妥)"
+                      value={customPickupNote}
+                      onChange={(e) => setCustomPickupNote(e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '8px 10px',
+                        fontSize: '0.8rem',
+                        borderRadius: '6px',
+                        border: '1px solid var(--border)',
+                        backgroundColor: 'var(--bg-card)',
+                        color: 'var(--text-main)'
+                      }}
+                    />
+                  </div>
+
+                  {/* Live Selected Time Banner */}
+                  <div style={{
+                    marginTop: '8px',
+                    padding: '8px 12px',
+                    backgroundColor: '#ecfdf5',
+                    borderRadius: '8px',
+                    border: '1px solid #a7f3d0',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px'
+                  }}>
+                    <span style={{ fontSize: '1.1rem' }}>🕒</span>
+                    <div>
+                      <div style={{ fontSize: '0.72rem', color: '#065f46' }}>目前預定取餐時間：</div>
+                      <div style={{ fontWeight: 'bold', color: '#047857', fontSize: '0.88rem' }}>
+                        {getFinalPickupTimeDisplay()}
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
             )}
@@ -2665,6 +3001,12 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
                       <div style={{ fontSize: '0.78rem', color: 'var(--text-main)', lineHeight: '1.4' }}>
                         {(order.items || []).map(i => `${i.name} x${i.quantity}`).join('、')}
                       </div>
+
+                      {order.pickupTime && (
+                        <div style={{ fontSize: '0.74rem', color: '#b45309', backgroundColor: '#fef3c7', border: '1px solid #fde68a', padding: '2px 8px', borderRadius: '6px', fontWeight: 'bold', display: 'inline-flex', alignItems: 'center', gap: '4px', width: 'fit-content' }}>
+                          ⏰ 預定取餐: {order.pickupTime}
+                        </div>
+                      )}
 
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px dashed var(--border)', paddingTop: '6px', marginTop: '2px' }}>
                         <span style={{ fontSize: '0.82rem', fontWeight: 'bold', color: 'var(--text-main)' }}>

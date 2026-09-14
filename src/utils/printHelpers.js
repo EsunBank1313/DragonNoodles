@@ -119,6 +119,7 @@ export const printThermalReceipt = (order, storeProfile = defaultStoreProfile, r
         <div class="divider"></div>
         <div style="font-size: 14px; font-weight: bold; margin-bottom: 2px;">單號: ${orderNumStr}</div>
         ${(receiptConfig.printType !== false) ? `<div style="font-weight: bold; color: ${isUber ? '#059669' : '#000'};">類型: ${isOnlineOrder ? '【線上點餐】' : ''}${typeStr} ${tableNameStr ? `(${tableNameStr}桌)` : ''}</div>` : ''}
+        ${order.pickupTime ? `<div style="font-weight: bold; font-size: 13px; margin: 2px 0;">取餐時間: ${order.pickupTime}</div>` : ''}
         ${(receiptConfig.printDateTime !== false) ? `<div style="font-size: 11px;">時間: ${new Date(dateStr).toLocaleString('zh-TW', { hour12: false })}</div>` : ''}
         <div class="divider"></div>
         ${cartItems.map(item => {
@@ -218,6 +219,7 @@ export const printKitchenTicket = (order, storeProfile = defaultStoreProfile, re
           ${isOnlineOrder ? '【線上點餐】' : ''}${typeStr} ${tableNameStr ? tableNameStr + '桌' : ''}
         </div>
         ${isOnlineOrder ? '<div class="center bold" style="font-size: 12px; margin: 2px 0; letter-spacing: 1px;">★ 顧客手機線上送單 ★</div>' : ''}
+        ${order.pickupTime ? `<div class="center bold" style="font-size: 15px; border: 2px solid #000; padding: 2px 0; margin: 3px 0; background: #000; color: #fff;">⏰ 預定取餐: ${order.pickupTime}</div>` : ''}
         <div class="row bold" style="font-size: 15px;">
           <span>單號: #${orderNumStr}</span>
           <span>${custNameStr ? custNameStr : ''}</span>
@@ -326,6 +328,7 @@ export const printDualReceipts = (order, storeProfile = defaultStoreProfile, rec
           <div class="divider"></div>
           <div style="font-size: 14px; font-weight: bold; margin-bottom: 2px;">單號: ${orderNumStr}</div>
           ${(receiptConfig.printType !== false) ? `<div>類型: ${isOnlineOrder ? '【線上點餐】' : ''}${typeStr} ${tableNameStr ? `(${tableNameStr}桌)` : ''}</div>` : ''}
+          ${order.pickupTime ? `<div style="font-weight: bold; font-size: 13px; margin: 2px 0;">取餐時間: ${order.pickupTime}</div>` : ''}
           ${(receiptConfig.printDateTime !== false) ? `<div style="font-size: 11px;">時間: ${new Date(dateStr).toLocaleString('zh-TW', { hour12: false })}</div>` : ''}
           <div class="divider"></div>
           ${cartItems.map(item => {
@@ -385,6 +388,7 @@ export const printDualReceipts = (order, storeProfile = defaultStoreProfile, rec
             ${isOnlineOrder ? '【線上點餐】' : ''}${kitchenTypeStr} ${tableNameStr ? tableNameStr + '桌' : ''}
           </div>
           ${isOnlineOrder ? '<div class="center bold" style="font-size: 12px; margin: 2px 0; letter-spacing: 1px;">★ 顧客手機線上送單 ★</div>' : ''}
+          ${order.pickupTime ? `<div class="center bold" style="font-size: 15px; border: 2px solid #000; padding: 2px 0; margin: 3px 0; background: #000; color: #fff;">⏰ 預定取餐: ${order.pickupTime}</div>` : ''}
           <div class="row bold" style="font-size: 15px;">
             <span>單號: #${orderNumStr}</span>
             <span>${custNameStr ? custNameStr : ''}</span>
