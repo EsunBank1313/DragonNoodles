@@ -149,24 +149,6 @@ export const loginWithCustomerProvider = async (provider, redirectUrl) => {
     }
     return;
   }
-
-  if (provider === 'apple') {
-    try {
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider: 'apple',
-        options: {
-          redirectTo: targetUrl
-        }
-      });
-      if (error) {
-        alert("Apple 登入連線發生錯誤: " + error.message);
-      }
-    } catch (err) {
-      console.error("Apple OAuth error:", err);
-      alert("Apple 登入失敗: " + err.message);
-    }
-    return;
-  }
 };
 
 export const logoutCustomerAuth = async (authUser) => {

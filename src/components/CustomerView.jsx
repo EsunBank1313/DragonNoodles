@@ -2476,36 +2476,6 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
                 </div>
                 <span style={{ fontSize: '0.72rem', color: '#5f6368' }}>免密碼</span>
               </button>
-
-              {/* Apple 登入按鈕 */}
-              <button
-                type="button"
-                onClick={() => loginWithCustomerProvider('apple')}
-                style={{
-                  width: '100%',
-                  backgroundColor: '#000000',
-                  color: '#ffffff',
-                  border: 'none',
-                  borderRadius: '12px',
-                  padding: '12px 16px',
-                  fontSize: '0.95rem',
-                  fontWeight: '600',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  boxShadow: '0 2px 6px rgba(0,0,0,0.2)',
-                  transition: 'transform 0.1s ease'
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <svg width="20" height="20" viewBox="0 0 170 170" fill="currentColor">
-                    <path d="M150.37 130.25c-2.45 5.66-5.35 10.87-8.71 15.66-4.58 6.53-8.33 11.05-11.22 13.56-4.48 4.12-9.28 6.23-14.42 6.35-3.69 0-8.14-1.05-13.32-3.18-5.19-2.12-9.97-3.17-14.34-3.17-4.58 0-9.49 1.05-14.75 3.17-5.26 2.13-9.5 3.24-12.74 3.35-4.35.13-9.16-1.9-14.42-6.08-3.69-3.04-7.59-7.78-11.72-14.21-6.14-9.5-10.96-20.48-14.45-32.96-3.49-12.47-5.24-24.16-5.24-35.07 0-15.34 3.73-28.05 11.19-38.13 7.46-10.08 17.06-15.24 28.8-15.49 4.35 0 9.29 1.14 14.81 3.42 5.53 2.28 9.38 3.48 11.56 3.59 1.74 0 5.86-1.3 12.37-3.92 6.51-2.61 11.95-3.75 16.32-3.41 12.7.76 22.84 5.34 30.43 13.73-11.09 6.75-16.53 16.22-16.32 28.4.22 9.57 3.81 17.63 10.77 24.17 6.96 6.54 15.35 10.15 25.17 10.82-2.18 6.53-4.9 13.12-8.16 19.78zM119.22 31.84c0-7.39 2.67-14.42 8.01-21.09 5.34-6.67 11.97-10.58 19.89-11.75.22 1.09.33 2.07.33 2.94 0 7.39-2.83 14.63-8.49 21.72-5.66 7.09-12.44 11.08-20.34 11.98-.22-1.31-.33-2.31-.33-3.8z" />
-                  </svg>
-                  <span>使用 Apple 帳號登入</span>
-                </div>
-                <span style={{ fontSize: '0.72rem', color: '#9ca3af' }}>iOS首選</span>
-              </button>
             </div>
 
             {/* 安全認證保障說明 */}
