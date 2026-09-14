@@ -1969,7 +1969,6 @@ const handleSaveGlobalAddons = async (newAddons) => {
                           {
                             id: 'drink',
                             title: '🥤 沁涼冷飲 (選 1)',
-                            hasDrinkOptions: true,
                             options: [
                               { name: '古早味冰紅茶 (500cc)', priceChange: 0, default: true },
                               { name: '鮮檸冬瓜露', priceChange: 5 }
@@ -2207,7 +2206,6 @@ const handleSaveGlobalAddons = async (newAddons) => {
                               slots.push({
                                 id: 'slot_' + Date.now().toString(36),
                                 title: '新自選分組 (選 1)',
-                                hasDrinkOptions: false,
                                 options: [
                                   { name: '新可選品項', priceChange: 0, default: true }
                                 ]
@@ -2238,20 +2236,6 @@ const handleSaveGlobalAddons = async (newAddons) => {
                                   style={{ width: '100%', padding: '6px 10px', fontSize: '0.85rem', fontWeight: 'bold', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-card)', color: 'var(--text-main)' }}
                                 />
                               </div>
-
-                              <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.78rem', color: 'var(--text-muted)', cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                                <input
-                                  type="checkbox"
-                                  checked={slot.hasDrinkOptions === true}
-                                  onChange={(e) => {
-                                    const updated = [...currentList];
-                                    updated[pIdx].slots[sIdx].hasDrinkOptions = e.target.checked;
-                                    setTempUpgradeCombos(updated);
-                                  }}
-                                  style={{ cursor: 'pointer', width: '14px', height: '14px' }}
-                                />
-                                🥤 包含甜度/冰塊選擇
-                              </label>
 
                               <button
                                 type="button"

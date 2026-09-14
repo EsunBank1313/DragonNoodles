@@ -23,7 +23,6 @@ export const defaultUpgradeCombos = [
       {
         id: 'drink',
         title: '🥤 沁涼冷飲 (選 1)',
-        hasDrinkOptions: true,
         options: [
           { name: '古早味冰紅茶 (500cc)', priceChange: 0, default: true },
           { name: '鮮檸冬瓜露', priceChange: 5 },
@@ -51,7 +50,6 @@ export const defaultUpgradeCombos = [
       {
         id: 'drink',
         title: '🥤 沁涼冷飲 (選 1)',
-        hasDrinkOptions: true,
         options: [
           { name: '古早味冰紅茶', priceChange: 0, default: true },
           { name: '鮮檸冬瓜露', priceChange: 5 },
@@ -86,7 +84,6 @@ export const defaultUpgradeCombos = [
       {
         id: 'drink',
         title: '🥤 沁涼冷飲 (選 1)',
-        hasDrinkOptions: true,
         options: [
           { name: '古早味冰紅茶', priceChange: 0, default: true },
           { name: '鮮檸冬瓜露', priceChange: 5 },

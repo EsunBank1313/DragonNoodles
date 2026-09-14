@@ -22,10 +22,6 @@ export default function ItemModal({
   
   const [selectedUpgradeId, setSelectedUpgradeId] = useState(null);
   const [selectedUpgradeSlots, setSelectedUpgradeSlots] = useState({});
-  const [upgradeDrinkOptions, setUpgradeDrinkOptions] = useState({
-    '甜度': '正常甜',
-    '冰塊': '少冰'
-  });
 
   const [totalPrice, setTotalPrice] = useState(item.price);
 
@@ -74,9 +70,6 @@ export default function ItemModal({
       if (editingCartItem.upgradeCombo) {
         setSelectedUpgradeId(editingCartItem.upgradeCombo.id);
         setSelectedUpgradeSlots(editingCartItem.upgradeCombo.slots || {});
-        if (editingCartItem.upgradeCombo.drinkOptions) {
-          setUpgradeDrinkOptions(editingCartItem.upgradeCombo.drinkOptions);
-        }
       } else {
         setSelectedUpgradeId(null);
         setSelectedUpgradeSlots({});
@@ -261,11 +254,7 @@ export default function ItemModal({
         activeUpgrade.slots.forEach((slot, sIdx) => {
           const slotKey = slot.id || `slot_${sIdx}`;
           const chosenOpt = selectedUpgradeSlots[slotKey];
-          let optText = chosenOpt || '';
-          
-          if (slot.hasDrinkOptions && !isPos) {
-            optText += ` (${upgradeDrinkOptions['甜度'] || '正常'}/${upgradeDrinkOptions['冰塊'] || '少冰'})`;
-          }
+          const optText = chosenOpt || '';
           subItemsList.push(optText);
         });
       }
@@ -278,7 +267,6 @@ export default function ItemModal({
         name: activeUpgrade.name,
         price: activeUpgrade.price,
         slots: selectedUpgradeSlots,
-        drinkOptions: upgradeDrinkOptions,
         subItemsText: subItemsList.join('、')
       };
     }
@@ -668,39 +656,6 @@ export default function ItemModal({
                                       );
                                     })}
                                   </div>
-
-                                  {/* Drink sweetness and ice options */}
-                                  {slot.hasDrinkOptions && !isPos && (
-                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', marginTop: '4px' }}>
-                                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 8px', backgroundColor: 'var(--bg-card)', borderRadius: '6px', border: '1px solid var(--border)' }}>
-                                        <span style={{ fontSize: '0.75rem' }}>🍬 甜度</span>
-                                        <select
-                                          value={upgradeDrinkOptions['甜度'] || '正常甜'}
-                                          onChange={(e) => setUpgradeDrinkOptions({ ...upgradeDrinkOptions, '甜度': e.target.value })}
-                                          style={{ fontSize: '0.75rem', padding: '2px 4px', borderRadius: '4px', border: '1px solid var(--border)' }}
-                                        >
-                                          <option value="正常甜">正常甜</option>
-                                          <option value="半糖">半糖</option>
-                                          <option value="微糖">微糖</option>
-                                          <option value="無糖">無糖</option>
-                                        </select>
-                                      </div>
-                                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 8px', backgroundColor: 'var(--bg-card)', borderRadius: '6px', border: '1px solid var(--border)' }}>
-                                        <span style={{ fontSize: '0.75rem' }}>🧊 冰塊</span>
-                                        <select
-                                          value={upgradeDrinkOptions['冰塊'] || '少冰'}
-                                          onChange={(e) => setUpgradeDrinkOptions({ ...upgradeDrinkOptions, '冰塊': e.target.value })}
-                                          style={{ fontSize: '0.75rem', padding: '2px 4px', borderRadius: '4px', border: '1px solid var(--border)' }}
-                                        >
-                                          <option value="正常冰">正常冰</option>
-                                          <option value="少冰">少冰</option>
-                                          <option value="微冰">微冰</option>
-                                          <option value="去冰">去冰</option>
-                                          <option value="常溫">常溫</option>
-                                        </select>
-                                      </div>
-                                    </div>
-                                  )}
                                 </div>
                               );
                             })}
