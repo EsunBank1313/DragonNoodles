@@ -284,5 +284,18 @@ npx vercel alias set [產生的最新部署網址] luzhou7.vercel.app --scope=ya
 
 ---
 
+## 9. Uber Eats 即時訂單偵測與自動熱感應出單模組 (`scripts/uber/`)
+
+為解決外送尖峰期廚房備餐與貼袋單據需求，於 `scripts/uber/` 及專案根目錄實作全自動化背景守護出單程式：
+* **核心程式**：
+  * `uber_auto_print.py`：Playwright 背景自動登入 Uber Eats 商家看板，監聽即時新訂單，避免重複出單並即時寫入 Supabase。
+  * `uber_printer.py`：外送專用貼袋單 HTML 模板產生器，具備特大單號、黑底白字醒目備註標籤，支援 58mm/80mm 熱感應列印。
+  * `test_print_ticket.py`：樣張測試工具，單鍵發送測試單確認印表機輸出。
+  * `config_uber_print.json`：出單設定（印表機名稱、紙張寬度、提示音開關、輪詢間隔）。
+  * `run_uber_auto_print.bat` / `run_uber_auto_print_silent.vbs`：啟動腳本。
+* **完整手冊**：詳細使用 SOP 與開機自動啟動說明請參閱 [`docs/UBER_AUTO_PRINT_GUIDE.md`](./docs/UBER_AUTO_PRINT_GUIDE.md)。
+
+---
+
 *手冊維護者：Google Antigravity AI 核心架構小組*  
 *如在接手或維護過程中有任何架構疑問，可直接參閱各組件註解或執行 `npm run build` 進行語法檢驗。祝開發順利！*

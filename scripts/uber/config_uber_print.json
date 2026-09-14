@@ -1,0 +1,8 @@
+﻿{
+  "printer_name": "",
+  "paper_width": "58mm",
+  "show_price": true,
+  "sound_alert": true,
+  "check_interval_seconds": 15,
+  "notes": "printer_name 留空代表使用 Windows 預設印表機；亦可填寫指定印表機名稱如 'THERMAL 203DPI Printer'"
+}
