@@ -6,6 +6,7 @@ import CartPanel from './CartPanel';
 import OrderTracker from './OrderTracker';
 import { supabase } from '../supabaseClient';
 import { getActiveStoreCode, filterItemsByStore, prefixNameForStore } from '../utils/storeContext';
+import { getStoredCustomerAuth, initCustomerAuth, loginWithCustomerProvider, logoutCustomerAuth } from '../utils/customerAuthHelper';
 import { initLiff, loginWithLine, logoutLine } from '../utils/liffHelper';
 
 // Import Firebase and config settings
@@ -57,8 +58,10 @@ export const formatSupabaseOrder = (dbOrder) => {
       customerName = finalType === 'dine-in' ? (tableName ? `內用 ${tableName} 號桌` : '內用點餐') : '現場外帶';
     }
   }
-  if (itemsData.lineUser?.displayName && !customerName.includes(itemsData.lineUser.displayName)) {
-    customerName = `${customerName} [LINE:${itemsData.lineUser.displayName}]`;
+  const authUser = itemsData.authUser || itemsData.customerAuth || (itemsData.lineUser ? { provider: 'line', displayName: itemsData.lineUser.displayName } : null);
+  if (authUser?.displayName && !customerName.includes(authUser.displayName)) {
+    const pTag = authUser.provider === 'google' ? 'Google' : (authUser.provider === 'apple' ? 'Apple' : 'LINE');
+    customerName = `${customerName} [${pTag}:${authUser.displayName}]`;
   }
 
   let cartItems = [];
@@ -89,7 +92,63 @@ export const formatSupabaseOrder = (dbOrder) => {
     total: Number(dbOrder.total),
     cashier: itemsData.cashier || '',
     source: itemsData.source || (itemsData.cashier ? 'pos' : 'customer'),
-    lineUser: itemsData.lineUser || null
+    lineUser: itemsData.lineUser || null,
+    authUser: authUser || null
+  };
+};
+
+// Helper to get branding metadata for auth providers (LINE, Google, Apple)
+export const getCustomerProviderMeta = (provider) => {
+  const p = (provider || 'line').toLowerCase();
+  if (p === 'google') {
+    return {
+      name: 'Google',
+      label: 'Google已認證',
+      color: '#4285f4',
+      bgLight: '#eff6ff',
+      borderLight: '#bfdbfe',
+      textColor: '#1d4ed8',
+      initial: 'G',
+      icon: (
+        <svg width="18" height="18" viewBox="0 0 48 48" style={{ display: 'inline-block', verticalAlign: 'middle' }}>
+          <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+          <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+          <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+          <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+        </svg>
+      )
+    };
+  }
+  if (p === 'apple') {
+    return {
+      name: 'Apple',
+      label: 'Apple已認證',
+      color: '#000000',
+      bgLight: '#f3f4f6',
+      borderLight: '#e5e7eb',
+      textColor: '#111827',
+      initial: '',
+      icon: (
+        <svg width="18" height="18" viewBox="0 0 170 170" fill="currentColor" style={{ display: 'inline-block', verticalAlign: 'middle' }}>
+          <path d="M150.37 130.25c-2.45 5.66-5.35 10.87-8.71 15.66-4.58 6.53-8.33 11.05-11.22 13.56-4.48 4.12-9.28 6.23-14.42 6.35-3.69 0-8.14-1.05-13.32-3.18-5.19-2.12-9.97-3.17-14.34-3.17-4.58 0-9.49 1.05-14.75 3.17-5.26 2.13-9.5 3.24-12.74 3.35-4.35.13-9.16-1.9-14.42-6.08-3.69-3.04-7.59-7.78-11.72-14.21-6.14-9.5-10.96-20.48-14.45-32.96-3.49-12.47-5.24-24.16-5.24-35.07 0-15.34 3.73-28.05 11.19-38.13 7.46-10.08 17.06-15.24 28.8-15.49 4.35 0 9.29 1.14 14.81 3.42 5.53 2.28 9.38 3.48 11.56 3.59 1.74 0 5.86-1.3 12.37-3.92 6.51-2.61 11.95-3.75 16.32-3.41 12.7.76 22.84 5.34 30.43 13.73-11.09 6.75-16.53 16.22-16.32 28.4.22 9.57 3.81 17.63 10.77 24.17 6.96 6.54 15.35 10.15 25.17 10.82-2.18 6.53-4.9 13.12-8.16 19.78zM119.22 31.84c0-7.39 2.67-14.42 8.01-21.09 5.34-6.67 11.97-10.58 19.89-11.75.22 1.09.33 2.07.33 2.94 0 7.39-2.83 14.63-8.49 21.72-5.66 7.09-12.44 11.08-20.34 11.98-.22-1.31-.33-2.31-.33-3.8z" />
+        </svg>
+      )
+    };
+  }
+  // Default: LINE
+  return {
+    name: 'LINE',
+    label: 'LINE已認證',
+    color: '#06c755',
+    bgLight: '#f0fdf4',
+    borderLight: '#bbf7d0',
+    textColor: '#15803d',
+    initial: 'L',
+    icon: (
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="#06c755" style={{ display: 'inline-block', verticalAlign: 'middle' }}>
+        <path d="M12 2C6.48 2 2 5.92 2 10.76c0 3.09 1.83 5.82 4.67 7.37-.2.75-.72 2.73-.83 3.16-.13.54.2.53.42.38.17-.11 2.39-1.63 3.36-2.3 0.77.15 1.57.23 2.38.23 5.52 0 10-3.92 10-8.76C22 5.92 17.52 2 12 2z" />
+      </svg>
+    )
   };
 };
 
@@ -247,35 +306,38 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
     }
   });
 
-  // LINE LIFF Authentication state
-  const [lineUser, setLineUser] = useState(() => {
-    try {
-      const saved = localStorage.getItem('app_line_user_profile');
-      return saved ? JSON.parse(saved) : null;
-    } catch (e) {
-      return null;
-    }
-  });
-  const [isLiffReady, setIsLiffReady] = useState(false);
-  const [showLineAuthModal, setShowLineAuthModal] = useState(false);
+  // Unified Customer Authentication state (LINE, Google, Apple)
+  const [customerAuth, setCustomerAuth] = useState(() => getStoredCustomerAuth());
+  const lineUser = customerAuth; // backward-compatible alias for all existing references
+  const [isAuthReady, setIsAuthReady] = useState(false);
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const showLineAuthModal = showAuthModal; // backward-compatible alias
+  const setShowLineAuthModal = setShowAuthModal; // backward-compatible alias
 
   useEffect(() => {
     let isMounted = true;
-    const setupLiff = async () => {
+    const setupAuth = async () => {
       try {
-        const res = await initLiff();
+        const res = await initCustomerAuth((updatedAuth) => {
+          if (!isMounted) return;
+          setCustomerAuth(updatedAuth);
+          if (updatedAuth?.displayName) {
+            setCustName(prev => prev || updatedAuth.displayName || '');
+          }
+        });
         if (!isMounted) return;
-        setIsLiffReady(res.isReady);
-        if (res.isLoggedIn && res.profile) {
-          setLineUser(res.profile);
-          localStorage.setItem('app_line_user_profile', JSON.stringify(res.profile));
-          setCustName(prev => prev || res.profile.displayName || '');
+        setIsAuthReady(res.isReady);
+        if (res.authUser) {
+          setCustomerAuth(res.authUser);
+          if (res.authUser.displayName) {
+            setCustName(prev => prev || res.authUser.displayName || '');
+          }
         }
       } catch (err) {
-        console.warn("LINE LIFF init error:", err);
+        console.warn("Customer auth init error:", err);
       }
     };
-    setupLiff();
+    setupAuth();
     return () => { isMounted = false; };
   }, []);
 
@@ -1119,10 +1181,11 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
     const serialNum = `${prefix}-${String(maxNum + 1).padStart(3, '0')}`;
 
     try {
-      const lineName = lineUser?.displayName || '';
+      const authUser = customerAuth;
+      const authName = authUser?.displayName || '';
       const finalCustomerName = tableNumber 
-        ? `內用 ${tableNumber} 號桌${lineName ? ` (${lineName})` : ''}`
-        : `${custName.trim() || lineName || '現場顧客'}`;
+        ? `內用 ${tableNumber} 號桌${authName ? ` (${authName})` : ''}`
+        : `${custName.trim() || authName || '現場顧客'}`;
 
       const orderPayload = {
         order_number: serialNum,
@@ -1130,17 +1193,30 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
           source: 'customer',
           storeCode: storeCode,
           store_code: storeCode,
-          storeCode: storeCode,
           cart: cart,
           customerName: finalCustomerName,
           customerPhone: tableNumber ? '' : custPhone,
           pickupTime: tableNumber ? '' : (pickupTime === 'custom' ? customPickupTime : pickupTime),
           paymentMethod,
           remarks,
-          lineUser: lineUser ? {
-            userId: lineUser.userId,
-            displayName: lineUser.displayName,
-            pictureUrl: lineUser.pictureUrl || ''
+          customerAuth: authUser ? {
+            provider: authUser.provider,
+            userId: authUser.userId,
+            displayName: authUser.displayName,
+            pictureUrl: authUser.pictureUrl || '',
+            email: authUser.email || ''
+          } : null,
+          authUser: authUser ? {
+            provider: authUser.provider,
+            userId: authUser.userId,
+            displayName: authUser.displayName,
+            pictureUrl: authUser.pictureUrl || '',
+            email: authUser.email || ''
+          } : null,
+          lineUser: authUser ? {
+            userId: authUser.userId,
+            displayName: authUser.displayName,
+            pictureUrl: authUser.pictureUrl || ''
           } : null
         },
         total,
@@ -1428,114 +1504,118 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
         )}
       </header>
 
-      {/* 🟢 LINE LIFF 會員身份認證狀態條 */}
-      <div style={{
-        margin: '10px 16px 4px 16px',
-        padding: '10px 14px',
-        borderRadius: '12px',
-        backgroundColor: lineUser ? '#f0fdf4' : '#fffbeb',
-        border: lineUser ? '1px solid #bbf7d0' : '1px solid #fde68a',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
-        fontSize: '0.85rem'
-      }}>
-        {lineUser ? (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', overflow: 'hidden' }}>
-            {lineUser.pictureUrl ? (
-              <img 
-                src={lineUser.pictureUrl} 
-                alt={lineUser.displayName} 
-                style={{ width: '32px', height: '32px', borderRadius: '50%', objectFit: 'cover', border: '2px solid #22c55e' }}
-              />
-            ) : (
-              <span style={{ 
-                width: '32px', 
-                height: '32px', 
-                borderRadius: '50%', 
-                backgroundColor: '#22c55e', 
-                color: '#fff', 
-                display: 'flex', 
-                alignItems: 'center', 
-                justifyContent: 'center', 
-                fontWeight: 'bold', 
-                fontSize: '1rem' 
-              }}>
-                L
-              </span>
-            )}
-            <div style={{ display: 'flex', flexDirection: 'column' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <span style={{ fontWeight: 'bold', color: '#15803d' }}>{lineUser.displayName}</span>
-                <span style={{ 
-                  backgroundColor: '#22c55e', 
-                  color: 'white', 
-                  fontSize: '0.65rem', 
-                  padding: '1px 6px', 
-                  borderRadius: '10px', 
-                  fontWeight: 'bold' 
-                }}>
-                  LINE已認證
-                </span>
+      {/* 🔐 顧客身分認證狀態條 (LINE / Google / Apple) */}
+      {(() => {
+        const providerInfo = customerAuth ? getCustomerProviderMeta(customerAuth.provider) : null;
+        return (
+          <div style={{
+            margin: '10px 16px 4px 16px',
+            padding: '10px 14px',
+            borderRadius: '12px',
+            backgroundColor: customerAuth ? (providerInfo?.bgLight || '#f0fdf4') : '#fffbeb',
+            border: customerAuth ? `1px solid ${providerInfo?.borderLight || '#bbf7d0'}` : '1px solid #fde68a',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+            fontSize: '0.85rem'
+          }}>
+            {customerAuth ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', overflow: 'hidden' }}>
+                {customerAuth.pictureUrl ? (
+                  <img 
+                    src={customerAuth.pictureUrl} 
+                    alt={customerAuth.displayName} 
+                    style={{ width: '34px', height: '34px', borderRadius: '50%', objectFit: 'cover', border: `2px solid ${providerInfo?.color || '#22c55e'}` }}
+                  />
+                ) : (
+                  <span style={{ 
+                    width: '34px', 
+                    height: '34px', 
+                    borderRadius: '50%', 
+                    backgroundColor: providerInfo?.color || '#22c55e', 
+                    color: '#fff', 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    justifyContent: 'center', 
+                    fontWeight: 'bold', 
+                    fontSize: '0.95rem' 
+                  }}>
+                    {providerInfo?.initial || '✓'}
+                  </span>
+                )}
+                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span style={{ fontWeight: 'bold', color: providerInfo?.textColor || '#15803d' }}>{customerAuth.displayName}</span>
+                    <span style={{ 
+                      backgroundColor: providerInfo?.color || '#22c55e', 
+                      color: 'white', 
+                      fontSize: '0.65rem', 
+                      padding: '1px 7px', 
+                      borderRadius: '10px', 
+                      fontWeight: 'bold' 
+                    }}>
+                      {providerInfo?.label || '已認證'}
+                    </span>
+                  </div>
+                  <span style={{ fontSize: '0.72rem', color: '#6b7280' }}>已具備快速點餐資格</span>
+                </div>
               </div>
-              <span style={{ fontSize: '0.72rem', color: '#65a30d' }}>已具備快速點餐資格</span>
-            </div>
-          </div>
-        ) : (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#92400e', fontSize: '0.82rem' }}>
-            <span style={{ fontSize: '1.1rem' }}>🛡️</span>
-            <div>
-              <div style={{ fontWeight: 'bold' }}>防惡意點餐保護機制</div>
-              <div style={{ fontSize: '0.72rem', color: '#b45309' }}>送出訂單前需驗證 LINE 身份</div>
-            </div>
-          </div>
-        )}
+            ) : (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#92400e', fontSize: '0.82rem' }}>
+                <span style={{ fontSize: '1.2rem' }}>🛡️</span>
+                <div>
+                  <div style={{ fontWeight: 'bold' }}>防惡意點餐保護機制</div>
+                  <div style={{ fontSize: '0.72rem', color: '#b45309' }}>送出訂單前需驗證身分 (LINE / Google / Apple)</div>
+                </div>
+              </div>
+            )}
 
-        {lineUser ? (
-          <button
-            type="button"
-            onClick={() => {
-              if (window.confirm('確定要切換或登出 LINE 帳號嗎？')) {
-                localStorage.removeItem('app_line_user_profile');
-                logoutLine();
-              }
-            }}
-            style={{
-              background: 'transparent',
-              border: 'none',
-              color: '#6b7280',
-              fontSize: '0.75rem',
-              cursor: 'pointer',
-              padding: '4px 8px',
-              borderRadius: '6px'
-            }}
-          >
-            登出
-          </button>
-        ) : (
-          <button
-            type="button"
-            onClick={() => loginWithLine()}
-            style={{
-              backgroundColor: '#06c755',
-              color: 'white',
-              border: 'none',
-              borderRadius: '8px',
-              padding: '6px 12px',
-              fontSize: '0.8rem',
-              fontWeight: 'bold',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '4px',
-              boxShadow: '0 2px 4px rgba(6,199,85,0.2)'
-            }}
-          >
-            <span>💬</span> LINE 登入
-          </button>
-        )}
-      </div>
+            {customerAuth ? (
+              <button
+                type="button"
+                onClick={() => {
+                  if (window.confirm('確定要切換或登出目前帳號嗎？')) {
+                    logoutCustomerAuth(customerAuth);
+                  }
+                }}
+                style={{
+                  background: 'transparent',
+                  border: '1px solid #d1d5db',
+                  color: '#6b7280',
+                  fontSize: '0.75rem',
+                  cursor: 'pointer',
+                  padding: '4px 8px',
+                  borderRadius: '6px'
+                }}
+              >
+                登出 / 切換
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setShowAuthModal(true)}
+                style={{
+                  backgroundColor: '#1f2937',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '8px',
+                  padding: '7px 12px',
+                  fontSize: '0.8rem',
+                  fontWeight: 'bold',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '5px',
+                  boxShadow: '0 2px 4px rgba(0,0,0,0.15)'
+                }}
+              >
+                <span>🔐</span> 登入 / 驗證
+              </button>
+            )}
+          </div>
+        );
+      })()}
 
       {viewState === 'menu' && (
         <>
@@ -1758,15 +1838,15 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
               <div className="option-group" style={{ backgroundColor: 'rgba(255,107,53,0.03)', padding: '16px', borderRadius: 'var(--radius-sm)', display: 'flex', flexDirection: 'column', gap: '10px' }}>
                 <h4 style={{ color: 'var(--primary)', marginBottom: '4px' }}>🍽️ 掃碼內用確認</h4>
                 <p style={{ fontSize: '0.9rem' }}>已鎖定 <strong>{tableNumber} 號桌</strong>。餐點製作完成後將會直接送至您的桌位。</p>
-                {lineUser ? (
+                {customerAuth ? (
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', color: '#166534', backgroundColor: '#f0fdf4', padding: '8px 12px', borderRadius: '8px', border: '1px solid #bbf7d0' }}>
                     <span style={{ fontSize: '1rem' }}>✓</span>
-                    <span>LINE 認證顧客：<strong>{lineUser.displayName}</strong></span>
+                    <span>{getCustomerProviderMeta(customerAuth.provider).label}顧客：<strong>{customerAuth.displayName}</strong></span>
                   </div>
                 ) : (
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#fffbeb', padding: '8px 12px', borderRadius: '8px', border: '1px solid #fde68a' }}>
-                    <span style={{ fontSize: '0.8rem', color: '#92400e' }}>防惡意點餐保護：請先登入 LINE</span>
-                    <button type="button" onClick={() => loginWithLine()} style={{ backgroundColor: '#06c755', color: 'white', border: 'none', borderRadius: '6px', padding: '4px 10px', fontSize: '0.75rem', fontWeight: 'bold', cursor: 'pointer' }}>LINE 登入</button>
+                    <span style={{ fontSize: '0.8rem', color: '#92400e' }}>防惡意點餐保護：請先登入驗證身分</span>
+                    <button type="button" onClick={() => setShowAuthModal(true)} style={{ backgroundColor: '#1f2937', color: 'white', border: 'none', borderRadius: '6px', padding: '5px 12px', fontSize: '0.75rem', fontWeight: 'bold', cursor: 'pointer' }}>🔐 登入驗證</button>
                   </div>
                 )}
               </div>
@@ -1774,31 +1854,36 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
               <div className="option-group" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                 <h4 className="checkout-section-title">👤 外帶聯絡資訊</h4>
 
-                {/* LINE 認證狀態卡片 */}
-                {lineUser ? (
-                  <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    padding: '10px 14px',
-                    borderRadius: '10px',
-                    backgroundColor: '#f0fdf4',
-                    border: '1px solid #bbf7d0'
-                  }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                      {lineUser.pictureUrl ? (
-                        <img src={lineUser.pictureUrl} alt="" style={{ width: '36px', height: '36px', borderRadius: '50%', objectFit: 'cover' }} />
-                      ) : (
-                        <div style={{ width: '36px', height: '36px', borderRadius: '50%', backgroundColor: '#22c55e', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold' }}>L</div>
-                      )}
-                      <div>
-                        <div style={{ fontWeight: 'bold', color: '#166534', fontSize: '0.9rem' }}>{lineUser.displayName}</div>
-                        <div style={{ fontSize: '0.75rem', color: '#15803d' }}>✓ LINE 實名認證通過</div>
+                {/* 顧客身分認證狀態卡片 */}
+                {customerAuth ? (() => {
+                  const pMeta = getCustomerProviderMeta(customerAuth.provider);
+                  return (
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      padding: '10px 14px',
+                      borderRadius: '10px',
+                      backgroundColor: pMeta.bgLight,
+                      border: `1px solid ${pMeta.borderLight}`
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        {customerAuth.pictureUrl ? (
+                          <img src={customerAuth.pictureUrl} alt="" style={{ width: '36px', height: '36px', borderRadius: '50%', objectFit: 'cover', border: `2px solid ${pMeta.color}` }} />
+                        ) : (
+                          <div style={{ width: '36px', height: '36px', borderRadius: '50%', backgroundColor: pMeta.color, color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold' }}>
+                            {pMeta.initial}
+                          </div>
+                        )}
+                        <div>
+                          <div style={{ fontWeight: 'bold', color: pMeta.textColor, fontSize: '0.9rem' }}>{customerAuth.displayName}</div>
+                          <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>✓ {pMeta.label}通過</div>
+                        </div>
                       </div>
+                      <span style={{ fontSize: '0.75rem', color: pMeta.textColor, fontWeight: 'bold', backgroundColor: '#ffffff', padding: '4px 8px', borderRadius: '20px', border: `1px solid ${pMeta.borderLight}` }}>已驗證</span>
                     </div>
-                    <span style={{ fontSize: '0.75rem', color: '#166534', fontWeight: 'bold', backgroundColor: '#dcfce7', padding: '4px 8px', borderRadius: '20px' }}>已驗證</span>
-                  </div>
-                ) : (
+                  );
+                })() : (
                   <div style={{
                     display: 'flex',
                     alignItems: 'center',
@@ -1809,14 +1894,14 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
                     border: '1px solid #fde68a'
                   }}>
                     <div style={{ fontSize: '0.85rem', color: '#92400e' }}>
-                      <div>⚠️ 尚未完成 LINE 認證</div>
-                      <div style={{ fontSize: '0.75rem', color: '#b45309' }}>龍城麵線為防惡意點餐，下單前請登入 LINE</div>
+                      <div>⚠️ 尚未完成身分認證</div>
+                      <div style={{ fontSize: '0.75rem', color: '#b45309' }}>龍城麵線為防惡意點餐，下單前請驗證帳號</div>
                     </div>
                     <button
                       type="button"
-                      onClick={() => loginWithLine()}
+                      onClick={() => setShowAuthModal(true)}
                       style={{
-                        backgroundColor: '#06c755',
+                        backgroundColor: '#1f2937',
                         color: 'white',
                         border: 'none',
                         borderRadius: '8px',
@@ -1826,7 +1911,7 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
                         cursor: 'pointer'
                       }}
                     >
-                      LINE 登入
+                      🔐 登入驗證
                     </button>
                   </div>
                 )}
@@ -1948,31 +2033,31 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
                 <span>訂單總金額</span>
                 <span>NT$ {cart.reduce((sum, item) => sum + item.totalPrice, 0)}</span>
               </div>
-              {lineUser ? (
+              {customerAuth ? (
                 <button 
                   type="submit" 
                   className="cart-checkout-btn" 
                   style={{ width: '100%' }}
                   disabled={isVerifying}
                 >
-                  確認送出訂單 (LINE認證: {lineUser.displayName})
+                  確認送出訂單 ({getCustomerProviderMeta(customerAuth.provider).name}認證: {customerAuth.displayName})
                 </button>
               ) : (
                 <button 
                   type="button" 
-                  onClick={() => loginWithLine()} 
+                  onClick={() => setShowAuthModal(true)} 
                   className="cart-checkout-btn" 
                   style={{ 
                     width: '100%', 
-                    backgroundColor: '#06c755', 
-                    borderColor: '#06c755',
+                    backgroundColor: '#1f2937', 
+                    borderColor: '#1f2937',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
                     gap: '8px'
                   }}
                 >
-                  <span>💬</span> 使用 LINE 一鍵登入點餐
+                  <span>🔐</span> 請先點此登入驗證（LINE / Google / Apple）
                 </button>
               )}
             </div>
@@ -2186,84 +2271,161 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
         </div>
       )}
 
-      {/* 🛡️ LINE 認證強制提示彈窗 */}
-      {showLineAuthModal && (
-        <div className="modal-backdrop" style={{ zIndex: 500 }} onClick={() => setShowLineAuthModal(false)}>
+      {/* 🛡️ 顧客身分認證提示彈窗 (LINE / Google / Apple) */}
+      {showAuthModal && (
+        <div className="modal-backdrop" style={{ zIndex: 500 }} onClick={() => setShowAuthModal(false)}>
           <div 
             className="modal-content" 
-            style={{ maxWidth: '380px', borderRadius: '20px', padding: '28px 24px', textAlign: 'center' }}
+            style={{ maxWidth: '400px', borderRadius: '24px', padding: '28px 22px', textAlign: 'center', boxShadow: '0 20px 40px rgba(0,0,0,0.2)' }}
             onClick={(e) => e.stopPropagation()}
           >
             <div style={{ 
-              width: '64px', 
-              height: '64px', 
-              backgroundColor: '#f0fdf4', 
+              width: '60px', 
+              height: '60px', 
+              backgroundColor: '#eff6ff', 
               borderRadius: '50%', 
-              margin: '0 auto 16px auto', 
+              margin: '0 auto 14px auto', 
               display: 'flex', 
               alignItems: 'center', 
               justifyContent: 'center',
-              fontSize: '2rem',
-              border: '2px solid #bbf7d0'
+              fontSize: '1.8rem',
+              border: '2px solid #bfdbfe'
             }}>
-              💬
+              🔐
             </div>
             
-            <h3 style={{ margin: '0 0 8px 0', fontSize: '1.2rem', fontWeight: 'bold', color: '#1f2937' }}>
-              請先登入 LINE 進行點餐
+            <h3 style={{ margin: '0 0 6px 0', fontSize: '1.25rem', fontWeight: 'bold', color: '#111827' }}>
+              請先登入驗證身分
             </h3>
             
-            <p style={{ fontSize: '0.88rem', color: '#4b5563', lineHeight: '1.5', margin: '0 0 20px 0' }}>
-              為維護每一位顧客的美味品質與出餐順序，避免惡意測試或假下單，<strong>龍城麵線</strong> 全面採用 <strong>LINE 官方認證</strong>。
+            <p style={{ fontSize: '0.84rem', color: '#4b5563', lineHeight: '1.5', margin: '0 0 20px 0' }}>
+              為維護出餐品質並防止惡意下單，<strong>{storeName}</strong> 支援常用快速授權，請選擇一種方式完成驗證：
             </p>
 
+            {/* 登入選項按鈕列表 */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '18px' }}>
+              {/* LINE 登入按鈕 */}
+              <button
+                type="button"
+                onClick={() => loginWithCustomerProvider('line')}
+                style={{
+                  width: '100%',
+                  backgroundColor: '#06c755',
+                  color: '#ffffff',
+                  border: 'none',
+                  borderRadius: '12px',
+                  padding: '12px 16px',
+                  fontSize: '0.95rem',
+                  fontWeight: 'bold',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  boxShadow: '0 3px 8px rgba(6,199,85,0.25)',
+                  transition: 'transform 0.1s ease'
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="#ffffff">
+                    <path d="M12 2C6.48 2 2 5.92 2 10.76c0 3.09 1.83 5.82 4.67 7.37-.2.75-.72 2.73-.83 3.16-.13.54.2.53.42.38.17-.11 2.39-1.63 3.36-2.3 0.77.15 1.57.23 2.38.23 5.52 0 10-3.92 10-8.76C22 5.92 17.52 2 12 2z" />
+                  </svg>
+                  <span>使用 LINE 帳號登入</span>
+                </div>
+                <span style={{ fontSize: '0.72rem', backgroundColor: 'rgba(255,255,255,0.25)', padding: '2px 8px', borderRadius: '10px' }}>推薦</span>
+              </button>
+
+              {/* Google 登入按鈕 */}
+              <button
+                type="button"
+                onClick={() => loginWithCustomerProvider('google')}
+                style={{
+                  width: '100%',
+                  backgroundColor: '#ffffff',
+                  color: '#3c4043',
+                  border: '1px solid #dadce0',
+                  borderRadius: '12px',
+                  padding: '12px 16px',
+                  fontSize: '0.95rem',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  boxShadow: '0 1px 3px rgba(60,64,67,0.08)',
+                  transition: 'transform 0.1s ease'
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <svg width="20" height="20" viewBox="0 0 48 48">
+                    <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+                    <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+                    <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+                    <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+                  </svg>
+                  <span>使用 Google 帳號登入</span>
+                </div>
+                <span style={{ fontSize: '0.72rem', color: '#5f6368' }}>免密碼</span>
+              </button>
+
+              {/* Apple 登入按鈕 */}
+              <button
+                type="button"
+                onClick={() => loginWithCustomerProvider('apple')}
+                style={{
+                  width: '100%',
+                  backgroundColor: '#000000',
+                  color: '#ffffff',
+                  border: 'none',
+                  borderRadius: '12px',
+                  padding: '12px 16px',
+                  fontSize: '0.95rem',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  boxShadow: '0 2px 6px rgba(0,0,0,0.2)',
+                  transition: 'transform 0.1s ease'
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <svg width="20" height="20" viewBox="0 0 170 170" fill="currentColor">
+                    <path d="M150.37 130.25c-2.45 5.66-5.35 10.87-8.71 15.66-4.58 6.53-8.33 11.05-11.22 13.56-4.48 4.12-9.28 6.23-14.42 6.35-3.69 0-8.14-1.05-13.32-3.18-5.19-2.12-9.97-3.17-14.34-3.17-4.58 0-9.49 1.05-14.75 3.17-5.26 2.13-9.5 3.24-12.74 3.35-4.35.13-9.16-1.9-14.42-6.08-3.69-3.04-7.59-7.78-11.72-14.21-6.14-9.5-10.96-20.48-14.45-32.96-3.49-12.47-5.24-24.16-5.24-35.07 0-15.34 3.73-28.05 11.19-38.13 7.46-10.08 17.06-15.24 28.8-15.49 4.35 0 9.29 1.14 14.81 3.42 5.53 2.28 9.38 3.48 11.56 3.59 1.74 0 5.86-1.3 12.37-3.92 6.51-2.61 11.95-3.75 16.32-3.41 12.7.76 22.84 5.34 30.43 13.73-11.09 6.75-16.53 16.22-16.32 28.4.22 9.57 3.81 17.63 10.77 24.17 6.96 6.54 15.35 10.15 25.17 10.82-2.18 6.53-4.9 13.12-8.16 19.78zM119.22 31.84c0-7.39 2.67-14.42 8.01-21.09 5.34-6.67 11.97-10.58 19.89-11.75.22 1.09.33 2.07.33 2.94 0 7.39-2.83 14.63-8.49 21.72-5.66 7.09-12.44 11.08-20.34 11.98-.22-1.31-.33-2.31-.33-3.8z" />
+                  </svg>
+                  <span>使用 Apple 帳號登入</span>
+                </div>
+                <span style={{ fontSize: '0.72rem', color: '#9ca3af' }}>iOS首選</span>
+              </button>
+            </div>
+
+            {/* 安全認證保障說明 */}
             <div style={{
-              backgroundColor: '#f9fafb',
-              padding: '12px',
+              backgroundColor: '#f8fafc',
+              padding: '12px 14px',
               borderRadius: '12px',
-              marginBottom: '20px',
+              marginBottom: '16px',
               textAlign: 'left',
-              fontSize: '0.8rem',
-              color: '#374151',
+              fontSize: '0.78rem',
+              color: '#475569',
               display: 'flex',
               flexDirection: 'column',
-              gap: '6px'
+              gap: '6px',
+              border: '1px solid #e2e8f0'
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <span style={{ color: '#22c55e', fontWeight: 'bold' }}>✓</span> 免註冊密碼，一秒授權快速辨識
+                <span style={{ color: '#16a34a', fontWeight: 'bold' }}>✓</span> 免繁瑣註冊密碼，一秒授權快速辨識
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <span style={{ color: '#22c55e', fontWeight: 'bold' }}>✓</span> 訂單即時綁定，取餐不拿錯
+                <span style={{ color: '#16a34a', fontWeight: 'bold' }}>✓</span> 訂單即時綁定，取餐不拿錯、防冒領
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span style={{ color: '#16a34a', fontWeight: 'bold' }}>✓</span> 僅用於訂單狀態與核對，絕不發送垃圾廣告
               </div>
             </div>
 
             <button
               type="button"
-              onClick={() => loginWithLine()}
-              style={{
-                width: '100%',
-                backgroundColor: '#06c755',
-                color: 'white',
-                border: 'none',
-                borderRadius: '12px',
-                padding: '14px',
-                fontSize: '1rem',
-                fontWeight: 'bold',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '8px',
-                boxShadow: '0 4px 12px rgba(6,199,85,0.3)',
-                marginBottom: '10px'
-              }}
-            >
-              <span>💬</span> 使用 LINE 一鍵登入點餐
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setShowLineAuthModal(false)}
+              onClick={() => setShowAuthModal(false)}
               style={{
                 width: '100%',
                 background: 'transparent',
