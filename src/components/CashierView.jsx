@@ -2117,10 +2117,34 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                 </div>
               </div>
 
-              <a
-                href="https://merchants.ubereats.com/orders"
-                target="_blank"
-                rel="noreferrer"
+              {/* 💡 自動登入教學提示 */}
+              <div style={{
+                backgroundColor: '#ecfdf5',
+                border: '1px solid #a7f3d0',
+                borderRadius: '8px',
+                padding: '10px 12px',
+                fontSize: '0.82rem',
+                color: '#065f46',
+                lineHeight: '1.5'
+              }}>
+                <div style={{ fontWeight: 'bold', marginBottom: '3px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span>💡</span>
+                  <span>如何開啟後「自動登入」免再打密碼？</span>
+                </div>
+                <div>1. 點擊下方按鈕開啟 Uber 頁面，輸入帳號與密碼登入。</div>
+                <div>2. 瀏覽器跳出提示時，務必點選<strong>「儲存密碼」</strong>並勾選<strong>「保持登入」</strong>。</div>
+                <div>3. 平常<strong>請勿點「登出」</strong>，直接關閉分頁即可。未來每次點擊開啟，瀏覽器都會<strong>自動維持登入狀態，秒進訂單看板</strong>！</div>
+              </div>
+
+              {/* 🚀 開啟按鈕 (含一鍵複製密碼) */}
+              <button
+                type="button"
+                onClick={() => {
+                  try {
+                    navigator.clipboard?.writeText('6fae673b');
+                  } catch (e) {}
+                  window.open('https://merchants.ubereats.com/orders', '_blank', 'noreferrer');
+                }}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -2128,18 +2152,51 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                   gap: '8px',
                   backgroundColor: '#06C167',
                   color: 'white',
-                  textDecoration: 'none',
-                  padding: '14px',
+                  border: 'none',
+                  padding: '13px',
                   borderRadius: '10px',
                   fontWeight: 'bold',
-                  fontSize: '1.05rem',
+                  fontSize: '1rem',
                   boxShadow: '0 4px 12px rgba(6, 193, 103, 0.35)',
-                  transition: 'opacity 0.2s',
-                  marginTop: '4px'
+                  cursor: 'pointer',
+                  marginTop: '2px'
                 }}
               >
-                🚀 開啟 Uber Eats 接單前台 (新分頁)
-              </a>
+                🚀 複製密碼並開啟 Uber 接單前台 (新分頁)
+              </button>
+
+              {/* 📌 免打字書籤工具 */}
+              <div style={{
+                backgroundColor: '#fffbeb',
+                border: '1px solid #fde68a',
+                borderRadius: '8px',
+                padding: '10px 12px',
+                fontSize: '0.78rem',
+                color: '#92400e',
+                lineHeight: '1.4'
+              }}>
+                <div style={{ fontWeight: 'bold', marginBottom: '3px' }}>📌 備用小工具：一鍵代填帳密書籤</div>
+                <div style={{ marginBottom: '6px' }}>將下方黃色按鈕拖曳至瀏覽器書籤列，若偶爾被登出，在 Uber 登入頁點一下書籤即可自動代填：</div>
+                <a
+                  href="javascript:(function(){var a='apricot-149968@ubereats.com',p='6fae673b';var pi=document.querySelector('input[type=%22password%22]');if(pi){pi.value=p;pi.dispatchEvent(new Event('input',{bubbles:true}));var b=document.querySelector('button[type=%22submit%22]')||Array.from(document.querySelectorAll('button')).find(x=>x.innerText.includes('下一步')||x.innerText.includes('登入')||x.innerText.includes('Next'));if(b)b.click();return;}var ei=document.querySelector('input');if(ei){ei.value=a;ei.dispatchEvent(new Event('input',{bubbles:true}));var b=document.querySelector('button[type=%22submit%22]')||Array.from(document.querySelectorAll('button')).find(x=>x.innerText.includes('下一步')||x.innerText.includes('Next'));if(b)b.click();}})();"
+                  onClick={(e) => { e.preventDefault(); alert('請按住此按鈕直接【拖曳到瀏覽器上方的書籤列】！在 Uber 登入頁點擊該書籤即可一秒代填帳密！'); }}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    padding: '5px 12px',
+                    backgroundColor: '#f59e0b',
+                    color: 'white',
+                    borderRadius: '6px',
+                    fontWeight: 'bold',
+                    textDecoration: 'none',
+                    cursor: 'grab',
+                    fontSize: '0.76rem'
+                  }}
+                >
+                  🏷️ 拖曳我到書籤列：【自動代填Uber帳密】
+                </a>
+              </div>
 
               <div style={{
                 backgroundColor: 'var(--bg-body)',
