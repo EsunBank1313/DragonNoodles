@@ -21,6 +21,11 @@
   ],
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api/$1" },
-    { "source": "/((?!api/).*)", "destination": "/index.html" }
+    { "source": "/privacy.html", "destination": "/privacy.html" },
+    { "source": "/privacy", "destination": "/privacy.html" },
+    { "source": "/terms.html", "destination": "/terms.html" },
+    { "source": "/terms", "destination": "/terms.html" },
+    { "source": "/(google[a-zA-Z0-9_-]+\\.html)", "destination": "/$1" },
+    { "source": "/((?!api/|privacy|terms|google).*)$", "destination": "/index.html" }
   ]
 }
