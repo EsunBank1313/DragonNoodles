@@ -2841,6 +2841,11 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
               </div>
             </div>
 
+            <div style={{ fontSize: '0.74rem', color: '#64748b', textAlign: 'center', marginBottom: '14px', lineHeight: '1.4' }}>
+              登入即代表您已閱讀並同意龍城麵線之<br />
+              <a href="/privacy.html" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--primary)', textDecoration: 'underline', fontWeight: '500' }}>隱私權政策 (Privacy Policy)</a> 與 <a href="/terms.html" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--primary)', textDecoration: 'underline', fontWeight: '500' }}>服務條款</a>
+            </div>
+
             <button
               type="button"
               onClick={() => setShowAuthModal(false)}
