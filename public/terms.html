@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>服務條款 (Terms of Service) - 龍城麵線</title>
+  <title>服務條款 (Terms of Service) - 龍城麵線 (Dragon Noodles)</title>
   <style>
     :root {
       --primary: #ea580c;
@@ -27,7 +27,7 @@
       padding: 24px 16px;
     }
     .container {
-      max-width: 860px;
+      max-width: 880px;
       margin: 0 auto;
       background: var(--card-bg);
       padding: 40px 32px;
@@ -38,9 +38,14 @@
     header {
       border-bottom: 2px solid var(--primary);
       padding-bottom: 20px;
-      margin-bottom: 28px;
+      margin-bottom: 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      flex-wrap: wrap;
+      gap: 16px;
     }
-    h1 {
+    .header-title h1 {
       color: var(--primary);
       font-size: 1.85rem;
       margin-bottom: 8px;
@@ -48,6 +53,30 @@
     .update-date {
       font-size: 0.9rem;
       color: var(--text-muted);
+    }
+    .lang-switcher {
+      display: flex;
+      gap: 8px;
+      background: #f3f4f6;
+      padding: 4px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+    }
+    .lang-btn {
+      border: none;
+      background: transparent;
+      padding: 6px 14px;
+      border-radius: 6px;
+      font-size: 0.88rem;
+      font-weight: 600;
+      cursor: pointer;
+      color: var(--text-muted);
+      transition: all 0.2s ease;
+    }
+    .lang-btn.active {
+      background: var(--primary);
+      color: #ffffff;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
     }
     h2 {
       font-size: 1.3rem;
@@ -68,14 +97,16 @@
       margin-bottom: 6px;
     }
     .contact-card {
-      background: #f3f4f6;
+      background: #f8fafc;
       border-radius: 8px;
       padding: 20px;
       margin-top: 20px;
+      border: 1px solid var(--border);
     }
     .contact-card p {
-      margin-bottom: 6px;
+      margin-bottom: 8px;
       color: var(--text);
+      line-height: 1.6;
     }
     .footer-nav {
       margin-top: 40px;
@@ -93,65 +124,161 @@
     .footer-nav a:hover {
       text-decoration: underline;
     }
+    .lang-section {
+      display: block;
+    }
+    .hidden {
+      display: none !important;
+    }
   </style>
 </head>
 <body>
 
 <div class="container">
   <header>
-    <h1>龍城麵線 - 服務條款 (Terms of Service)</h1>
-    <div class="update-date">最新修訂生效日期：2026 年 3 月 16 日</div>
+    <div class="header-title">
+      <h1 id="page-title">龍城麵線 - 服務條款 (Terms of Service)</h1>
+      <div class="update-date" id="page-date">最新修訂生效日期：2026 年 3 月 18 日 (Last Updated: March 18, 2026)</div>
+    </div>
+    <div class="lang-switcher">
+      <button type="button" class="lang-btn active" id="btn-zh" onclick="switchLang('zh')">繁體中文</button>
+      <button type="button" class="lang-btn" id="btn-en" onclick="switchLang('en')">English</button>
+    </div>
   </header>
 
-  <p>歡迎您使用「龍城麵線」（以下簡稱「本服務」或「我們」）。當您存取或使用龍城麵線線上點餐系統（https://dragon.twabc.com）時，即代表您已閱讀、瞭解並同意遵守本服務條款之全部規範。</p>
+  <!-- ================= 中文版 CHINESE VERSION ================= -->
+  <div id="content-zh" class="lang-section">
+    <p>歡迎您使用「龍城麵線」（以下簡稱「本服務」或「我們」）。當您存取或使用龍城麵線線上點餐系統（網址：<a href="https://dragon.twabc.com" target="_blank">https://dragon.twabc.com</a>）時，即代表您已閱讀、瞭解並完全同意遵守本服務條款之全部規範。</p>
 
-  <h2>一、認知與接受條款</h2>
-  <p>本服務條款構成您與龍城麵線之間具有法律約束力之協議。若您不同意本條款的任何內容，請立即停止使用本系統。若您未滿十八歲，請在法定代理人閱讀並同意本條款後，方得使用本系統進行訂購。</p>
+    <h2>一、認知與接受條款</h2>
+    <p>本服務條款構成您與龍城麵線之間具有法律約束力之契約協議。若您不同意本條款的任何條約，請勿使用本系統。若您未滿十八歲，應由法定代理人閱讀並同意本條款後，方得使用本系統進行訂購。</p>
 
-  <h2>二、帳號與第三方登入規範</h2>
-  <ol>
-    <li><strong>第三方快速登入：</strong>本系統支援以 Google 帳號等第三方身分驗證工具快速登入。您同意提供真實、完整且最新的資訊，並妥善保管您的帳號憑證。</li>
-    <li><strong>帳號安全性：</strong>凡使用您的帳號與憑證於本系統所進行之所有點餐行為與消費交易，均視為您本人的行為。若發現帳號遭冒用，請立即通知我們處理。</li>
-  </ol>
+    <h2>二、帳號與第三方授權登入規範</h2>
+    <ol>
+      <li><strong>第三方授權登入：</strong>本系統支援使用 Google 帳號快速登入。您同意授權提供真實、完整之個人基本資料（如姓名、電子郵件），並妥善維護您的帳號安全。</li>
+      <li><strong>帳號安全性與責任：</strong>凡以您的 Google 授權帳號於本系統所進行之所有餐點預訂與交易行為，均視為您本人的有效消費指示。若您發現帳號有未經授權使用情形，請立即聯繫門市客服協助。</li>
+    </ol>
 
-  <h2>三、餐點訂購與契約成立</h2>
-  <ol>
-    <li><strong>點餐確認：</strong>當您在系統選定餐點、選擇取餐模式（外帶 / 內用 / 外送）並確認送出訂單後，訂單即傳送至門市系統。門市確認接單後，買賣契約即告成立。</li>
-    <li><strong>餐點現作與修改：</strong>因熟食餐點具有即時製作與時效性，訂單一旦進入「製作中」狀態，恕無法線上取消或變更規格。如需緊急調整，請立即致電門市協助。</li>
-    <li><strong>售完通知：</strong>若遇原物料短缺或餐點售完之特殊狀況，門市人員將主動與您聯繫更換品項或協助取消退費。</li>
-  </ol>
+    <h2>三、餐點訂購、契約成立與取消規範</h2>
+    <ol>
+      <li><strong>契約成立：</strong>您於線上完成選餐並送出訂單後，門市收銀與廚房系統將即時接獲訂單通知。門市人員確認接單並開始備餐時，買賣契約即告正式成立。</li>
+      <li><strong>熟食現做與取消限制：</strong>本門市餐點皆為現煮現做之熟食，依消保法第十九條第二項規定，屬易於腐敗、保存期限較短之客製化生鮮熟食商品，進入「製作中」狀態後恕不接受線上任意撤單。如遇特殊突發狀況，請務必立即致電門市客服專線由店員人工判定協助。</li>
+      <li><strong>原物料售完更換：</strong>若因現場原物料突發售罄，門市人員將主動以電話通知您協調更換等值品項或全額退款取消該項餐點。</li>
+    </ol>
 
-  <h2>四、智慧財產權聲明</h2>
-  <p>本系統所包含之所有軟體程式、圖文商標、商標權、店名「龍城麵線」、菜單照片、版面設計與網頁代碼，均為龍城麵線或其合法權利人所有，受商標法、著作權法等相關法律保護。非經授權，任何人不得擅自重製、散布、修改或作商業利用。</p>
+    <h2>四、智慧財產權與商標保護</h2>
+    <p>本系統所呈現之所有商標、門市店名「龍城麵線 (Dragon Noodles)」、軟體代碼、版面視覺設計、餐點照片、文案內容，均屬龍城麵線或其合法授權人所有，受商標法、著作權法等智財法規保護。非經書面同意，任何人均不得擅自重製、修改、散布或移作商業利用。</p>
 
-  <h2>五、使用者守則與禁止行為</h2>
-  <p>您同意絕不利用本系統從事任何不法活動，包括但不限於：</p>
-  <ul>
-    <li>惡意大量下單未取、惡作劇偽冒他人身分點餐。</li>
-    <li>以爬蟲、自動化腳本或惡意程式干擾、破壞伺服器正常運作。</li>
-    <li>試圖未經授權存取本系統之後台資料庫、API 或其他使用者帳戶。</li>
-  </ul>
+    <h2>五、使用者禁止行為</h2>
+    <p>您同意絕不利用本系統從事任何不法或損害他人權益之行為，包含但不限於：</p>
+    <ul>
+      <li>惡意下單未取、惡作劇大量點單或偽冒他人身分下單。</li>
+      <li>使用自動化程式、爬蟲機器人對伺服器進行高頻請求或分散式阻斷攻擊（DDoS）。</li>
+      <li>試圖探查、破解或未經授權存取本系統底層資料庫或 API 端點。</li>
+    </ul>
 
-  <h2>六、準據法與管轄法院</h2>
-  <p>本服務條款之解釋、效力與履行，均以中華民國法律為準據法。因使用本系統所生之任何爭議，雙方合意以台灣新北地方法院為第一審管轄法院。</p>
+    <h2>六、準據法與管轄法院</h2>
+    <p>本服務條款之解釋、效力、履行及爭議處理，均以中華民國法律為準據法。因使用本系統或訂購所生之任何爭議，雙方合意以<strong>臺灣臺北地方法院</strong>為第一審管轄法院。</p>
 
-  <h2>七、聯絡與諮詢</h2>
-  <p>若您對本服務條款有任何疑問，請透過以下資訊與我們聯繫：</p>
+    <h2>七、聯絡我們 (Contact Us)</h2>
+    <p>若您對本服務條款有任何疑問、建議或售後諮詢，請透過以下資訊與我們聯繫：</p>
+    <div class="contact-card">
+      <p><strong>營運品牌：</strong>龍城麵線 (Dragon Noodles)</p>
+      <p><strong>官方網站：</strong><a href="https://dragon.twabc.com" target="_blank">https://dragon.twabc.com</a></p>
+      <p><strong>隱私權與客服聯絡信箱：</strong><a href="mailto:zzx16873@gmail.com">zzx16873@gmail.com</a></p>
+      <p><strong>門市聯絡電話：</strong>0919 513 502</p>
+      <p><strong>營業與門市實體地址：</strong>台北市松山區龍田里光復北路190巷39號105攤</p>
+    </div>
+  </div>
 
-  <div class="contact-card">
-    <p><strong>營運商 / 品牌名稱：</strong>龍城麵線 (Dragon Noodles)</p>
-    <p><strong>官方網站：</strong><a href="https://dragon.twabc.com" target="_blank">https://dragon.twabc.com</a></p>
-    <p><strong>聯絡信箱：</strong><a href="mailto:twabc@twabc.com">twabc@twabc.com</a></p>
-    <p><strong>門市聯絡電話：</strong>(02) 2281-2288</p>
-    <p><strong>門市實體地址：</strong>新北市蘆洲區民族路（龍城麵線門市）</p>
+  <!-- ================= 英文版 ENGLISH VERSION ================= -->
+  <div id="content-en" class="lang-section hidden">
+    <p>Welcome to <strong>Dragon Noodles (龍城麵線)</strong> ("the Service", "we", "us", or "our"). By accessing or placing orders through our online ordering web application at <a href="https://dragon.twabc.com" target="_blank">https://dragon.twabc.com</a>, you acknowledge that you have read, understood, and agreed to be bound by these Terms of Service.</p>
+
+    <h2>1. Acceptance of Terms</h2>
+    <p>These Terms of Service constitute a legally binding agreement between you and Dragon Noodles. If you do not agree with any provision of these Terms, please do not use the Service. If you are under 18 years of age, you must obtain permission from your parent or legal guardian prior to ordering.</p>
+
+    <h2>2. Account Registration & Third-Party Authentication</h2>
+    <ol>
+      <li><strong>Google Sign-In:</strong> Our Service allows users to sign in quickly using their Google Account credentials. You agree to provide accurate and complete information and to keep your credentials secure.</li>
+      <li><strong>Account Responsibility:</strong> You are responsible for all ordering activities and transactions made under your account credentials. Please notify us immediately if you suspect any unauthorized use of your account.</li>
+    </ol>
+
+    <h2>3. Food Ordering, Contract Formation & Cancellations</h2>
+    <ol>
+      <li><strong>Contract Formation:</strong> When you submit an order through our system, it is transmitted in real time to our kitchen and POS terminal. The purchase contract is formed when our store staff accepts and begins preparing your order.</li>
+      <li><strong>Made-to-Order Nature:</strong> All dishes are freshly prepared food products with immediate consumption requirements. In accordance with applicable consumer protection laws regarding perishable food items, orders cannot be cancelled or modified online once meal preparation has begun. Please contact the store directly via phone for urgent inquiries.</li>
+      <li><strong>Sold-Out Items:</strong> In the rare event that certain ingredients become unavailable, our store staff will contact you promptly by phone to arrange for an equivalent substitution or a full refund.</li>
+    </ol>
+
+    <h2>4. Intellectual Property</h2>
+    <p>All content included on this website, such as text, logos, photographs, user interfaces, branding ("Dragon Noodles", "龍城麵線"), and underlying software code, is the property of Dragon Noodles and is protected by applicable copyright and trademark laws. Unauthorized reproduction, modification, or commercial exploitation is strictly prohibited.</p>
+
+    <h2>5. Prohibited Conduct</h2>
+    <p>You agree not to use the Service for any unlawful or malicious purpose, including but not limited to:</p>
+    <ul>
+      <li>Placing fraudulent orders, prank orders, or failing to pick up orders maliciously.</li>
+      <li>Utilizing automated bots, scrapers, or scripts to overload or disrupt our systems.</li>
+      <li>Attempting to gain unauthorized access to our backend databases, APIs, or user data.</li>
+    </ul>
+
+    <h2>6. Governing Law and Jurisdiction</h2>
+    <p>These Terms of Service shall be governed by and construed in accordance with the laws of the Republic of China (Taiwan). Any disputes arising out of or in connection with the Service shall be submitted to the exclusive jurisdiction of the <strong>Taiwan Taipei District Court</strong> as the court of first instance.</p>
+
+    <h2>7. Contact Information</h2>
+    <p>If you have any questions or comments regarding these Terms of Service, please contact us at:</p>
+    <div class="contact-card">
+      <p><strong>Brand / Operator:</strong> Dragon Noodles (龍城麵線)</p>
+      <p><strong>Official Website:</strong> <a href="https://dragon.twabc.com" target="_blank">https://dragon.twabc.com</a></p>
+      <p><strong>Privacy & Customer Service Email:</strong> <a href="mailto:zzx16873@gmail.com">zzx16873@gmail.com</a></p>
+      <p><strong>Customer Service Hotline:</strong> 0919 513 502 (+886 919 513 502)</p>
+      <p><strong>Physical Business Address:</strong> Stall 105, No. 39, Ln. 190, Guangfu N. Rd., Longtian Vil., Songshan Dist., Taipei City 105037, Taiwan (R.O.C.)</p>
+    </div>
   </div>
 
   <div class="footer-nav">
-    <a href="/">返回點餐首頁</a>
+    <a href="/">返回點餐首頁 (Home)</a>
     <a href="/privacy.html">隱私權政策 (Privacy Policy)</a>
     <a href="/terms.html">服務條款 (Terms of Service)</a>
   </div>
 </div>
+
+<script>
+  function switchLang(lang) {
+    const zhContent = document.getElementById('content-zh');
+    const enContent = document.getElementById('content-en');
+    const btnZh = document.getElementById('btn-zh');
+    const btnEn = document.getElementById('btn-en');
+    const title = document.getElementById('page-title');
+
+    if (lang === 'en') {
+      zhContent.classList.add('hidden');
+      enContent.classList.remove('hidden');
+      btnZh.classList.remove('active');
+      btnEn.classList.add('active');
+      title.innerText = "Dragon Noodles - Terms of Service";
+      window.location.hash = 'en';
+    } else {
+      enContent.classList.add('hidden');
+      zhContent.classList.remove('hidden');
+      btnEn.classList.remove('active');
+      btnZh.classList.add('active');
+      title.innerText = "龍城麵線 - 服務條款 (Terms of Service)";
+      window.location.hash = 'zh';
+    }
+  }
+
+  (function initLang() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const langParam = urlParams.get('lang');
+    const hash = window.location.hash;
+    if (langParam === 'en' || hash === '#en') {
+      switchLang('en');
+    } else {
+      switchLang('zh');
+    }
+  })();
+</script>
 
 </body>
 </html>
