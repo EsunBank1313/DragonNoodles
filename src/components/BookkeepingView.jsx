@@ -5026,6 +5026,11 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                                             └ 備註: {otherSpecs.join(', ')}
                                           </div>
                                         )}
+                                        {item.note && !otherSpecs.some(s => String(s).includes(item.note)) && (
+                                          <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem', paddingLeft: '6px' }}>
+                                            └ 備註: {item.note}
+                                          </div>
+                                        )}
                                       </div>
                                     );
                                   }))}

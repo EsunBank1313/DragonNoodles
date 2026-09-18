@@ -3361,9 +3361,14 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                               <div key={idx} style={{ display: 'flex', alignItems: 'baseline', gap: '6px' }}>
                                 <strong>• {it.name}</strong>
                                 <span style={{ color: 'var(--primary)', fontWeight: 'bold' }}>x{it.quantity}</span>
-                                {it.specs && it.specs.length > 0 && (
+                                {it.specs && (Array.isArray(it.specs) ? it.specs.length > 0 : String(it.specs).trim()) && (
                                   <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                                    ({it.specs.join(', ')})
+                                    ({Array.isArray(it.specs) ? it.specs.join(', ') : String(it.specs)})
+                                  </span>
+                                )}
+                                {it.note && !(it.specs && (Array.isArray(it.specs) ? it.specs.some(s => String(s).includes(it.note)) : String(it.specs).includes(it.note))) && (
+                                  <span style={{ fontSize: '0.75rem', color: '#b91c1c', fontWeight: 'bold' }}>
+                                    [{it.note}]
                                   </span>
                                 )}
                               </div>

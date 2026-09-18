@@ -14,6 +14,17 @@ const getInitialRoleAndParams = () => {
   if (typeof window === 'undefined') {
     return { role: 'customer', table: null, isStaffAuthorized: false, storeCode: 'dragon' };
   }
+
+  const pathname = (window.location.pathname || '').toLowerCase();
+  if (pathname === '/privacy' || pathname === '/privacy.html') {
+    window.location.replace('/privacy.html');
+    return { role: 'static', table: null, isStaffAuthorized: false, storeCode: 'dragon' };
+  }
+  if (pathname === '/terms' || pathname === '/terms.html') {
+    window.location.replace('/terms.html');
+    return { role: 'static', table: null, isStaffAuthorized: false, storeCode: 'dragon' };
+  }
+
   const hostname = window.location.hostname;
   const params = new URLSearchParams(window.location.search);
   const table = params.get('table');

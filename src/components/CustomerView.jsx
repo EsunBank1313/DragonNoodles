@@ -1453,6 +1453,11 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
               📍 門市地址：{storeAddress}
             </div>
           )}
+          <div style={{ marginTop: '16px', fontSize: '0.85rem', display: 'flex', gap: '12px', alignItems: 'center' }}>
+            <a href="/privacy.html" style={{ color: 'var(--primary)', textDecoration: 'underline' }}>隱私權政策 (Privacy Policy)</a>
+            <span style={{ color: 'var(--text-muted)' }}>|</span>
+            <a href="/terms.html" style={{ color: 'var(--primary)', textDecoration: 'underline' }}>服務條款 (Terms of Service)</a>
+          </div>
           <button
             type="button"
             onClick={() => window.location.reload()}
@@ -1546,6 +1551,11 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
         <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', maxWidth: '300px', lineHeight: '1.6' }}>
           【{storeName}】今日營業已打烊收店。歡迎您明天再來點餐，謝謝您的支持！
         </p>
+        <div style={{ marginTop: '24px', fontSize: '0.85rem', display: 'flex', gap: '12px', alignItems: 'center' }}>
+          <a href="/privacy.html" style={{ color: 'var(--primary)', textDecoration: 'underline' }}>隱私權政策 (Privacy Policy)</a>
+          <span style={{ color: 'var(--text-muted)' }}>|</span>
+          <a href="/terms.html" style={{ color: 'var(--primary)', textDecoration: 'underline' }}>服務條款 (Terms of Service)</a>
+        </div>
       </div>
     );
   }
