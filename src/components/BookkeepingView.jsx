@@ -1647,6 +1647,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
     );
     const isDeliveryOrder = (o) => isUberOrder(o) || isPandaOrder(o) || o.type === 'delivery';
 
+    const totalOrdersCount = filteredOrders.length;
     const storeOrders = filteredOrders.filter(o => !isDeliveryOrder(o));
     const uberOrders = filteredOrders.filter(isUberOrder);
     const pandaOrders = filteredOrders.filter(isPandaOrder);
