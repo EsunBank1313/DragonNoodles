@@ -100,6 +100,83 @@ export const calculateItemCost = (item) => {
   return (baseUnitCost + addonsCost) * qty;
 };
 
+// Standardized Item Display Name with Size (大碗 vs 小碗) Engine
+export const getItemDisplayNameWithSize = (item) => {
+  if (!item) return '未知品項';
+  const rawName = String(item.name || '').trim();
+  if (!rawName) return '未知品項';
+
+  // Check if it's a dish with size variations (麵線、羹、或任何帶有大/小規格品項)
+  const isMeeSuaOrSoup = rawName.includes('麵線') || rawName.includes('羹');
+
+  // 1. Check specs
+  const specs = Array.isArray(item.specs) ? item.specs : (typeof item.specs === 'string' ? [item.specs] : []);
+  let foundBig = false;
+  let foundSmall = false;
+
+  specs.forEach(s => {
+    const val = typeof s === 'object' && s ? (s.value || s.label || s.name || '') : String(s);
+    if (val.includes('大碗') || val.includes('大') || val.includes('大份')) foundBig = true;
+    if (val.includes('小碗') || val.includes('小') || val.includes('小份')) foundSmall = true;
+  });
+
+  // 2. Check rawName markings
+  if (
+    rawName.includes('大碗') ||
+    rawName.includes('(大)') ||
+    rawName.includes('（大）') ||
+    rawName.includes('- 大') ||
+    rawName.includes('-大') ||
+    rawName.includes(' - 大') ||
+    rawName.endsWith(' 大')
+  ) {
+    foundBig = true;
+  }
+
+  if (
+    rawName.includes('小碗') ||
+    rawName.includes('(小)') ||
+    rawName.includes('（小）') ||
+    rawName.includes('- 小') ||
+    rawName.includes('-小') ||
+    rawName.includes(' - 小') ||
+    rawName.endsWith(' 小')
+  ) {
+    foundSmall = true;
+  }
+
+  // If not size sensitive and has no size specs or markings, return rawName
+  if (!isMeeSuaOrSoup && !foundBig && !foundSmall) {
+    return rawName;
+  }
+
+  // Clean base name: remove (大), (小), (大碗), (小碗), - 大, - 小, etc.
+  const cleanBaseName = rawName
+    .replace(/\s*[\(（](?:大碗|小碗|大|小)[\)）]\s*/g, '')
+    .replace(/\s*-\s*(?:大碗|小碗|大|小)\s*/g, '')
+    .replace(/\s+(?:大碗|小碗|大|小)$/g, '')
+    .trim();
+
+  // Determine size
+  if (foundBig) {
+    return `${cleanBaseName} (大碗)`;
+  }
+  if (foundSmall) {
+    return `${cleanBaseName} (小碗)`;
+  }
+
+  // If mee-sua or soup but neither spec nor mark was found, infer from price
+  const qty = Number(item.quantity) || 1;
+  const price = Number(item.price) || (item.totalPrice ? Number(item.totalPrice) / qty : 0);
+  if (cleanBaseName.includes('清麵線')) {
+    return price >= 40 ? `${cleanBaseName} (大碗)` : `${cleanBaseName} (小碗)`;
+  }
+  if (price >= 70) {
+    return `${cleanBaseName} (大碗)`;
+  }
+  return `${cleanBaseName} (小碗)`;
+};
+
 const defaultVendorEvalTags = [
   { id: 't1', name: '🍏 品質極佳', isGood: true },
   { id: 't2', name: '🌟 甜度高', isGood: true },
@@ -869,6 +946,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
     } catch (e) {}
     return {
       kpiSummary: true,        // 核心財務損益總覽
+      deliveryPlatforms: true, // 門市現場 vs 外送雙平台效益分析
       batchYield: true,        // 大單位物料換算與產能效益分析 (大小碗)
       specsBreakdown: true,    // 後台商品規格銷售月統計 (大小碗/尺寸/口味)
       weekdayWeekend: true,    // 平日 vs 假日 營收對比
@@ -1236,12 +1314,12 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
     const avgOrderValue = totalOrdersCount > 0 ? Math.round(totalRevenue / totalOrdersCount) : 0;
     const avgDailyRevenue = activeDays.length > 0 ? Math.round(totalRevenue / activeDays.length) : 0;
 
-    // Item sales breakdown
+    // Item sales breakdown (規格化分拆麵線大小碗)
     const itemSalesMap = {};
     filteredOrders.forEach(o => {
       const orderItems = Array.isArray(o.items) ? o.items : [];
       orderItems.forEach(item => {
-        const name = item.name || '未知品項';
+        const name = getItemDisplayNameWithSize(item);
         const qty = Number(item.quantity) || 1;
         const price = Number(item.price) || (item.totalPrice ? Number(item.totalPrice) / qty : 0);
         const itemTotal = Number(item.totalPrice) || (price * qty);
@@ -1262,6 +1340,83 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
       return { ...item, grossProfit, grossMargin };
     }).sort((a, b) => b.revenue - a.revenue);
 
+    // Delivery & In-store Channel Breakdown
+    const isUberOrder = (o) => (
+      o.type === 'uber' || o.type === 'ubereats' || o.paymentMethod === 'ubereats' || String(o.serialNum || o.order_number || '').startsWith('U-')
+    );
+    const isPandaOrder = (o) => (
+      o.type === 'foodpanda' || o.type === 'panda' || o.paymentMethod === 'foodpanda' || String(o.serialNum || o.order_number || '').startsWith('P-')
+    );
+    const isDeliveryOrder = (o) => isUberOrder(o) || isPandaOrder(o) || o.type === 'delivery';
+
+    const storeOrders = filteredOrders.filter(o => !isDeliveryOrder(o));
+    const uberOrders = filteredOrders.filter(isUberOrder);
+    const pandaOrders = filteredOrders.filter(isPandaOrder);
+
+    const storeRev = storeOrders.reduce((sum, o) => sum + (Number(o.total) || 0), 0) + totalManualRevenue;
+    const storeCount = storeOrders.length;
+    const storeAOV = storeCount > 0 ? Math.round(storeRev / storeCount) : 0;
+
+    const uberNet = uberOrders.reduce((sum, o) => sum + (Number(o.total) || 0), 0);
+    const uberCount = uberOrders.length;
+    const uberGross = uberOrders.reduce((sum, o) => {
+      const orig = Number(o.items?.originalTotal) || Number(o.original_total) || 0;
+      return sum + (orig > 0 ? orig : Math.round((Number(o.total) || 0) / (1 - 0.31)));
+    }, 0);
+    const uberFee = Math.max(0, uberGross - uberNet);
+    const uberAOV = uberCount > 0 ? Math.round(uberGross / uberCount) : 0;
+
+    const pandaNet = pandaOrders.reduce((sum, o) => sum + (Number(o.total) || 0), 0);
+    const pandaCount = pandaOrders.length;
+    const pandaGross = pandaOrders.reduce((sum, o) => {
+      const orig = Number(o.items?.originalTotal) || Number(o.original_total) || 0;
+      return sum + (orig > 0 ? orig : Math.round((Number(o.total) || 0) / (1 - 0.35)));
+    }, 0);
+    const pandaFee = Math.max(0, pandaGross - pandaNet);
+    const pandaAOV = pandaCount > 0 ? Math.round(pandaGross / pandaCount) : 0;
+
+    // Mee-Sua big vs small by channel
+    let storeMeeSuaBig = 0, storeMeeSuaSmall = 0;
+    let uberMeeSuaBig = 0, uberMeeSuaSmall = 0;
+    let pandaMeeSuaBig = 0, pandaMeeSuaSmall = 0;
+    const deliveryItemSalesMap = {};
+
+    filteredOrders.forEach(o => {
+      const isU = isUberOrder(o);
+      const isP = isPandaOrder(o);
+      const isDeliv = isU || isP;
+      const orderItems = Array.isArray(o.items) ? o.items : [];
+
+      orderItems.forEach(item => {
+        const name = getItemDisplayNameWithSize(item);
+        const qty = Number(item.quantity) || 1;
+
+        if (name.includes('麵線') || name.includes('羹')) {
+          if (name.includes('(大碗)')) {
+            if (isU) uberMeeSuaBig += qty;
+            else if (isP) pandaMeeSuaBig += qty;
+            else storeMeeSuaBig += qty;
+          } else if (name.includes('(小碗)')) {
+            if (isU) uberMeeSuaSmall += qty;
+            else if (isP) pandaMeeSuaSmall += qty;
+            else storeMeeSuaSmall += qty;
+          }
+        }
+
+        if (isDeliv) {
+          if (!deliveryItemSalesMap[name]) {
+            deliveryItemSalesMap[name] = { name, qty: 0, uberQty: 0, pandaQty: 0, revenue: 0 };
+          }
+          deliveryItemSalesMap[name].qty += qty;
+          if (isU) deliveryItemSalesMap[name].uberQty += qty;
+          if (isP) deliveryItemSalesMap[name].pandaQty += qty;
+          deliveryItemSalesMap[name].revenue += (Number(item.totalPrice) || 0);
+        }
+      });
+    });
+
+    const deliveryTopItems = Object.values(deliveryItemSalesMap).sort((a, b) => b.qty - a.qty);
+
     let csv = "\uFEFF";
     csv += `龍城麵線 - 財務損益與營業額對帳報表\n`;
     csv += `統計區間, ${range.label} (${range.start} ~ ${range.end})\n`;
@@ -1281,7 +1436,30 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
     csv += `固定成本總額, -NT$ ${totalFixed}, 房租水電人事等固定成本\n`;
     csv += `營運淨利, NT$ ${netProfit}, 淨利率: ${netMarginPercent.toFixed(1)}%\n\n`;
 
-    // 2. Daily Details Section
+    // 2. Delivery Platform Breakdown Section
+    const totalAllOrders = totalOrdersCount || 1;
+    const totalDelivGross = uberGross + pandaGross;
+    const totalDelivFee = uberFee + pandaFee;
+    const totalDelivNet = uberNet + pandaNet;
+    const totalDelivCount = uberCount + pandaCount;
+
+    csv += `=== 門市現場 vs 外送雙平台 (Uber Eats & foodpanda) 效益與抽成對帳表 ===\n`;
+    csv += `銷售管道, 訂單筆數, 筆數佔比(%), 平台原價總額(NT$), 平台佣金抽成(NT$), 店家實收營業額(NT$), 平均客單價(NT$), 麵線(大碗)銷量, 麵線(小碗)銷量\n`;
+    csv += `門市現場 (內用+外帶), ${storeCount}, ${((storeCount / totalAllOrders) * 100).toFixed(1)}%, NT$ ${storeRev}, NT$ 0, NT$ ${storeRev}, NT$ ${storeAOV}, ${storeMeeSuaBig} 碗, ${storeMeeSuaSmall} 碗\n`;
+    csv += `Uber Eats 外送, ${uberCount}, ${((uberCount / totalAllOrders) * 100).toFixed(1)}%, NT$ ${uberGross}, -NT$ ${uberFee}, NT$ ${uberNet}, NT$ ${uberAOV}, ${uberMeeSuaBig} 碗, ${uberMeeSuaSmall} 碗\n`;
+    csv += `foodpanda 熊貓外送, ${pandaCount}, ${((pandaCount / totalAllOrders) * 100).toFixed(1)}%, NT$ ${pandaGross}, -NT$ ${pandaFee}, NT$ ${pandaNet}, NT$ ${pandaAOV}, ${pandaMeeSuaBig} 碗, ${pandaMeeSuaSmall} 碗\n`;
+    csv += `外送雙平台小計, ${totalDelivCount}, ${((totalDelivCount / totalAllOrders) * 100).toFixed(1)}%, NT$ ${totalDelivGross}, -NT$ ${totalDelivFee}, NT$ ${totalDelivNet}, NT$ ${totalDelivCount > 0 ? Math.round(totalDelivGross / totalDelivCount) : 0}, ${uberMeeSuaBig + pandaMeeSuaBig} 碗, ${uberMeeSuaSmall + pandaMeeSuaSmall} 碗\n\n`;
+
+    if (deliveryTopItems.length > 0) {
+      csv += `=== 外送雙平台熱銷品項與大小碗排行 ===\n`;
+      csv += `排行, 品項名稱 (含大小碗), 外送總銷量, Uber Eats銷量, foodpanda銷量, 外送實收金額(NT$)\n`;
+      deliveryTopItems.slice(0, 10).forEach((it, idx) => {
+        csv += `${idx + 1}, ${it.name.replace(/,/g, ' ')}, ${it.qty} 份, ${it.uberQty} 份, ${it.pandaQty} 份, NT$ ${it.revenue}\n`;
+      });
+      csv += `\n`;
+    }
+
+    // 3. Daily Details Section
     csv += `=== 每日營業額與收支損益明細表 ===\n`;
     csv += `對帳日期, 營業總額 (營業額), 系統點餐營業額, 手動補登營業額, 訂單筆數, 食材進貨成本, 固定成本分攤, 營業毛利, 毛利率(%), 營運淨利, 淨利率(%), 經營狀態\n`;
     
@@ -1297,11 +1475,11 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
 
     csv += `合計/總結,${totalRevenue},${totalSystemRevenue},${totalManualRevenue},${totalOrdersCount},${totalVariable},${totalFixed},${totalGrossProfit},${grossMarginPercent.toFixed(1)}%,${netProfit},${netMarginPercent.toFixed(1)}%,\n\n`;
 
-    // 3. Product Sales Ranking Section
+    // 4. Product Sales Ranking Section (含大小碗規格)
     const totalQtyAll = itemSalesList.reduce((acc, curr) => acc + curr.qty, 0);
     const totalRevAll = itemSalesList.reduce((acc, curr) => acc + curr.revenue, 0);
-    csv += `=== 各餐點品項銷售與營業額排行 ===\n`;
-    csv += `排行, 品項名稱, 累積銷量, 銷量佔比(%), 銷售營業額(NT$), 營業額佔比(%), 食材總成本(NT$), 毛利額(NT$), 毛利率(%)\n`;
+    csv += `=== 各餐點品項銷售與營業額排行 (麵線分拆大小碗) ===\n`;
+    csv += `排行, 品項名稱 (含大小碗), 累積銷量, 銷量佔比(%), 銷售營業額(NT$), 營業額佔比(%), 食材總成本(NT$), 毛利額(NT$), 毛利率(%)\n`;
     itemSalesList.forEach((item, idx) => {
       const qPct = totalQtyAll > 0 ? ((item.qty / totalQtyAll) * 100).toFixed(1) : '0.0';
       const rPct = totalRevAll > 0 ? ((item.revenue / totalRevAll) * 100).toFixed(1) : '0.0';
@@ -1391,7 +1569,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
     const dayCount = activeDays.length || 1;
     const hourlyAvgs = hourlyCounts.map(count => count / dayCount);
 
-    // Item & Mee-Sua Sales Analysis calculation
+    // Item & Mee-Sua Sales Analysis calculation (分拆麵線大小碗)
     const itemSalesMap = {};
     let totalItemsQty = 0;
     let totalItemsRevenue = 0;
@@ -1400,7 +1578,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
     filteredOrders.forEach(o => {
       const orderItems = Array.isArray(o.items) ? o.items : [];
       orderItems.forEach(item => {
-        const name = item.name || '未知品項';
+        const name = getItemDisplayNameWithSize(item);
         const qty = Number(item.quantity) || 1;
         const price = Number(item.price) || (item.totalPrice ? Number(item.totalPrice) / qty : 0);
         const itemTotal = Number(item.totalPrice) || (price * qty);
@@ -1433,6 +1611,82 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
         grossMargin
       };
     }).sort((a, b) => b.qty - a.qty);
+
+    // Delivery Platform Breakdown for HTML report
+    const isUberOrder = (o) => (
+      o.type === 'uber' || o.type === 'ubereats' || o.paymentMethod === 'ubereats' || String(o.serialNum || o.order_number || '').startsWith('U-')
+    );
+    const isPandaOrder = (o) => (
+      o.type === 'foodpanda' || o.type === 'panda' || o.paymentMethod === 'foodpanda' || String(o.serialNum || o.order_number || '').startsWith('P-')
+    );
+    const isDeliveryOrder = (o) => isUberOrder(o) || isPandaOrder(o) || o.type === 'delivery';
+
+    const storeOrders = filteredOrders.filter(o => !isDeliveryOrder(o));
+    const uberOrders = filteredOrders.filter(isUberOrder);
+    const pandaOrders = filteredOrders.filter(isPandaOrder);
+
+    const storeRev = storeOrders.reduce((sum, o) => sum + (Number(o.total) || 0), 0) + totalManualRevenue;
+    const storeCount = storeOrders.length;
+    const storeAOV = storeCount > 0 ? Math.round(storeRev / storeCount) : 0;
+
+    const uberNet = uberOrders.reduce((sum, o) => sum + (Number(o.total) || 0), 0);
+    const uberCount = uberOrders.length;
+    const uberGross = uberOrders.reduce((sum, o) => {
+      const orig = Number(o.items?.originalTotal) || Number(o.original_total) || 0;
+      return sum + (orig > 0 ? orig : Math.round((Number(o.total) || 0) / (1 - 0.31)));
+    }, 0);
+    const uberFee = Math.max(0, uberGross - uberNet);
+    const uberAOV = uberCount > 0 ? Math.round(uberGross / uberCount) : 0;
+
+    const pandaNet = pandaOrders.reduce((sum, o) => sum + (Number(o.total) || 0), 0);
+    const pandaCount = pandaOrders.length;
+    const pandaGross = pandaOrders.reduce((sum, o) => {
+      const orig = Number(o.items?.originalTotal) || Number(o.original_total) || 0;
+      return sum + (orig > 0 ? orig : Math.round((Number(o.total) || 0) / (1 - 0.35)));
+    }, 0);
+    const pandaFee = Math.max(0, pandaGross - pandaNet);
+    const pandaAOV = pandaCount > 0 ? Math.round(pandaGross / pandaCount) : 0;
+
+    let storeMeeSuaBig = 0, storeMeeSuaSmall = 0;
+    let uberMeeSuaBig = 0, uberMeeSuaSmall = 0;
+    let pandaMeeSuaBig = 0, pandaMeeSuaSmall = 0;
+    const deliveryItemSalesMap = {};
+
+    filteredOrders.forEach(o => {
+      const isU = isUberOrder(o);
+      const isP = isPandaOrder(o);
+      const isDeliv = isU || isP;
+      const orderItems = Array.isArray(o.items) ? o.items : [];
+
+      orderItems.forEach(item => {
+        const name = getItemDisplayNameWithSize(item);
+        const qty = Number(item.quantity) || 1;
+
+        if (name.includes('麵線') || name.includes('羹')) {
+          if (name.includes('(大碗)')) {
+            if (isU) uberMeeSuaBig += qty;
+            else if (isP) pandaMeeSuaBig += qty;
+            else storeMeeSuaBig += qty;
+          } else if (name.includes('(小碗)')) {
+            if (isU) uberMeeSuaSmall += qty;
+            else if (isP) pandaMeeSuaSmall += qty;
+            else storeMeeSuaSmall += qty;
+          }
+        }
+
+        if (isDeliv) {
+          if (!deliveryItemSalesMap[name]) {
+            deliveryItemSalesMap[name] = { name, qty: 0, uberQty: 0, pandaQty: 0, revenue: 0 };
+          }
+          deliveryItemSalesMap[name].qty += qty;
+          if (isU) deliveryItemSalesMap[name].uberQty += qty;
+          if (isP) deliveryItemSalesMap[name].pandaQty += qty;
+          deliveryItemSalesMap[name].revenue += (Number(item.totalPrice) || 0);
+        }
+      });
+    });
+
+    const deliveryTopItems = Object.values(deliveryItemSalesMap).sort((a, b) => b.qty - a.qty);
 
     const meeSuaSalesList = itemSalesList.filter(item => item.isMeeSua);
     const itemSalesLabelsJson = JSON.stringify(itemSalesList.map(i => i.name));
@@ -1826,6 +2080,95 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
           </tbody>
         </table>
       </div>
+    <!-- 🛵 門市現場 vs 外送雙平台 (Uber Eats & foodpanda) 效益與抽成深入分析報告 -->
+    <div class="table-card">
+      <div class="chart-title">🛵 門市現場 vs 外送雙平台 (Uber Eats & foodpanda) 效益與抽成深度分析</div>
+      <p style="font-size: 0.8rem; color: #94a3b8; margin: 4px 0 16px 0;">
+        比對各銷售管道之訂單筆數、平台原價總額、手續費抽成、店家實收營業額、平均客單價及麵線大/小碗銷售偏好。
+      </p>
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th>銷售管道</th>
+              <th>訂單筆數 (佔比)</th>
+              <th>平台原始總額</th>
+              <th>平台佣金抽成</th>
+              <th style="color: #10b981;">店家實收營業額</th>
+              <th>平均客單價</th>
+              <th>麵線 (大碗) 銷量</th>
+              <th>麵線 (小碗) 銷量</th>
+              <th>大碗偏好率</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td style="font-weight: bold; color: #ea580c;">🏪 門市現場 (內用+外帶)</td>
+              <td style="font-weight: bold;">${storeCount} 筆 (${totalOrdersCount > 0 ? ((storeCount / totalOrdersCount) * 100).toFixed(1) : 0}%)</td>
+              <td>NT$ ${storeRev.toLocaleString()}</td>
+              <td style="color: #94a3b8;">NT$ 0 (免抽成)</td>
+              <td style="font-weight: bold; color: #10b981;">NT$ ${storeRev.toLocaleString()}</td>
+              <td style="font-weight: bold;">NT$ ${storeAOV}</td>
+              <td style="color: #38bdf8; font-weight: bold;">${storeMeeSuaBig} 碗</td>
+              <td style="color: #fb923c; font-weight: bold;">${storeMeeSuaSmall} 碗</td>
+              <td style="font-weight: bold;">${(storeMeeSuaBig + storeMeeSuaSmall) > 0 ? ((storeMeeSuaBig / (storeMeeSuaBig + storeMeeSuaSmall)) * 100).toFixed(1) : 0}%</td>
+            </tr>
+            <tr>
+              <td style="font-weight: bold; color: #059669;">🛵 Uber Eats 外送</td>
+              <td style="font-weight: bold;">${uberCount} 筆 (${totalOrdersCount > 0 ? ((uberCount / totalOrdersCount) * 100).toFixed(1) : 0}%)</td>
+              <td>NT$ ${uberGross.toLocaleString()}</td>
+              <td style="color: #ef4444; font-weight: bold;">-NT$ ${uberFee.toLocaleString()} (約 31%)</td>
+              <td style="font-weight: bold; color: #10b981;">NT$ ${uberNet.toLocaleString()}</td>
+              <td style="font-weight: bold;">NT$ ${uberAOV}</td>
+              <td style="color: #38bdf8; font-weight: bold;">${uberMeeSuaBig} 碗</td>
+              <td style="color: #fb923c; font-weight: bold;">${uberMeeSuaSmall} 碗</td>
+              <td style="font-weight: bold;">${(uberMeeSuaBig + uberMeeSuaSmall) > 0 ? ((uberMeeSuaBig / (uberMeeSuaBig + uberMeeSuaSmall)) * 100).toFixed(1) : 0}%</td>
+            </tr>
+            <tr>
+              <td style="font-weight: bold; color: #D70F64;">🐼 foodpanda 熊貓外送</td>
+              <td style="font-weight: bold;">${pandaCount} 筆 (${totalOrdersCount > 0 ? ((pandaCount / totalOrdersCount) * 100).toFixed(1) : 0}%)</td>
+              <td>NT$ ${pandaGross.toLocaleString()}</td>
+              <td style="color: #ef4444; font-weight: bold;">-NT$ ${pandaFee.toLocaleString()} (約 35%)</td>
+              <td style="font-weight: bold; color: #10b981;">NT$ ${pandaNet.toLocaleString()}</td>
+              <td style="font-weight: bold;">NT$ ${pandaAOV}</td>
+              <td style="color: #38bdf8; font-weight: bold;">${pandaMeeSuaBig} 碗</td>
+              <td style="color: #fb923c; font-weight: bold;">${pandaMeeSuaSmall} 碗</td>
+              <td style="font-weight: bold;">${(pandaMeeSuaBig + pandaMeeSuaSmall) > 0 ? ((pandaMeeSuaBig / (pandaMeeSuaBig + pandaMeeSuaSmall)) * 100).toFixed(1) : 0}%</td>
+            </tr>
+            <tr style="background: rgba(255, 255, 255, 0.04); font-weight: bold; border-top: 2px solid var(--border);">
+              <td style="color: #38bdf8;">🛵 外送雙平台小計</td>
+              <td>${uberCount + pandaCount} 筆 (${totalOrdersCount > 0 ? (((uberCount + pandaCount) / totalOrdersCount) * 100).toFixed(1) : 0}%)</td>
+              <td>NT$ ${(uberGross + pandaGross).toLocaleString()}</td>
+              <td style="color: #ef4444;">-NT$ ${(uberFee + pandaFee).toLocaleString()}</td>
+              <td style="color: #10b981;">NT$ ${(uberNet + pandaNet).toLocaleString()}</td>
+              <td>NT$ ${(uberCount + pandaCount) > 0 ? Math.round((uberGross + pandaGross) / (uberCount + pandaCount)) : 0}</td>
+              <td style="color: #38bdf8;">${uberMeeSuaBig + pandaMeeSuaBig} 碗</td>
+              <td style="color: #fb923c;">${uberMeeSuaSmall + pandaMeeSuaSmall} 碗</td>
+              <td>${(uberMeeSuaBig + pandaMeeSuaBig + uberMeeSuaSmall + pandaMeeSuaSmall) > 0 ? (((uberMeeSuaBig + pandaMeeSuaBig) / (uberMeeSuaBig + pandaMeeSuaBig + uberMeeSuaSmall + pandaMeeSuaSmall)) * 100).toFixed(1) : 0}%</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      ${deliveryTopItems.length > 0 ? `
+        <div style="margin-top: 22px; border-top: 1px dashed var(--border); padding-top: 16px;">
+          <div style="font-size: 0.95rem; font-weight: bold; color: #38bdf8; margin-bottom: 12px; display: flex; align-items: center; gap: 6px;">
+            <span>🔥 外送雙平台最熱銷品項 TOP 5 (含大小碗分拆)</span>
+          </div>
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px;">
+            ${deliveryTopItems.slice(0, 5).map((it, idx) => `
+              <div style="background: rgba(0,0,0,0.3); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px;">
+                <div style="font-size: 0.75rem; color: #94a3b8; font-weight: bold;">第 ${idx + 1} 名</div>
+                <div style="font-size: 1rem; font-weight: 900; color: #fff; margin: 4px 0;">${it.name}</div>
+                <div style="font-size: 0.8rem; color: #38bdf8;">總銷量: <strong>${it.qty} 份</strong></div>
+                <div style="font-size: 0.75rem; color: #94a3b8; margin-top: 2px;">
+                  <span>Uber: ${it.uberQty}</span> ｜ <span>熊貓: ${it.pandaQty}</span>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      ` : ''}
     </div>
 
     <!-- Mee-Sua & Item Sales Analysis Table -->
@@ -3990,6 +4333,14 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
     uberRevenue,
     pandaRevenue,
     deliveryRevenue,
+    uberGross,
+    uberFee,
+    pandaGross,
+    pandaFee,
+    deliveryMeeSuaBig,
+    deliveryMeeSuaSmall,
+    storeMeeSuaBig,
+    storeMeeSuaSmall,
     cashRevenue, 
     totalDineIn, 
     totalTakeout, 
@@ -4052,12 +4403,43 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
     const margin = rev > 0 ? ((gross / rev) * 100) : 0;
 
     const itemCounts = {};
+    let deliveryMeeSuaBig = 0;
+    let deliveryMeeSuaSmall = 0;
+    let storeMeeSuaBig = 0;
+    let storeMeeSuaSmall = 0;
+
     completedOrders.forEach(o => {
-      (o.items || []).forEach(item => {
-        itemCounts[item.name] = (itemCounts[item.name] || 0) + item.quantity;
+      const isDeliv = isDelivery(o);
+      const oItems = Array.isArray(o.items) ? o.items : [];
+      oItems.forEach(item => {
+        const displayName = getItemDisplayNameWithSize(item);
+        const q = Number(item.quantity) || 1;
+        itemCounts[displayName] = (itemCounts[displayName] || 0) + q;
+
+        if (displayName.includes('麵線') || displayName.includes('羹')) {
+          if (displayName.includes('(大碗)')) {
+            if (isDeliv) deliveryMeeSuaBig += q;
+            else storeMeeSuaBig += q;
+          } else if (displayName.includes('(小碗)')) {
+            if (isDeliv) deliveryMeeSuaSmall += q;
+            else storeMeeSuaSmall += q;
+          }
+        }
       });
     });
     const sorted = Object.entries(itemCounts).sort((a, b) => b[1] - a[1]);
+
+    const uberGross = uberOrders.reduce((sum, o) => {
+      const orig = Number(o.items?.originalTotal) || Number(o.original_total) || 0;
+      return sum + (orig > 0 ? orig : Math.round((Number(o.total) || 0) / (1 - 0.31)));
+    }, 0);
+    const uberFee = Math.max(0, uberGross - uberRev);
+
+    const pandaGross = pandaOrders.reduce((sum, o) => {
+      const orig = Number(o.items?.originalTotal) || Number(o.original_total) || 0;
+      return sum + (orig > 0 ? orig : Math.round((Number(o.total) || 0) / (1 - 0.35)));
+    }, 0);
+    const pandaFee = Math.max(0, pandaGross - pandaRev);
 
     return {
       totalRevenue: rev,
@@ -4065,6 +4447,14 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
       uberRevenue: uberRev,
       pandaRevenue: pandaRev,
       deliveryRevenue: deliveryRev,
+      uberGross,
+      uberFee,
+      pandaGross,
+      pandaFee,
+      deliveryMeeSuaBig,
+      deliveryMeeSuaSmall,
+      storeMeeSuaBig,
+      storeMeeSuaSmall,
       cashRevenue: cash,
       totalDineIn: dineIn,
       totalTakeout: takeout,
@@ -4337,26 +4727,38 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                   <span>💳 線上已付:</span>
                   <strong style={{ marginLeft: 'auto' }}>NT$ {onlineRevenue}</strong>
                 </div>
-                {deliveryRevenue > 0 && (
-                  <div style={{ borderTop: '1px dotted var(--border)', paddingTop: '4px', marginTop: '2px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', color: '#0284c7', fontWeight: 'bold' }}>
-                      <span>🛵 外送實收總計:</span>
-                      <strong style={{ marginLeft: 'auto' }}>NT$ {deliveryRevenue}</strong>
-                    </div>
-                    {uberRevenue > 0 && (
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: '#059669', paddingLeft: '8px' }}>
-                        <span>• 🛵 Uber Eats:</span>
-                        <span>NT$ {uberRevenue}</span>
-                      </div>
-                    )}
-                    {pandaRevenue > 0 && (
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: '#D70F64', paddingLeft: '8px' }}>
-                        <span>• 🐼 foodpanda:</span>
-                        <span>NT$ {pandaRevenue}</span>
-                      </div>
-                    )}
+                <div style={{ borderTop: '1px dotted var(--border)', paddingTop: '4px', marginTop: '2px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', color: '#0284c7', fontWeight: 'bold' }}>
+                    <span>🛵 外送實收總計:</span>
+                    <strong style={{ marginLeft: 'auto' }}>NT$ {deliveryRevenue}</strong>
                   </div>
-                )}
+                  {deliveryRevenue > 0 ? (
+                    <>
+                      {(uberFee > 0 || pandaFee > 0) && (
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem', color: 'var(--text-muted)', paddingLeft: '4px' }}>
+                          <span>原價 NT$ {uberGross + pandaGross}</span>
+                          <span>(平台抽成 -NT$ {uberFee + pandaFee})</span>
+                        </div>
+                      )}
+                      {uberRevenue > 0 && (
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: '#059669', paddingLeft: '8px' }}>
+                          <span>• 🛵 Uber Eats:</span>
+                          <span>NT$ {uberRevenue} {uberFee > 0 ? `(原 $${uberGross}, 抽 -$${uberFee})` : ''}</span>
+                        </div>
+                      )}
+                      {pandaRevenue > 0 && (
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: '#D70F64', paddingLeft: '8px' }}>
+                          <span>• 🐼 foodpanda:</span>
+                          <span>NT$ {pandaRevenue} {pandaFee > 0 ? `(原 $${pandaGross}, 抽 -$${pandaFee})` : ''}</span>
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', paddingLeft: '4px' }}>
+                      • 當日暫無外送訂單
+                    </div>
+                  )}
+                </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px dashed var(--border)', paddingTop: '6px', marginTop: '4px' }}>
                   <span>當日營業額:</span>
                   <strong style={{ marginLeft: 'auto', color: 'var(--primary)' }}>NT$ {totalRevenue}</strong>
@@ -4395,6 +4797,18 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                     )}
                   </div>
                 )}
+                {(deliveryMeeSuaBig + deliveryMeeSuaSmall + storeMeeSuaBig + storeMeeSuaSmall) > 0 && (
+                  <div style={{ borderTop: '1px dotted var(--border)', paddingTop: '4px', marginTop: '2px', fontSize: '0.75rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-main)', fontWeight: 'bold' }}>
+                      <span>🍜 麵線大小碗分佈:</span>
+                      <span>大 {storeMeeSuaBig + deliveryMeeSuaBig} / 小 {storeMeeSuaSmall + deliveryMeeSuaSmall} 碗</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-muted)', fontSize: '0.7rem', paddingLeft: '6px' }}>
+                      <span>門市: 大 {storeMeeSuaBig} / 小 {storeMeeSuaSmall}</span>
+                      <span>外送: 大 {deliveryMeeSuaBig} / 小 {deliveryMeeSuaSmall}</span>
+                    </div>
+                  </div>
+                )}
                 <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px dashed var(--border)', paddingTop: '6px', marginTop: '4px' }}>
                   <span>結案總訂單:</span>
                   <strong style={{ marginLeft: 'auto' }}>{completedOrders.length} 筆</strong>
@@ -4404,7 +4818,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
 
             <div style={{ padding: '16px', backgroundColor: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '10px', boxShadow: 'var(--shadow-sm)' }}>
               <h5 style={{ fontSize: '0.8rem', fontWeight: 'bold', color: 'var(--text-muted)', marginBottom: '8px' }}>🔥 當日銷售排行</h5>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '0.75rem', maxHeight: '72px', overflowY: 'auto' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '0.75rem', maxHeight: '130px', overflowY: 'auto' }}>
                 {sortedItems.length === 0 ? (
                   <span style={{ color: 'var(--text-muted)' }}>暫無銷售數據</span>
                 ) : (
@@ -5977,7 +6391,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                         <button
                           type="button"
                           onClick={() => {
-                            applyAndSaveMonthlyVisibility({ kpiSummary: true, batchYield: true, specsBreakdown: true, weekdayWeekend: true, dayOfWeek: true, monthlyLedger: true });
+                            applyAndSaveMonthlyVisibility({ kpiSummary: true, deliveryPlatforms: true, batchYield: true, specsBreakdown: true, weekdayWeekend: true, dayOfWeek: true, monthlyLedger: true });
                           }}
                           style={{
                             padding: '3px 10px',
@@ -6889,6 +7303,286 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                                 })}
                               </tbody>
                             </table>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
+
+                  {/* 🛵 門市現場 vs 外送雙平台 (Uber Eats & foodpanda) 效益與抽成深度分析 */}
+                  {monthlyReportVisibility.deliveryPlatforms !== false && (() => {
+                    const isUberOrder = (o) => (
+                      o.type === 'uber' ||
+                      o.type === 'ubereats' ||
+                      o.paymentMethod === 'ubereats' ||
+                      String(o.serialNum || o.order_number || '').startsWith('U-')
+                    );
+
+                    const isPandaOrder = (o) => (
+                      o.type === 'foodpanda' ||
+                      o.type === 'panda' ||
+                      o.paymentMethod === 'foodpanda' ||
+                      String(o.serialNum || o.order_number || '').startsWith('P-')
+                    );
+
+                    const targetOrders = orders.filter(o => {
+                      if (o.status !== 'completed' && o.status !== 'received') return false;
+                      const dStr = new Date(o.timestamp).toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' });
+                      return dStr >= range.start && dStr <= range.end;
+                    });
+
+                    let storeOrders = 0, storeRev = 0, storeBig = 0, storeSmall = 0;
+                    let uberOrders = 0, uberGross = 0, uberNet = 0, uberBig = 0, uberSmall = 0;
+                    let pandaOrders = 0, pandaGross = 0, pandaNet = 0, pandaBig = 0, pandaSmall = 0;
+                    const deliveryItemCounts = {};
+
+                    targetOrders.forEach(o => {
+                      const isUber = isUberOrder(o);
+                      const isPanda = isPandaOrder(o);
+                      const rev = Number(o.total) || 0;
+                      const itemsArr = Array.isArray(o.items) ? o.items : (o.items?.cart || []);
+
+                      if (isUber) {
+                        uberOrders++;
+                        uberNet += rev;
+                        const orig = Number(o.items?.originalTotal) || Number(o.original_total) || 0;
+                        uberGross += (orig > 0 ? orig : Math.round(rev / (1 - 0.315)));
+                      } else if (isPanda) {
+                        pandaOrders++;
+                        pandaNet += rev;
+                        const orig = Number(o.items?.originalTotal) || Number(o.original_total) || 0;
+                        pandaGross += (orig > 0 ? orig : Math.round(rev / (1 - 0.35)));
+                      } else {
+                        storeOrders++;
+                        storeRev += rev;
+                      }
+
+                      itemsArr.forEach(it => {
+                        const displayName = getItemDisplayNameWithSize(it);
+                        const isBig = displayName.includes('(大碗)');
+                        const isSmall = displayName.includes('(小碗)');
+                        const qty = Number(it.quantity) || 1;
+
+                        if (isUber) {
+                          if (isBig) uberBig += qty;
+                          if (isSmall) uberSmall += qty;
+                          deliveryItemCounts[displayName] = (deliveryItemCounts[displayName] || 0) + qty;
+                        } else if (isPanda) {
+                          if (isBig) pandaBig += qty;
+                          if (isSmall) pandaSmall += qty;
+                          deliveryItemCounts[displayName] = (deliveryItemCounts[displayName] || 0) + qty;
+                        } else {
+                          if (isBig) storeBig += qty;
+                          if (isSmall) storeSmall += qty;
+                        }
+                      });
+                    });
+
+                    const uberFee = Math.max(0, uberGross - uberNet);
+                    const pandaFee = Math.max(0, pandaGross - pandaNet);
+                    const totalDeliveryOrders = uberOrders + pandaOrders;
+                    const totalDeliveryGross = uberGross + pandaGross;
+                    const totalDeliveryNet = uberNet + pandaNet;
+                    const totalDeliveryFee = uberFee + pandaFee;
+                    const totalDeliveryBig = uberBig + pandaBig;
+                    const totalDeliverySmall = uberSmall + pandaSmall;
+
+                    const totalAllOrders = storeOrders + totalDeliveryOrders;
+                    const totalAllGross = storeRev + totalDeliveryGross;
+                    const totalAllNet = storeRev + totalDeliveryNet;
+
+                    const topDeliveryItems = Object.entries(deliveryItemCounts)
+                      .sort((a, b) => b[1] - a[1])
+                      .slice(0, 6);
+
+                    return (
+                      <div style={{
+                        backgroundColor: 'var(--bg-card)',
+                        border: '1px solid var(--border)',
+                        borderRadius: '12px',
+                        padding: '20px',
+                        marginBottom: '20px',
+                        boxShadow: 'var(--shadow-sm)'
+                      }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '10px' }}>
+                          <div>
+                            <h4 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 'bold', color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <span>🛵</span> 門市現場 vs 外送雙平台 (Uber Eats & foodpanda) 效益與抽成深度分析
+                            </h4>
+                            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                              統計區間內門市與外送平台之訂單量、原價總額、平台抽成佣金、實際進帳與麵線大小碗分佈
+                            </div>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => handleToggleMonthlyModule('deliveryPlatforms', false)}
+                            style={{ padding: '5px 8px', fontSize: '0.72rem', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'transparent', color: 'var(--text-muted)', cursor: 'pointer' }}
+                            title="隱藏此統計模組"
+                          >
+                            ✕ 隱藏此統計
+                          </button>
+                        </div>
+
+                        {/* 4 Summary Cards */}
+                        <div style={{
+                          display: 'grid',
+                          gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+                          gap: '12px',
+                          marginBottom: '16px'
+                        }}>
+                          {/* 門市現場 */}
+                          <div style={{ backgroundColor: 'var(--bg-body)', padding: '14px', borderRadius: '10px', border: '1.5px solid #10b981' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <span style={{ fontSize: '0.85rem', fontWeight: 'bold', color: '#059669' }}>🏪 門市現場 / 自取</span>
+                              <span style={{ fontSize: '0.72rem', backgroundColor: 'rgba(16, 185, 129, 0.1)', color: '#059669', padding: '2px 8px', borderRadius: '10px', fontWeight: 'bold' }}>
+                                100% 實收 (免抽成)
+                              </span>
+                            </div>
+                            <div style={{ fontSize: '1.35rem', fontWeight: '900', color: 'var(--text-main)', marginTop: '6px' }}>
+                              NT$ {storeRev.toLocaleString()}
+                            </div>
+                            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '4px', lineHeight: '1.4' }}>
+                              <span>訂單: <strong>{storeOrders}</strong> 筆 (均消 NT$ {storeOrders ? Math.round(storeRev / storeOrders) : 0})</span><br/>
+                              <span>🍜 麵線: <strong>大 {storeBig}</strong> / <strong>小 {storeSmall}</strong> 碗</span>
+                            </div>
+                          </div>
+
+                          {/* Uber Eats */}
+                          <div style={{ backgroundColor: 'var(--bg-body)', padding: '14px', borderRadius: '10px', border: '1.5px solid #059669' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <span style={{ fontSize: '0.85rem', fontWeight: 'bold', color: '#059669' }}>🛵 Uber Eats</span>
+                              <span style={{ fontSize: '0.72rem', backgroundColor: 'rgba(5, 150, 105, 0.1)', color: '#059669', padding: '2px 8px', borderRadius: '10px', fontWeight: 'bold' }}>
+                                抽成約 31.5%
+                              </span>
+                            </div>
+                            <div style={{ fontSize: '1.35rem', fontWeight: '900', color: '#059669', marginTop: '6px' }}>
+                              NT$ {uberNet.toLocaleString()} <span style={{ fontSize: '0.75rem', fontWeight: 'normal', color: 'var(--text-muted)' }}>(實收)</span>
+                            </div>
+                            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '4px', lineHeight: '1.4' }}>
+                              <span>原價: NT$ {uberGross.toLocaleString()} (扣趴 -NT$ {uberFee.toLocaleString()})</span><br/>
+                              <span>訂單: <strong>{uberOrders}</strong> 筆 (均消 NT$ {uberOrders ? Math.round(uberGross / uberOrders) : 0}) | 麵線: 大 {uberBig} / 小 {uberSmall}</span>
+                            </div>
+                          </div>
+
+                          {/* foodpanda */}
+                          <div style={{ backgroundColor: 'var(--bg-body)', padding: '14px', borderRadius: '10px', border: '1.5px solid #D70F64' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <span style={{ fontSize: '0.85rem', fontWeight: 'bold', color: '#D70F64' }}>🐼 foodpanda</span>
+                              <span style={{ fontSize: '0.72rem', backgroundColor: 'rgba(215, 15, 100, 0.1)', color: '#D70F64', padding: '2px 8px', borderRadius: '10px', fontWeight: 'bold' }}>
+                                抽成約 35%
+                              </span>
+                            </div>
+                            <div style={{ fontSize: '1.35rem', fontWeight: '900', color: '#D70F64', marginTop: '6px' }}>
+                              NT$ {pandaNet.toLocaleString()} <span style={{ fontSize: '0.75rem', fontWeight: 'normal', color: 'var(--text-muted)' }}>(實收)</span>
+                            </div>
+                            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '4px', lineHeight: '1.4' }}>
+                              <span>原價: NT$ {pandaGross.toLocaleString()} (扣趴 -NT$ {pandaFee.toLocaleString()})</span><br/>
+                              <span>訂單: <strong>{pandaOrders}</strong> 筆 (均消 NT$ {pandaOrders ? Math.round(pandaGross / pandaOrders) : 0}) | 麵線: 大 {pandaBig} / 小 {pandaSmall}</span>
+                            </div>
+                          </div>
+
+                          {/* 外送雙平台總結 */}
+                          <div style={{ backgroundColor: 'rgba(2, 132, 199, 0.05)', padding: '14px', borderRadius: '10px', border: '1.5px solid #0284c7' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <span style={{ fontSize: '0.85rem', fontWeight: 'bold', color: '#0284c7' }}>📊 外送雙平台總效益</span>
+                              <span style={{ fontSize: '0.72rem', backgroundColor: '#0284c7', color: 'white', padding: '2px 8px', borderRadius: '10px', fontWeight: 'bold' }}>
+                                外送佔比 {totalAllGross > 0 ? Math.round((totalDeliveryGross / totalAllGross) * 100) : 0}%
+                              </span>
+                            </div>
+                            <div style={{ fontSize: '1.35rem', fontWeight: '900', color: '#0284c7', marginTop: '6px' }}>
+                              NT$ {totalDeliveryNet.toLocaleString()} <span style={{ fontSize: '0.75rem', fontWeight: 'normal', color: 'var(--text-muted)' }}>(總實收)</span>
+                            </div>
+                            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '4px', lineHeight: '1.4' }}>
+                              <span>原價總額: NT$ {totalDeliveryGross.toLocaleString()} (總佣金 -NT$ {totalDeliveryFee.toLocaleString()})</span><br/>
+                              <span>總外送單: <strong>{totalDeliveryOrders}</strong> 筆 | 雙平台麵線: 大 {totalDeliveryBig} / 小 {totalDeliverySmall}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Comparison Table */}
+                        <div style={{ overflowX: 'auto', backgroundColor: 'var(--bg-body)', borderRadius: '8px', border: '1px solid var(--border)', marginBottom: '14px' }}>
+                          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem', textAlign: 'left' }}>
+                            <thead>
+                              <tr style={{ backgroundColor: 'var(--bg-input)', borderBottom: '1px solid var(--border)', color: 'var(--text-muted)' }}>
+                                <th style={{ padding: '8px 12px' }}>點餐管道</th>
+                                <th style={{ padding: '8px 12px' }}>訂單筆數 (佔比)</th>
+                                <th style={{ padding: '8px 12px' }}>營業總額 (原價)</th>
+                                <th style={{ padding: '8px 12px' }}>平台抽成佣金</th>
+                                <th style={{ padding: '8px 12px' }}>實際進帳 (淨額)</th>
+                                <th style={{ padding: '8px 12px' }}>平均客單價 (AOV)</th>
+                                <th style={{ padding: '8px 12px' }}>麵線大碗 / 小碗銷量</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                                <td style={{ padding: '10px 12px', fontWeight: 'bold' }}>🏪 門市現場 (內用/外帶)</td>
+                                <td style={{ padding: '10px 12px' }}>{storeOrders} 筆 ({totalAllOrders ? Math.round(storeOrders / totalAllOrders * 100) : 0}%)</td>
+                                <td style={{ padding: '10px 12px', fontWeight: 'bold' }}>NT$ {storeRev.toLocaleString()}</td>
+                                <td style={{ padding: '10px 12px', color: 'var(--text-muted)' }}>$0 (0%)</td>
+                                <td style={{ padding: '10px 12px', fontWeight: 'bold', color: '#16a34a' }}>NT$ {storeRev.toLocaleString()}</td>
+                                <td style={{ padding: '10px 12px' }}>NT$ {storeOrders ? Math.round(storeRev / storeOrders) : 0}</td>
+                                <td style={{ padding: '10px 12px' }}>大 <strong>{storeBig}</strong> / 小 <strong>{storeSmall}</strong> 碗</td>
+                              </tr>
+                              <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                                <td style={{ padding: '10px 12px', fontWeight: 'bold', color: '#059669' }}>🛵 Uber Eats</td>
+                                <td style={{ padding: '10px 12px' }}>{uberOrders} 筆 ({totalAllOrders ? Math.round(uberOrders / totalAllOrders * 100) : 0}%)</td>
+                                <td style={{ padding: '10px 12px', fontWeight: 'bold' }}>NT$ {uberGross.toLocaleString()}</td>
+                                <td style={{ padding: '10px 12px', color: '#ef4444' }}>-NT$ {uberFee.toLocaleString()} (~31.5%)</td>
+                                <td style={{ padding: '10px 12px', fontWeight: 'bold', color: '#059669' }}>NT$ {uberNet.toLocaleString()}</td>
+                                <td style={{ padding: '10px 12px' }}>NT$ {uberOrders ? Math.round(uberGross / uberOrders) : 0}</td>
+                                <td style={{ padding: '10px 12px' }}>大 <strong>{uberBig}</strong> / 小 <strong>{uberSmall}</strong> 碗</td>
+                              </tr>
+                              <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                                <td style={{ padding: '10px 12px', fontWeight: 'bold', color: '#D70F64' }}>🐼 foodpanda</td>
+                                <td style={{ padding: '10px 12px' }}>{pandaOrders} 筆 ({totalAllOrders ? Math.round(pandaOrders / totalAllOrders * 100) : 0}%)</td>
+                                <td style={{ padding: '10px 12px', fontWeight: 'bold' }}>NT$ {pandaGross.toLocaleString()}</td>
+                                <td style={{ padding: '10px 12px', color: '#ef4444' }}>-NT$ {pandaFee.toLocaleString()} (~35%)</td>
+                                <td style={{ padding: '10px 12px', fontWeight: 'bold', color: '#D70F64' }}>NT$ {pandaNet.toLocaleString()}</td>
+                                <td style={{ padding: '10px 12px' }}>NT$ {pandaOrders ? Math.round(pandaGross / pandaOrders) : 0}</td>
+                                <td style={{ padding: '10px 12px' }}>大 <strong>{pandaBig}</strong> / 小 <strong>{pandaSmall}</strong> 碗</td>
+                              </tr>
+                              <tr style={{ backgroundColor: 'var(--bg-input)', fontWeight: 'bold' }}>
+                                <td style={{ padding: '10px 12px' }}>總計 / 雙平台合計</td>
+                                <td style={{ padding: '10px 12px' }}>{totalAllOrders} 筆 (100%)</td>
+                                <td style={{ padding: '10px 12px' }}>NT$ {totalAllGross.toLocaleString()}</td>
+                                <td style={{ padding: '10px 12px', color: '#ef4444' }}>-NT$ {totalDeliveryFee.toLocaleString()}</td>
+                                <td style={{ padding: '10px 12px', color: '#16a34a' }}>NT$ {totalAllNet.toLocaleString()}</td>
+                                <td style={{ padding: '10px 12px' }}>NT$ {totalAllOrders ? Math.round(totalAllGross / totalAllOrders) : 0}</td>
+                                <td style={{ padding: '10px 12px' }}>大 <strong>{storeBig + totalDeliveryBig}</strong> / 小 <strong>{storeSmall + totalDeliverySmall}</strong> 碗</td>
+                              </tr>
+                            </tbody>
+                          </table>
+                        </div>
+
+                        {/* Top 5 Delivery Items */}
+                        {topDeliveryItems.length > 0 && (
+                          <div style={{ backgroundColor: 'var(--bg-body)', padding: '12px 14px', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                            <div style={{ fontSize: '0.8rem', fontWeight: 'bold', color: 'var(--text-main)', marginBottom: '8px' }}>
+                              🔥 外送雙平台最熱銷品項 TOP 5 (大小碗已區分)
+                            </div>
+                            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                              {topDeliveryItems.map(([name, count], idx) => (
+                                <div key={name} style={{
+                                  backgroundColor: 'var(--bg-card)',
+                                  border: idx === 0 ? '1.5px solid #f59e0b' : '1px solid var(--border)',
+                                  padding: '6px 10px',
+                                  borderRadius: '6px',
+                                  fontSize: '0.75rem',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '6px'
+                                }}>
+                                  <span style={{ fontWeight: 'bold', color: idx === 0 ? '#f59e0b' : 'var(--text-muted)' }}>
+                                    #{idx + 1}
+                                  </span>
+                                  <span style={{ fontWeight: 'bold', color: 'var(--text-main)' }}>{name}</span>
+                                  <span style={{ backgroundColor: 'var(--primary)', color: 'white', padding: '1px 6px', borderRadius: '10px', fontSize: '0.7rem', fontWeight: 'bold' }}>
+                                    {count} 份
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
                           </div>
                         )}
                       </div>
@@ -8551,6 +9245,12 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                   icon: '📊',
                   title: '核心財務損益總覽卡片',
                   desc: '營業總額、固定成本、變動採購成本、預估淨利、淨利率與成本佔比。'
+                },
+                {
+                  key: 'deliveryPlatforms',
+                  icon: '🛵',
+                  title: '門市現場 vs 外送雙平台 (Uber Eats & foodpanda) 效益與抽成分析',
+                  desc: '門市與各外送平台之營業額(原價)、平台扣趴抽成佣金、實際進帳、平均客單價與麵線大小碗分佈。'
                 },
                 {
                   key: 'batchYield',
