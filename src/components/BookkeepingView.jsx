@@ -106,6 +106,11 @@ export const getItemDisplayNameWithSize = (item) => {
   const rawName = String(item.name || '').trim();
   if (!rawName) return '未知品項';
 
+  // 組合套餐（如包含 '+' 的複合餐點）保留套餐識別
+  if (rawName.includes('+')) {
+    return rawName;
+  }
+
   // Check if it's a dish with size variations (麵線、羹、或任何帶有大/小規格品項)
   const isMeeSuaOrSoup = rawName.includes('麵線') || rawName.includes('羹');
 
@@ -120,11 +125,16 @@ export const getItemDisplayNameWithSize = (item) => {
     if (val.includes('小碗') || val.includes('小') || val.includes('小份')) foundSmall = true;
   });
 
-  // 2. Check rawName markings
+  // 2. Check rawName markings (含 大份/小份 開頭與結尾)
   if (
+    rawName.startsWith('大份') ||
+    rawName.startsWith('大碗') ||
     rawName.includes('大碗') ||
+    rawName.includes('大份') ||
     rawName.includes('(大)') ||
     rawName.includes('（大）') ||
+    rawName.includes('[大]') ||
+    rawName.includes('【大】') ||
     rawName.includes('- 大') ||
     rawName.includes('-大') ||
     rawName.includes(' - 大') ||
@@ -134,9 +144,14 @@ export const getItemDisplayNameWithSize = (item) => {
   }
 
   if (
+    rawName.startsWith('小份') ||
+    rawName.startsWith('小碗') ||
     rawName.includes('小碗') ||
+    rawName.includes('小份') ||
     rawName.includes('(小)') ||
     rawName.includes('（小）') ||
+    rawName.includes('[小]') ||
+    rawName.includes('【小】') ||
     rawName.includes('- 小') ||
     rawName.includes('-小') ||
     rawName.includes(' - 小') ||
@@ -150,28 +165,39 @@ export const getItemDisplayNameWithSize = (item) => {
     return rawName;
   }
 
-  // Clean base name: remove (大), (小), (大碗), (小碗), - 大, - 小, etc.
-  const cleanBaseName = rawName
-    .replace(/\s*[\(（](?:大碗|小碗|大|小)[\)）]\s*/g, '')
-    .replace(/\s*-\s*(?:大碗|小碗|大|小)\s*/g, '')
-    .replace(/\s+(?:大碗|小碗|大|小)$/g, '')
+  // Clean base name: 剔除 大份, 小份, 大碗, 小碗, (大), (小) 等字樣
+  let cleanBaseName = rawName
+    .replace(/^大份\s*/, '')
+    .replace(/^小份\s*/, '')
+    .replace(/^大碗\s*/, '')
+    .replace(/^小碗\s*/, '')
+    .replace(/\s*[\(（\[【](?:大碗|小碗|大|小|大份|小份)[\)）\]】]\s*/g, '')
+    .replace(/\s*-\s*(?:大碗|小碗|大|小|大份|小份)\s*/g, '')
+    .replace(/\s+(?:大碗|小碗|大|小|大份|小份)$/g, '')
+    .replace(/\s*(?:大份|小份|大碗|小碗)\s*$/g, '')
     .trim();
 
+  // 若清理後為空（極端情況），還原 rawName
+  if (!cleanBaseName) cleanBaseName = rawName;
+
   // Determine size
-  if (foundBig) {
+  if (foundBig && !foundSmall) {
     return `${cleanBaseName} (大碗)`;
   }
-  if (foundSmall) {
+  if (foundSmall && !foundBig) {
     return `${cleanBaseName} (小碗)`;
   }
 
-  // If mee-sua or soup but neither spec nor mark was found, infer from price
+  // If mee-sua or soup but neither spec nor mark was found, infer from unit price
   const qty = Number(item.quantity) || 1;
-  const price = Number(item.price) || (item.totalPrice ? Number(item.totalPrice) / qty : 0);
+  const unitPrice = (Number(item.totalPrice) && qty > 0) 
+    ? (Number(item.totalPrice) / qty) 
+    : (Number(item.price) || 0);
+
   if (cleanBaseName.includes('清麵線')) {
-    return price >= 40 ? `${cleanBaseName} (大碗)` : `${cleanBaseName} (小碗)`;
+    return unitPrice >= 40 ? `${cleanBaseName} (大碗)` : `${cleanBaseName} (小碗)`;
   }
-  if (price >= 70) {
+  if (unitPrice >= 70) {
     return `${cleanBaseName} (大碗)`;
   }
   return `${cleanBaseName} (小碗)`;
@@ -2080,6 +2106,8 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
           </tbody>
         </table>
       </div>
+    </div>
+
     <!-- 🛵 門市現場 vs 外送雙平台 (Uber Eats & foodpanda) 效益與抽成深入分析報告 -->
     <div class="table-card">
       <div class="chart-title">🛵 門市現場 vs 外送雙平台 (Uber Eats & foodpanda) 效益與抽成深度分析</div>
