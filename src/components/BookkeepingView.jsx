@@ -4604,7 +4604,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
         variableCosts,
         fixedCosts: fixedShare
       };
-    }).filter(r => r.revenue > 0); // 自動過濾：營業額為 0 的天數不列入按月財務報表
+    }).filter(r => r.revenue > 0 || r.variableCosts > 0); // 包含所有有營業額或有進貨變動成本支出的天數（確保休市、公休或備料日的進貨成本不漏算）
   }, [orders, purchases, manualRevenues, fixedCosts, closedDates]);
 
   const handleHomeClick = () => {
@@ -7736,9 +7736,16 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                           const isProfit = monthlyProfit >= 0;
                           return (
                             <tr key={report.month} style={{ borderBottom: '1px solid var(--border)' }}>
-                              <td style={{ padding: '10px 12px', fontWeight: 'bold', fontSize: '0.85rem', color: 'var(--primary)' }}>{report.month}</td>
+                              <td style={{ padding: '10px 12px', fontWeight: 'bold', fontSize: '0.85rem', color: 'var(--primary)' }}>
+                                {report.month}
+                                {report.revenue === 0 && report.variableCosts > 0 && (
+                                  <span style={{ fontSize: '0.68rem', backgroundColor: '#fef3c7', color: '#b45309', padding: '1px 5px', borderRadius: '4px', marginLeft: '6px', fontWeight: 'normal' }}>
+                                    採購備料日
+                                  </span>
+                                )}
+                              </td>
                               <td style={{ padding: '10px 12px' }}>
-                                <div style={{ fontWeight: 'bold', color: '#16a34a', fontSize: '0.85rem' }}>NT$ {report.revenue}</div>
+                                <div style={{ fontWeight: 'bold', color: report.revenue > 0 ? '#16a34a' : 'var(--text-muted)', fontSize: '0.85rem' }}>NT$ {report.revenue}</div>
                                 <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '2px' }}>
                                   (系統: {report.systemRevenue || 0} | 人工: {report.manualRev || 0})
                                 </div>
@@ -7755,10 +7762,14 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                                   borderRadius: '12px',
                                   fontSize: '0.7rem',
                                   fontWeight: '600',
-                                  backgroundColor: isProfit ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)',
-                                  color: isProfit ? '#16a34a' : '#ef4444'
+                                  backgroundColor: report.revenue === 0 && report.variableCosts > 0 
+                                    ? 'rgba(234, 88, 12, 0.1)' 
+                                    : (isProfit ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)'),
+                                  color: report.revenue === 0 && report.variableCosts > 0 
+                                    ? '#ea580c' 
+                                    : (isProfit ? '#16a34a' : '#ef4444')
                                 }}>
-                                  {isProfit ? '🟢 盈餘利潤' : '🔴 營運虧損'}
+                                  {report.revenue === 0 && report.variableCosts > 0 ? '📦 備料進貨' : (isProfit ? '🟢 盈餘利潤' : '🔴 營運虧損')}
                                 </span>
                               </td>
                               <td style={{ padding: '10px 12px', textAlign: 'center' }}>
