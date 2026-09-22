@@ -310,9 +310,20 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
   });
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedItem, setSelectedItem] = useState(null);
-  const [cart, setCart] = useState([]);
+  const [cart, setCart] = useState(() => {
+    try {
+      const saved = localStorage.getItem(`${storeCode}_customer_cart`);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch (e) {
+      console.warn("Failed to load saved cart:", e);
+    }
+    return [];
+  });
   
-  const [custName, setCustName] = useState('');
+  const [custName, setCustName] = useState(() => getStoredCustomerAuth()?.displayName || '');
   const [custPhone, setCustPhone] = useState('');
   const [lineNotifyToken, setLineNotifyToken] = useState('');
   const [generatedLineCode, setGeneratedLineCode] = useState('');
@@ -447,6 +458,35 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
     setupAuth();
     return () => { isMounted = false; };
   }, []);
+
+  // 🛒 購物車持久化儲存：避免顧客在轉跳 LINE 或 Google 授權認證重新整理時，購物車內容遺失清空
+  useEffect(() => {
+    try {
+      if (cart && cart.length > 0) {
+        localStorage.setItem(`${storeCode}_customer_cart`, JSON.stringify(cart));
+      } else {
+        localStorage.removeItem(`${storeCode}_customer_cart`);
+      }
+    } catch (e) {
+      console.warn("Failed to persist customer cart:", e);
+    }
+  }, [cart, storeCode]);
+
+  // 🔄 OAuth 登入跳回自動前往結帳頁：LINE/Google 授權完成返回後，自動保留購物車並直接進入結帳確認流程
+  useEffect(() => {
+    try {
+      const hasPendingCheckout = sessionStorage.getItem('customer_pending_checkout') === 'true';
+      const urlHasOAuth = window.location.hash.includes('access_token') || 
+                          window.location.search.includes('code=') || 
+                          window.location.search.includes('liff.state=');
+      if ((hasPendingCheckout || urlHasOAuth) && cart.length > 0) {
+        sessionStorage.removeItem('customer_pending_checkout');
+        setViewState('checkout');
+      }
+    } catch (e) {
+      console.warn("Auto checkout restoration error:", e);
+    }
+  }, [cart.length]);
 
   // OTP Verification States (Real Firebase Phone Auth)
   const [showOtpModal, setShowOtpModal] = useState(false);
@@ -993,13 +1033,13 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
       if (orderToEdit.type === 'takeout') {
         setCustName(orderToEdit.items.customerName || '');
         setCustPhone(orderToEdit.items.customerPhone || '');
-        setPickupTime(orderToEdit.items.pickupTime || '');
+        setCustomPickupNote(orderToEdit.items.pickupTime || '');
       }
       
       // Clear active order state
       localStorage.removeItem('active_customer_order_id');
       setActiveOrderId(null);
-      setViewState('cart');
+      setViewState('checkout');
       alert("已取消原訂單，品項已放回購物車，請修改後重新送單！");
     } catch (err) {
       alert("無法修改訂單：" + err.message);
@@ -1227,10 +1267,13 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
 
     // Validate customer name
     if (!tableNumber) {
-      const currentName = custName.trim() || lineUser?.displayName || '';
+      const currentName = custName.trim() || customerAuth?.displayName || lineUser?.displayName || '';
       if (!currentName) {
         alert('請填寫訂購姓名！');
         return;
+      }
+      if (!custName.trim() && currentName) {
+        setCustName(currentName);
       }
       if (custPhone && !isValidTaiwanMobile(custPhone)) {
         alert('請輸入正確的台灣手機號碼格式 (例如: 0912345678)');
@@ -1362,6 +1405,7 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
       const formatted = formatSupabaseOrder(createdOrder);
 
       localStorage.setItem('active_customer_order_id', String(createdOrder.id));
+      localStorage.removeItem(`${storeCode}_customer_cart`);
       setAllOrders([formatted]);
       setActiveOrderId(String(createdOrder.id));
       
@@ -2668,15 +2712,15 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
           <div className="modal-content" style={{ maxWidth: '400px', borderRadius: '16px', padding: '24px', textAlign: 'left' }}>
             <h3 style={{ margin: '0 0 16px 0', fontSize: '1.2rem', fontWeight: 'bold', color: 'var(--primary)' }}>🛒 請確認您的訂單資訊</h3>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '0.9rem', marginBottom: '20px' }}>
-              <div><strong>訂購姓名：</strong>{custName || '未填寫'}</div>
-              {!tableNumber && <div><strong>聯絡電話：</strong>{custPhone}</div>}
+              <div><strong>訂購姓名：</strong>{custName.trim() || customerAuth?.displayName || lineUser?.displayName || '未填寫'}</div>
+              {!tableNumber && <div><strong>聯絡電話：</strong>{custPhone || '未填寫'}</div>}
               {tableNumber && <div><strong>內用桌號：</strong>{tableNumber} 號桌</div>}
-              <div><strong>取餐方式：</strong>{tableNumber ? '內用' : `外帶自取 (${pickupTime === 'custom' ? customPickupTime : pickupTime})`}</div>
+              <div><strong>取餐方式：</strong>{tableNumber ? `內用 (${tableNumber} 號桌)` : `外帶自取 (${getFinalPickupTimeDisplay()})`}</div>
               <div style={{ borderTop: '1px solid var(--border)', paddingTop: '10px', marginTop: '8px' }}>
                 <strong>點購商品明細：</strong>
                 <div style={{ maxHeight: '180px', overflowY: 'auto', paddingLeft: '4px', marginTop: '6px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
                   {cart.map(item => (
-                    <div key={item.cartId} style={{ borderBottom: '1px dashed var(--border)', paddingBottom: '6px', marginBottom: '2px' }}>
+                    <div key={item.cartId || item.id} style={{ borderBottom: '1px dashed var(--border)', paddingBottom: '6px', marginBottom: '2px' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', color: 'var(--text-main)' }}>
                         <span>{item.name} x{item.quantity}</span>
                         <span>NT$ {item.totalPrice}</span>
@@ -2684,7 +2728,8 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
                       {item.specs && item.specs.length > 0 && (
                         <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', paddingLeft: '8px', marginTop: '2px', display: 'flex', flexDirection: 'column', gap: '2px' }}>
                           {item.specs.map((spec, sIdx) => {
-                            const parts = spec.split(/[|]/).map(p => p.trim());
+                            const specStr = typeof spec === 'string' ? spec : (spec?.value || spec?.name || spec?.label || JSON.stringify(spec));
+                            const parts = String(specStr || '').split(/[|]/).map(p => p.trim()).filter(Boolean);
                             return parts.map((part, pIdx) => (
                               <span key={`${sIdx}-${pIdx}`}>- {part}</span>
                             ));

@@ -121,6 +121,14 @@ export const initCustomerAuth = async (onAuthChange) => {
 };
 
 export const loginWithCustomerProvider = async (provider, redirectUrl) => {
+  if (typeof window !== 'undefined') {
+    try {
+      sessionStorage.setItem('customer_pending_checkout', 'true');
+    } catch (e) {
+      console.warn("Could not set sessionStorage:", e);
+    }
+  }
+
   const targetUrl = redirectUrl || (typeof window !== 'undefined' ? window.location.href : '');
 
   if (provider === 'line') {
