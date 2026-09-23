@@ -453,77 +453,27 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
     }
   }, []);
 
-  // Format order into natural Chinese speech
+  // Format order into natural Chinese speech (重複3次)
   const generateOrderSpeechText = (order) => {
     if (!order) return '';
-    let parts = [];
 
     const isUber = order.type === 'uber' || order.type === 'ubereats' || order.paymentMethod === 'ubereats' || String(order.serialNum || order.order_number || '').startsWith('U-');
     const isPanda = order.type === 'foodpanda' || order.type === 'panda' || order.paymentMethod === 'foodpanda' || String(order.serialNum || order.order_number || '').startsWith('P-');
-    const isOnline = order.source === 'customer' || order.items?.source === 'customer' || String(order.serialNum || order.order_number || '').startsWith('O-') || !!order.authUser || !!order.lineUser || !!order.customerAuth || order.channel === '線上點餐' || order.items?.channel === '線上點餐';
-    const isTakeout = order.type === 'takeout' || order.type === '自取' || order.type === '外帶';
+    const isDineIn = order.type === 'dine-in' || order.table_number || order.tableName;
 
+    let basePhrase = '';
     if (isUber) {
-      parts.push('收到新 Uber Eats 外送訂單！');
+      basePhrase = '收到新 Uber Eats 外送訂單！請查看。';
     } else if (isPanda) {
-      parts.push('收到新熊貓外送訂單！');
-    } else if (isOnline) {
-      if (order.type === 'dine-in' || order.table_number || order.tableName) {
-        const tableStr = order.table_number || order.tableName ? `${order.table_number || order.tableName}號桌。` : '';
-        parts.push(`收到新線上掃碼內用訂單！${tableStr}`);
-      } else {
-        parts.push('收到新線上外帶自取訂單！');
-      }
-    } else if (isTakeout) {
-      parts.push('收到新現場外帶訂單！');
+      basePhrase = '收到新熊貓外送訂單！請查看。';
+    } else if (isDineIn) {
+      const tableStr = order.table_number || order.tableName ? `${order.table_number || order.tableName}號桌` : '';
+      basePhrase = `收到新線上掃碼內用訂單${tableStr ? `，${tableStr}` : ''}！請查看。`;
     } else {
-      const tableStr = order.table_number || order.tableNumber || order.tableName ? `${order.table_number || order.tableNumber || order.tableName}號桌。` : '';
-      parts.push(`收到新內用訂單！${tableStr}`);
+      basePhrase = '收到新線上外帶自取訂單！請查看。';
     }
 
-    const serialNum = order.serialNum || order.order_number || '';
-    if (serialNum) {
-      const serialSpaced = serialNum.replace(/([A-Z0-9])/g, '$1 ').trim();
-      parts.push(`單號 ${serialSpaced}。` );
-    }
-
-    if (order.customerName && !order.customerName.includes('現場顧客') && !order.customerName.includes('內用點餐')) {
-      const cleanName = order.customerName.replace(/\[.*?\]/g, '').trim();
-      if (cleanName) {
-        parts.push(`顧客 ${cleanName}。`);
-      }
-    }
-
-    const cartItems = Array.isArray(order.items) ? order.items : (order.items?.cart || []);
-    if (cartItems.length > 0) {
-      const itemsSpeech = cartItems.map(item => {
-        let itemText = `${item.name} ${item.quantity || 1}份`;
-        let specsArr = [];
-
-        if (item.specs) {
-          const rawSpecs = String(Array.isArray(item.specs) ? item.specs.join(', ') : item.specs).split(/[,|\n]/).map(s => s.trim()).filter(Boolean);
-          rawSpecs.forEach(s => {
-            const cleaned = s.replace(/調料客製\s*\([^)]*\)\s*:\s*/g, '').trim();
-            if (cleaned && !cleaned.includes('免加錢')) {
-              specsArr.push(cleaned);
-            }
-          });
-        }
-
-        if (specsArr.length > 0) {
-          itemText += `，${specsArr.join('、')}`;
-        }
-        return itemText;
-      }).join('。');
-
-      parts.push(itemsSpeech + '。');
-    }
-
-    if (order.remarks && String(order.remarks).trim()) {
-      parts.push(`備註：${String(order.remarks).trim()}。` );
-    }
-
-    return parts.join(' ');
+    return `${basePhrase} ${basePhrase} ${basePhrase}`;
   };
 
   // Trigger TTS voice announcement
@@ -564,6 +514,19 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
     }
   };
 
+  // 現場人員按下確定鍵，停止語音並關閉確認彈窗
+  const handleAcknowledgeOrderAlert = () => {
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      try {
+        window.speechSynthesis.cancel();
+      } catch (e) {}
+    }
+    if (newOrderAlertTimeoutRef.current) {
+      clearTimeout(newOrderAlertTimeoutRef.current);
+    }
+    setNewOrderAlert(null);
+  };
+
   // Test Voice Function for POS Cashier
   const testVoiceAnnouncement = () => {
     triggerChime();
@@ -572,13 +535,17 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
       source: 'customer',
       serialNum: 'O-088',
       customerName: '陳小姐',
+      customerPhone: '0912345678',
+      pickupTime: '12:30',
+      total: 185,
       items: [
-        { name: '招牌大腸麵線 (大)', quantity: 2, specs: '小辣, 香菜多' },
-        { name: '綜合手工麵線 (小)', quantity: 1, specs: '烏醋多' }
+        { name: '招牌大腸麵線 (大)', quantity: 2, specs: '小辣, 香菜多', price: 75 },
+        { name: '綜合手工麵線 (小)', quantity: 1, specs: '烏醋多', price: 35 }
       ],
-      remarks: '外帶需要環保餐具'
+      remarks: '外帶需要環保餐具，辣椒另外包'
     };
     speakOrderAnnouncement(sampleOrder);
+    setNewOrderAlert(sampleOrder);
   };
 
   // Native Portal Thermal Print Handler (Zero Popups, Full Continuous Paper Roll)
@@ -1222,7 +1189,7 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
               speakOrderAnnouncement(mappedOrder);
               setNewOrderAlert(mappedOrder);
               if (newOrderAlertTimeoutRef.current) clearTimeout(newOrderAlertTimeoutRef.current);
-              newOrderAlertTimeoutRef.current = setTimeout(() => setNewOrderAlert(null), 25000);
+              // 需現場人員手動點擊「確定」確認單子，不自動關閉彈窗
 
               // Check live ref to guarantee auto-print status even after toggling without refresh
               if (isAutoPrintEnabledRef.current) {
@@ -1293,7 +1260,7 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
               speakOrderAnnouncement(mappedOrder);
               setNewOrderAlert(mappedOrder);
               if (newOrderAlertTimeoutRef.current) clearTimeout(newOrderAlertTimeoutRef.current);
-              newOrderAlertTimeoutRef.current = setTimeout(() => setNewOrderAlert(null), 25000);
+              // 需現場人員手動點擊「確定」確認單子，不自動關閉彈窗
               if (isAutoPrintEnabledRef.current) {
                 printReceipt(mappedOrder);
               }
@@ -2405,98 +2372,265 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
         </div>
       )}
 
-      {/* 🛎️ 新進線上點餐浮動提示彈窗 (即時音效與快速出單) */}
+      {/* 🛎️ 新進線上點餐強制置中確認彈窗 (需現場人員手動按確定鍵確認知悉) */}
       {newOrderAlert && (
         <div style={{
           position: 'fixed',
-          top: '65px',
-          right: '20px',
-          zIndex: 9999,
-          backgroundColor: '#ffffff',
-          border: '2px solid #16a34a',
-          borderRadius: '16px',
-          boxShadow: '0 12px 32px rgba(22, 163, 74, 0.35)',
-          padding: '16px 20px',
+          inset: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.72)',
+          backdropFilter: 'blur(4px)',
+          zIndex: 10000,
           display: 'flex',
           alignItems: 'center',
-          gap: '16px',
-          maxWidth: '440px'
+          justifyContent: 'center',
+          padding: '16px'
         }}>
           <div style={{
-            width: '44px',
-            height: '44px',
-            borderRadius: '50%',
-            backgroundColor: '#dcfce7',
+            backgroundColor: '#ffffff',
+            borderRadius: '20px',
+            width: '100%',
+            maxWidth: '520px',
+            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.45)',
+            overflow: 'hidden',
             display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: '1.6rem',
-            flexShrink: 0
+            flexDirection: 'column',
+            maxHeight: '92vh',
+            border: '2px solid #ea580c'
           }}>
-            🔔
-          </div>
-          <div style={{ flex: 1, minWidth: 0, textAlign: 'left' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '2px' }}>
-              <span style={{ fontWeight: '900', color: '#166534', fontSize: '1rem' }}>收到新線上點餐！</span>
+            {/* Header */}
+            <div style={{
+              background: 'linear-gradient(135deg, #ea580c 0%, #c2410c 100%)',
+              color: 'white',
+              padding: '18px 24px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                <div style={{
+                  fontSize: '2rem',
+                  backgroundColor: 'rgba(255, 255, 255, 0.22)',
+                  width: '50px',
+                  height: '50px',
+                  borderRadius: '50%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                  flexShrink: 0
+                }}>
+                  🔔
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '1.3rem', fontWeight: '900', letterSpacing: '0.5px' }}>
+                    {newOrderAlert.type === 'dine-in' ? '收到新線上內用訂單！' : '收到新線上外帶自取訂單！'}
+                  </h3>
+                  <div style={{ fontSize: '0.85rem', opacity: 0.95, marginTop: '2px', fontWeight: '500' }}>
+                    請現場人員核對單據並按下確定確認知悉
+                  </div>
+                </div>
+              </div>
               <span style={{
-                fontSize: '0.72rem',
-                backgroundColor: newOrderAlert.type === 'dine-in' ? '#dbeafe' : '#ffedd5',
-                color: newOrderAlert.type === 'dine-in' ? '#1e40af' : '#c2410c',
-                padding: '2px 8px',
-                borderRadius: '10px',
-                fontWeight: 'bold'
+                backgroundColor: 'white',
+                color: '#c2410c',
+                padding: '4px 12px',
+                borderRadius: '20px',
+                fontSize: '0.85rem',
+                fontWeight: '900',
+                whiteSpace: 'nowrap'
               }}>
                 {newOrderAlert.type === 'dine-in' ? `內用 ${newOrderAlert.tableName || ''}桌` : '外帶自取'}
               </span>
             </div>
-            <div style={{ fontSize: '0.9rem', color: '#111827', fontWeight: 'bold' }}>
-              單號: {newOrderAlert.serialNum} {newOrderAlert.customerName ? `(${newOrderAlert.customerName})` : ''}
-            </div>
-            <div style={{ fontSize: '0.8rem', color: '#4b5563', marginTop: '2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-              {(newOrderAlert.items || []).map(i => `${i.name} x${i.quantity}`).join('、')}
-            </div>
-            <div style={{ fontSize: '0.85rem', fontWeight: '900', color: '#ea580c', marginTop: '4px' }}>
-              總金額: NT$ {newOrderAlert.total}
-            </div>
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', flexShrink: 0 }}>
-            <button
-              type="button"
-              onClick={() => {
-                printReceipt(newOrderAlert);
-              }}
-              style={{
-                padding: '6px 12px',
-                backgroundColor: '#16a34a',
-                color: 'white',
-                border: 'none',
-                borderRadius: '8px',
-                fontSize: '0.8rem',
-                fontWeight: 'bold',
-                cursor: 'pointer',
-                whiteSpace: 'nowrap',
+
+            {/* Scrollable Body */}
+            <div style={{ padding: '20px 24px', overflowY: 'auto', flex: 1 }}>
+              {/* Order Info Grid */}
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(2, 1fr)',
+                gap: '12px',
+                backgroundColor: '#f8fafc',
+                padding: '14px 16px',
+                borderRadius: '12px',
+                border: '1px solid #e2e8f0',
+                marginBottom: '16px'
+              }}>
+                <div>
+                  <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 'bold' }}>訂單單號</div>
+                  <div style={{ fontSize: '1.25rem', fontWeight: '900', color: '#0f172a', fontFamily: 'monospace' }}>
+                    #{newOrderAlert.serialNum || newOrderAlert.order_number || '---'}
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 'bold' }}>預約取餐 / 時間</div>
+                  <div style={{ fontSize: '1.05rem', fontWeight: '900', color: '#ea580c' }}>
+                    {newOrderAlert.pickupTime || newOrderAlert.time || '儘速取餐'}
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 'bold' }}>顧客姓名</div>
+                  <div style={{ fontSize: '0.95rem', fontWeight: 'bold', color: '#334155' }}>
+                    {newOrderAlert.customerName || '顧客'}
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 'bold' }}>聯絡電話</div>
+                  <div style={{ fontSize: '0.95rem', fontWeight: 'bold', color: '#334155' }}>
+                    {newOrderAlert.customerPhone || '未留電話'}
+                  </div>
+                </div>
+              </div>
+
+              {/* Items Detail */}
+              <div style={{ marginBottom: '16px' }}>
+                <div style={{ fontSize: '0.85rem', fontWeight: 'bold', color: '#475569', marginBottom: '8px', display: 'flex', justifyContent: 'space-between' }}>
+                  <span>餐點明細內容</span>
+                  <span>共 {(newOrderAlert.items || []).reduce((acc, i) => acc + (Number(i.quantity) || 1), 0)} 份餐點</span>
+                </div>
+                <div style={{
+                  border: '1px solid #e2e8f0',
+                  borderRadius: '12px',
+                  backgroundColor: '#ffffff',
+                  maxHeight: '180px',
+                  overflowY: 'auto'
+                }}>
+                  {(newOrderAlert.items || []).map((item, idx) => (
+                    <div key={idx} style={{
+                      padding: '10px 14px',
+                      borderBottom: idx === (newOrderAlert.items.length - 1) ? 'none' : '1px solid #f1f5f9',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'flex-start'
+                    }}>
+                      <div style={{ flex: 1, paddingRight: '8px' }}>
+                        <div style={{ fontWeight: 'bold', fontSize: '0.95rem', color: '#1e293b' }}>
+                          {item.name}
+                        </div>
+                        {item.specs && (
+                          <div style={{ fontSize: '0.78rem', color: '#64748b', marginTop: '2px', backgroundColor: '#f1f5f9', padding: '2px 6px', borderRadius: '4px', display: 'inline-block' }}>
+                            {Array.isArray(item.specs) ? item.specs.join(', ') : item.specs}
+                          </div>
+                        )}
+                      </div>
+                      <div style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                        <span style={{ fontWeight: '900', fontSize: '1rem', color: '#0f172a', marginRight: '12px' }}>
+                          x{item.quantity || 1}
+                        </span>
+                        {item.price ? (
+                          <span style={{ fontSize: '0.9rem', color: '#64748b', fontWeight: 'bold' }}>
+                            NT$ {(Number(item.price) || 0) * (Number(item.quantity) || 1)}
+                          </span>
+                        ) : null}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Remarks if any */}
+              {newOrderAlert.remarks && String(newOrderAlert.remarks).trim() && (
+                <div style={{
+                  padding: '10px 14px',
+                  backgroundColor: '#fffbeb',
+                  border: '1px solid #fef3c7',
+                  borderRadius: '10px',
+                  marginBottom: '16px'
+                }}>
+                  <div style={{ fontSize: '0.78rem', fontWeight: 'bold', color: '#b45309' }}>顧客備註：</div>
+                  <div style={{ fontSize: '0.9rem', fontWeight: 'bold', color: '#78350f', marginTop: '2px' }}>
+                    {String(newOrderAlert.remarks).trim()}
+                  </div>
+                </div>
+              )}
+
+              {/* Summary Row */}
+              <div style={{
                 display: 'flex',
+                justifyContent: 'space-between',
                 alignItems: 'center',
-                gap: '4px'
-              }}
-            >
-              🖨️ 列印單據
-            </button>
-            <button
-              type="button"
-              onClick={() => setNewOrderAlert(null)}
-              style={{
-                padding: '4px 8px',
-                backgroundColor: '#f3f4f6',
-                color: '#6b7280',
-                border: 'none',
-                borderRadius: '6px',
-                fontSize: '0.75rem',
-                cursor: 'pointer'
-              }}
-            >
-              ✕ 關閉
-            </button>
+                padding: '12px 16px',
+                backgroundColor: '#f1f5f9',
+                borderRadius: '12px'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ fontSize: '0.85rem', color: '#475569', fontWeight: 'bold' }}>列印狀態：</span>
+                  <span style={{
+                    fontSize: '0.78rem',
+                    padding: '2px 8px',
+                    borderRadius: '6px',
+                    backgroundColor: isAutoPrintEnabled ? '#dcfce7' : '#fee2e2',
+                    color: isAutoPrintEnabled ? '#15803d' : '#b91c1c',
+                    fontWeight: 'bold'
+                  }}>
+                    {isAutoPrintEnabled ? '🖨️ 已自動送出出單' : '⚠️ 自動出單未開啟'}
+                  </span>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <span style={{ fontSize: '0.85rem', color: '#64748b', fontWeight: 'bold', marginRight: '8px' }}>應收總額</span>
+                  <span style={{ fontSize: '1.4rem', fontWeight: '900', color: '#ea580c' }}>
+                    NT$ {newOrderAlert.total}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Action Buttons */}
+            <div style={{
+              padding: '16px 24px',
+              backgroundColor: '#fafafa',
+              borderTop: '1px solid #f1f5f9',
+              display: 'flex',
+              gap: '12px'
+            }}>
+              <button
+                type="button"
+                onClick={() => {
+                  printReceipt(newOrderAlert);
+                }}
+                style={{
+                  padding: '14px 18px',
+                  backgroundColor: '#ffffff',
+                  color: '#334155',
+                  border: '1px solid #cbd5e1',
+                  borderRadius: '12px',
+                  fontSize: '0.95rem',
+                  fontWeight: 'bold',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+                  whiteSpace: 'nowrap'
+                }}
+                title="重新補印一張小白單"
+              >
+                🖨️ 補印單據
+              </button>
+              <button
+                type="button"
+                onClick={handleAcknowledgeOrderAlert}
+                style={{
+                  flex: 1,
+                  padding: '14px 20px',
+                  backgroundColor: '#16a34a',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '12px',
+                  fontSize: '1.1rem',
+                  fontWeight: '900',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '8px',
+                  boxShadow: '0 4px 14px rgba(22, 163, 74, 0.4)',
+                  transition: 'background-color 0.15s ease'
+                }}
+              >
+                ✅ 我知道了，確認接單 (確定)
+              </button>
+            </div>
           </div>
         </div>
       )}
