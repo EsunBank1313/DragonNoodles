@@ -314,11 +314,50 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
   const [receiptConfig, setReceiptConfig] = useState(defaultReceiptConfig);
   const [upgradeCombos, setUpgradeCombos] = useState(defaultUpgradeCombos);
   
-  const [isAutoPrintEnabled, setIsAutoPrintEnabled] = useState(() => localStorage.getItem('is_auto_print_enabled') === 'true');
+  const [isAutoPrintEnabled, setIsAutoPrintEnabled] = useState(() => {
+    const saved = localStorage.getItem('is_auto_print_enabled');
+    return saved !== null ? saved === 'true' : true; // 預設開啟新單自動出單
+  });
   const isAutoPrintEnabledRef = useRef(isAutoPrintEnabled);
   useEffect(() => {
     isAutoPrintEnabledRef.current = isAutoPrintEnabled;
   }, [isAutoPrintEnabled]);
+
+  // Live incoming new order alert toast state
+  const [newOrderAlert, setNewOrderAlert] = useState(null);
+  const newOrderAlertTimeoutRef = useRef(null);
+  const audioContextRef = useRef(null);
+
+  const getAudioContext = () => {
+    if (typeof window === 'undefined') return null;
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextClass) return null;
+    if (!audioContextRef.current) {
+      audioContextRef.current = new AudioContextClass();
+    }
+    if (audioContextRef.current.state === 'suspended') {
+      audioContextRef.current.resume().catch(() => {});
+    }
+    return audioContextRef.current;
+  };
+
+  // Browser Autoplay Policy: Listen for user interaction to unlock audio
+  useEffect(() => {
+    const unlockAudio = () => {
+      const ctx = getAudioContext();
+      if (ctx && ctx.state === 'suspended') {
+        ctx.resume().catch(() => {});
+      }
+    };
+    window.addEventListener('click', unlockAudio, { passive: true });
+    window.addEventListener('touchstart', unlockAudio, { passive: true });
+    window.addEventListener('keydown', unlockAudio, { passive: true });
+    return () => {
+      window.removeEventListener('click', unlockAudio);
+      window.removeEventListener('touchstart', unlockAudio);
+      window.removeEventListener('keydown', unlockAudio);
+    };
+  }, []);
 
   const [printKitchenTicket, setPrintKitchenTicket] = useState(() => {
     const saved = localStorage.getItem('pos_print_kitchen_ticket');
@@ -343,21 +382,55 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
     }
   });
 
-  // Synthesize notification chime
+  // 🛎️ Synthesize loud, pleasant, high-contrast double Ding-Dong restaurant chime
   const triggerChime = () => {
     try {
-      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-      const osc = audioCtx.createOscillator();
-      const gain = audioCtx.createGain();
-      osc.connect(gain);
-      gain.connect(audioCtx.destination);
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(587.33, audioCtx.currentTime); // D5
-      osc.frequency.setValueAtTime(880, audioCtx.currentTime + 0.12); // A5
-      gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.4);
-      osc.start(audioCtx.currentTime);
-      osc.stop(audioCtx.currentTime + 0.4);
+      const ctx = getAudioContext();
+      if (!ctx) return;
+      if (ctx.state === 'suspended') {
+        ctx.resume().catch(() => {});
+      }
+
+      const now = ctx.currentTime;
+
+      const playBellTone = (freq, startTime, duration = 0.45, peakGain = 0.5) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(freq, startTime);
+
+        // Harmonic overtone for natural metallic shimmer
+        const oscHarmonic = ctx.createOscillator();
+        const gainHarmonic = ctx.createGain();
+        oscHarmonic.type = 'triangle';
+        oscHarmonic.frequency.setValueAtTime(freq * 2.02, startTime);
+
+        gain.gain.setValueAtTime(0, startTime);
+        gain.gain.linearRampToValueAtTime(peakGain, startTime + 0.015);
+        gain.gain.exponentialRampToValueAtTime(0.001, startTime + duration);
+
+        gainHarmonic.gain.setValueAtTime(0, startTime);
+        gainHarmonic.gain.linearRampToValueAtTime(peakGain * 0.3, startTime + 0.015);
+        gainHarmonic.gain.exponentialRampToValueAtTime(0.001, startTime + duration * 0.7);
+
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        oscHarmonic.connect(gainHarmonic);
+        gainHarmonic.connect(ctx.destination);
+
+        osc.start(startTime);
+        osc.stop(startTime + duration);
+        oscHarmonic.start(startTime);
+        oscHarmonic.stop(startTime + duration);
+      };
+
+      // 1st Ding-Dong: G5 (784Hz) -> C6 (1046.5Hz)
+      playBellTone(784, now + 0.0, 0.35, 0.65);
+      playBellTone(1046.5, now + 0.16, 0.45, 0.75);
+
+      // 2nd Ding-Dong (after 0.38s): G5 (784Hz) -> E6 (1318.5Hz)
+      playBellTone(784, now + 0.42, 0.35, 0.65);
+      playBellTone(1318.5, now + 0.58, 0.55, 0.8);
     } catch (e) {
       console.warn("Notification audio failed:", e);
     }
@@ -387,16 +460,24 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
 
     const isUber = order.type === 'uber' || order.type === 'ubereats' || order.paymentMethod === 'ubereats' || String(order.serialNum || order.order_number || '').startsWith('U-');
     const isPanda = order.type === 'foodpanda' || order.type === 'panda' || order.paymentMethod === 'foodpanda' || String(order.serialNum || order.order_number || '').startsWith('P-');
+    const isOnline = order.source === 'customer' || order.items?.source === 'customer' || String(order.serialNum || order.order_number || '').startsWith('O-') || !!order.authUser || !!order.lineUser || !!order.customerAuth || order.channel === '線上點餐' || order.items?.channel === '線上點餐';
     const isTakeout = order.type === 'takeout' || order.type === '自取' || order.type === '外帶';
 
     if (isUber) {
       parts.push('收到新 Uber Eats 外送訂單！');
     } else if (isPanda) {
       parts.push('收到新熊貓外送訂單！');
+    } else if (isOnline) {
+      if (order.type === 'dine-in' || order.table_number || order.tableName) {
+        const tableStr = order.table_number || order.tableName ? `${order.table_number || order.tableName}號桌。` : '';
+        parts.push(`收到新線上掃碼內用訂單！${tableStr}`);
+      } else {
+        parts.push('收到新線上外帶自取訂單！');
+      }
     } else if (isTakeout) {
-      parts.push('收到新外帶訂單！');
+      parts.push('收到新現場外帶訂單！');
     } else {
-      const tableStr = order.table_number || order.tableNumber ? `${order.table_number || order.tableNumber}號桌。` : '';
+      const tableStr = order.table_number || order.tableNumber || order.tableName ? `${order.table_number || order.tableNumber || order.tableName}號桌。` : '';
       parts.push(`收到新內用訂單！${tableStr}`);
     }
 
@@ -406,13 +487,21 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
       parts.push(`單號 ${serialSpaced}。` );
     }
 
-    if (order.items && Array.isArray(order.items)) {
-      const itemsSpeech = order.items.map(item => {
+    if (order.customerName && !order.customerName.includes('現場顧客') && !order.customerName.includes('內用點餐')) {
+      const cleanName = order.customerName.replace(/\[.*?\]/g, '').trim();
+      if (cleanName) {
+        parts.push(`顧客 ${cleanName}。`);
+      }
+    }
+
+    const cartItems = Array.isArray(order.items) ? order.items : (order.items?.cart || []);
+    if (cartItems.length > 0) {
+      const itemsSpeech = cartItems.map(item => {
         let itemText = `${item.name} ${item.quantity || 1}份`;
         let specsArr = [];
 
         if (item.specs) {
-          const rawSpecs = String(item.specs).split(/[,|\n]/).map(s => s.trim()).filter(Boolean);
+          const rawSpecs = String(Array.isArray(item.specs) ? item.specs.join(', ') : item.specs).split(/[,|\n]/).map(s => s.trim()).filter(Boolean);
           rawSpecs.forEach(s => {
             const cleaned = s.replace(/調料客製\s*\([^)]*\)\s*:\s*/g, '').trim();
             if (cleaned && !cleaned.includes('免加錢')) {
@@ -453,7 +542,7 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
 
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.lang = 'zh-TW';
-      utterance.rate = 0.95; // Clear natural speed
+      utterance.rate = 1.0; // Clear natural speed
       utterance.pitch = 1.0;
       utterance.volume = 1.0;
 
@@ -464,7 +553,12 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
         utterance.voice = twVoice;
       }
 
-      window.speechSynthesis.speak(utterance);
+      // Delay speech slightly (800ms) so it plays right as the chime finishes
+      setTimeout(() => {
+        try {
+          window.speechSynthesis.speak(utterance);
+        } catch (e) {}
+      }, 800);
     } catch (e) {
       console.error("Speech announcement error:", e);
     }
@@ -472,14 +566,17 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
 
   // Test Voice Function for POS Cashier
   const testVoiceAnnouncement = () => {
+    triggerChime();
     const sampleOrder = {
       type: 'takeout',
-      serialNum: 'O-001',
+      source: 'customer',
+      serialNum: 'O-088',
+      customerName: '陳小姐',
       items: [
-        { name: '招牌大腸麵線', quantity: 1, specs: '小辣, 不要香菜' },
-        { name: '綜合大碗麵線', quantity: 2, specs: '中辣' }
+        { name: '招牌大腸麵線 (大)', quantity: 2, specs: '小辣, 香菜多' },
+        { name: '綜合手工麵線 (小)', quantity: 1, specs: '烏醋多' }
       ],
-      remarks: '外帶需要辣椒醬'
+      remarks: '外帶需要環保餐具'
     };
     speakOrderAnnouncement(sampleOrder);
   };
@@ -1123,6 +1220,10 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
             const mappedOrder = formatSupabaseOrder(payload.new);
             if (mappedOrder) {
               speakOrderAnnouncement(mappedOrder);
+              setNewOrderAlert(mappedOrder);
+              if (newOrderAlertTimeoutRef.current) clearTimeout(newOrderAlertTimeoutRef.current);
+              newOrderAlertTimeoutRef.current = setTimeout(() => setNewOrderAlert(null), 25000);
+
               // Check live ref to guarantee auto-print status even after toggling without refresh
               if (isAutoPrintEnabledRef.current) {
                 locallyPrintedOrders.current.add(orderNum);
@@ -1188,9 +1289,14 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
 
             const mappedOrder = formatSupabaseOrder(order);
             triggerChime();
-            if (mappedOrder && isAutoPrintEnabledRef.current) {
-              printReceipt(mappedOrder);
+            if (mappedOrder) {
               speakOrderAnnouncement(mappedOrder);
+              setNewOrderAlert(mappedOrder);
+              if (newOrderAlertTimeoutRef.current) clearTimeout(newOrderAlertTimeoutRef.current);
+              newOrderAlertTimeoutRef.current = setTimeout(() => setNewOrderAlert(null), 25000);
+              if (isAutoPrintEnabledRef.current) {
+                printReceipt(mappedOrder);
+              }
             }
           }
 
@@ -2299,6 +2405,102 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
         </div>
       )}
 
+      {/* 🛎️ 新進線上點餐浮動提示彈窗 (即時音效與快速出單) */}
+      {newOrderAlert && (
+        <div style={{
+          position: 'fixed',
+          top: '65px',
+          right: '20px',
+          zIndex: 9999,
+          backgroundColor: '#ffffff',
+          border: '2px solid #16a34a',
+          borderRadius: '16px',
+          boxShadow: '0 12px 32px rgba(22, 163, 74, 0.35)',
+          padding: '16px 20px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '16px',
+          maxWidth: '440px'
+        }}>
+          <div style={{
+            width: '44px',
+            height: '44px',
+            borderRadius: '50%',
+            backgroundColor: '#dcfce7',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: '1.6rem',
+            flexShrink: 0
+          }}>
+            🔔
+          </div>
+          <div style={{ flex: 1, minWidth: 0, textAlign: 'left' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '2px' }}>
+              <span style={{ fontWeight: '900', color: '#166534', fontSize: '1rem' }}>收到新線上點餐！</span>
+              <span style={{
+                fontSize: '0.72rem',
+                backgroundColor: newOrderAlert.type === 'dine-in' ? '#dbeafe' : '#ffedd5',
+                color: newOrderAlert.type === 'dine-in' ? '#1e40af' : '#c2410c',
+                padding: '2px 8px',
+                borderRadius: '10px',
+                fontWeight: 'bold'
+              }}>
+                {newOrderAlert.type === 'dine-in' ? `內用 ${newOrderAlert.tableName || ''}桌` : '外帶自取'}
+              </span>
+            </div>
+            <div style={{ fontSize: '0.9rem', color: '#111827', fontWeight: 'bold' }}>
+              單號: {newOrderAlert.serialNum} {newOrderAlert.customerName ? `(${newOrderAlert.customerName})` : ''}
+            </div>
+            <div style={{ fontSize: '0.8rem', color: '#4b5563', marginTop: '2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {(newOrderAlert.items || []).map(i => `${i.name} x${i.quantity}`).join('、')}
+            </div>
+            <div style={{ fontSize: '0.85rem', fontWeight: '900', color: '#ea580c', marginTop: '4px' }}>
+              總金額: NT$ {newOrderAlert.total}
+            </div>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', flexShrink: 0 }}>
+            <button
+              type="button"
+              onClick={() => {
+                printReceipt(newOrderAlert);
+              }}
+              style={{
+                padding: '6px 12px',
+                backgroundColor: '#16a34a',
+                color: 'white',
+                border: 'none',
+                borderRadius: '8px',
+                fontSize: '0.8rem',
+                fontWeight: 'bold',
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px'
+              }}
+            >
+              🖨️ 列印單據
+            </button>
+            <button
+              type="button"
+              onClick={() => setNewOrderAlert(null)}
+              style={{
+                padding: '4px 8px',
+                backgroundColor: '#f3f4f6',
+                color: '#6b7280',
+                border: 'none',
+                borderRadius: '6px',
+                fontSize: '0.75rem',
+                cursor: 'pointer'
+              }}
+            >
+              ✕ 關閉
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Top Header */}
       <header style={{
         display: 'flex',
@@ -2406,6 +2608,59 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
             }}
           >
             ⚡ {isManagingSoldOut ? '結束沽清' : '沽清/售完'}
+          </button>
+
+          {/* Quick Auto-Print Toggle */}
+          <button
+            type="button"
+            onClick={() => {
+              const nextVal = !isAutoPrintEnabled;
+              setIsAutoPrintEnabled(nextVal);
+              isAutoPrintEnabledRef.current = nextVal;
+              localStorage.setItem('is_auto_print_enabled', String(nextVal));
+            }}
+            style={{
+              height: '36px',
+              padding: '0 12px',
+              fontSize: '0.82rem',
+              borderRadius: '6px',
+              border: isAutoPrintEnabled ? '1px solid #16a34a' : '1px solid var(--border)',
+              backgroundColor: isAutoPrintEnabled ? 'rgba(22, 163, 74, 0.12)' : 'var(--bg-body)',
+              color: isAutoPrintEnabled ? '#15803d' : 'var(--text-muted)',
+              cursor: 'pointer',
+              fontWeight: '900',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+              whiteSpace: 'nowrap'
+            }}
+            title="點擊切換新單自動列印（開啟時線上點餐送出後會立即自動列印單據）"
+          >
+            🖨️ {isAutoPrintEnabled ? '自動出單: 開啟' : '自動出單: 關閉'}
+          </button>
+
+          {/* Quick Sound Alert & Voice Test */}
+          <button
+            type="button"
+            onClick={testVoiceAnnouncement}
+            style={{
+              height: '36px',
+              padding: '0 12px',
+              fontSize: '0.82rem',
+              borderRadius: '6px',
+              border: isVoiceAnnounceEnabled ? '1px solid #3b82f6' : '1px solid var(--border)',
+              backgroundColor: isVoiceAnnounceEnabled ? 'rgba(59, 130, 246, 0.08)' : 'var(--bg-body)',
+              color: isVoiceAnnounceEnabled ? '#2563eb' : 'var(--text-muted)',
+              cursor: 'pointer',
+              fontWeight: 'bold',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+              whiteSpace: 'nowrap'
+            }}
+            title="點擊測試新單叮咚音效與語音播報（並確保瀏覽器音訊已就緒）"
+          >
+            🔊 提醒音效測試
           </button>
 
           {/* 4. POS Settings (設定) */}
