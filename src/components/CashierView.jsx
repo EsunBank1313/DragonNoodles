@@ -382,8 +382,18 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
     }
   });
 
+  // Voice Announcement (TTS) and chime alert state
+  const [isVoiceAnnounceEnabled, setIsVoiceAnnounceEnabled] = useState(() => {
+    return localStorage.getItem('is_voice_announce_enabled') !== 'false';
+  });
+  const isVoiceAnnounceEnabledRef = useRef(isVoiceAnnounceEnabled);
+  useEffect(() => {
+    isVoiceAnnounceEnabledRef.current = isVoiceAnnounceEnabled;
+  }, [isVoiceAnnounceEnabled]);
+
   // 🛎️ Synthesize loud, pleasant, high-contrast double Ding-Dong restaurant chime
   const triggerChime = () => {
+    if (!isVoiceAnnounceEnabledRef.current) return; // 依設定：靜音時完全不發出叮咚鈴聲
     try {
       const ctx = getAudioContext();
       if (!ctx) return;
@@ -436,11 +446,6 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
     }
   };
 
-  // Voice Announcement (TTS) state
-  const [isVoiceAnnounceEnabled, setIsVoiceAnnounceEnabled] = useState(() => {
-    return localStorage.getItem('is_voice_announce_enabled') !== 'false';
-  });
-
   // Pre-fetch Web Speech voices
   useEffect(() => {
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
@@ -478,7 +483,7 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
 
   // Trigger TTS voice announcement
   const speakOrderAnnouncement = (order) => {
-    if (!isVoiceAnnounceEnabled) return;
+    if (!isVoiceAnnounceEnabledRef.current) return;
     if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
       console.warn("Speech synthesis is not supported in this browser.");
       return;
@@ -2773,29 +2778,63 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
             🖨️ {isAutoPrintEnabled ? '自動出單: 開啟' : '自動出單: 關閉'}
           </button>
 
-          {/* Quick Sound Alert & Voice Test */}
-          <button
-            type="button"
-            onClick={testVoiceAnnouncement}
-            style={{
-              height: '36px',
-              padding: '0 12px',
-              fontSize: '0.82rem',
-              borderRadius: '6px',
-              border: isVoiceAnnounceEnabled ? '1px solid #3b82f6' : '1px solid var(--border)',
-              backgroundColor: isVoiceAnnounceEnabled ? 'rgba(59, 130, 246, 0.08)' : 'var(--bg-body)',
-              color: isVoiceAnnounceEnabled ? '#2563eb' : 'var(--text-muted)',
-              cursor: 'pointer',
-              fontWeight: 'bold',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '4px',
-              whiteSpace: 'nowrap'
-            }}
-            title="點擊測試新單叮咚音效與語音播報（並確保瀏覽器音訊已就緒）"
-          >
-            🔊 提醒音效測試
-          </button>
+          {/* Quick Sound Alert & Voice Toggle */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+            <button
+              type="button"
+              onClick={() => {
+                const nextVal = !isVoiceAnnounceEnabled;
+                setIsVoiceAnnounceEnabled(nextVal);
+                isVoiceAnnounceEnabledRef.current = nextVal;
+                localStorage.setItem('is_voice_announce_enabled', String(nextVal));
+                if (!nextVal && typeof window !== 'undefined' && 'speechSynthesis' in window) {
+                  try { window.speechSynthesis.cancel(); } catch (e) {}
+                }
+              }}
+              style={{
+                height: '36px',
+                padding: '0 12px',
+                fontSize: '0.82rem',
+                borderRadius: '6px',
+                border: isVoiceAnnounceEnabled ? '1px solid #3b82f6' : '1px solid var(--border)',
+                backgroundColor: isVoiceAnnounceEnabled ? 'rgba(59, 130, 246, 0.12)' : 'var(--bg-body)',
+                color: isVoiceAnnounceEnabled ? '#2563eb' : 'var(--text-muted)',
+                cursor: 'pointer',
+                fontWeight: '900',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                whiteSpace: 'nowrap'
+              }}
+              title="點擊切換新單語音與叮咚鈴聲（開啟或完全靜音）"
+            >
+              {isVoiceAnnounceEnabled ? '🔊 語音提醒: 開啟' : '🔇 語音提醒: 靜音'}
+            </button>
+            {isVoiceAnnounceEnabled && (
+              <button
+                type="button"
+                onClick={testVoiceAnnouncement}
+                style={{
+                  height: '36px',
+                  padding: '0 8px',
+                  fontSize: '0.78rem',
+                  borderRadius: '6px',
+                  border: '1px solid var(--border)',
+                  backgroundColor: 'var(--bg-body)',
+                  color: 'var(--text-muted)',
+                  cursor: 'pointer',
+                  fontWeight: 'bold',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '2px',
+                  whiteSpace: 'nowrap'
+                }}
+                title="測試當前叮咚鈴聲與語音播報效果"
+              >
+                測試
+              </button>
+            )}
+          </div>
 
           {/* 4. POS Settings (設定) */}
           <button
@@ -5187,14 +5226,21 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                   </button>
                 </div>
                 <label style={{ fontSize: '0.85rem', fontWeight: 'bold', display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', color: isVoiceAnnounceEnabled ? '#10b981' : 'var(--text-main)' }}>
-                  <span>開啟語音報單提醒</span>
+                  <div>
+                    <div>開啟新單叮咚鈴聲與語音報單</div>
+                    <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', fontWeight: 'normal' }}>關閉後將全面靜音（鈴聲與語音皆不播放）</div>
+                  </div>
                   <input 
                     type="checkbox" 
                     checked={isVoiceAnnounceEnabled} 
                     onChange={(e) => {
                       const val = e.target.checked;
                       setIsVoiceAnnounceEnabled(val);
+                      isVoiceAnnounceEnabledRef.current = val;
                       localStorage.setItem('is_voice_announce_enabled', String(val));
+                      if (!val && typeof window !== 'undefined' && 'speechSynthesis' in window) {
+                        try { window.speechSynthesis.cancel(); } catch (err) {}
+                      }
                     }}
                     style={{ transform: 'scale(1.2)', cursor: 'pointer' }}
                   />

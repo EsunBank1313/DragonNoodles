@@ -2837,6 +2837,20 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
                 <span style={{ fontSize: '0.72rem', backgroundColor: 'rgba(255,255,255,0.25)', padding: '2px 8px', borderRadius: '10px' }}>推薦</span>
               </button>
 
+              {/* LINE 登入小提示 (避免顧客在外部瀏覽器按到電子郵件密碼登入而失敗) */}
+              <div style={{
+                fontSize: '0.76rem',
+                color: '#15803d',
+                backgroundColor: '#f0fdf4',
+                border: '1px solid #bbf7d0',
+                borderRadius: '10px',
+                padding: '8px 10px',
+                textAlign: 'left',
+                lineHeight: '1.4'
+              }}>
+                💡 <strong>登入小提醒：</strong>跳轉至 LINE 後，請點選畫面下方的<strong>【使用 LINE 應用程式登入】</strong>即可免打帳密；若忘記 LINE 帳密，建議直接點選下方的<strong>【Google 帳號登入】</strong>！
+              </div>
+
               {/* Google 登入按鈕 */}
               <button
                 type="button"
