@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 
-export default function OrderTracker({ order, onBackToMenu }) {
+export default function OrderTracker({ order, onBackToMenu, onShareGroupOrder }) {
   if (!order) return null;
 
   // Sound and vibration notification when order is completed or ready
@@ -246,6 +246,34 @@ export default function OrderTracker({ order, onBackToMenu }) {
           </span>
         )}
       </div>
+
+      {/* 👥 一鍵分享取餐號碼與明細給同事核對 */}
+      {onShareGroupOrder && (
+        <button
+          type="button"
+          onClick={onShareGroupOrder}
+          style={{
+            width: '100%',
+            marginBottom: '14px',
+            backgroundColor: '#06c755',
+            color: '#ffffff',
+            border: 'none',
+            borderRadius: '10px',
+            padding: '11px 14px',
+            fontSize: '0.92rem',
+            fontWeight: 'bold',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '8px',
+            boxShadow: '0 3px 8px rgba(6, 199, 85, 0.28)'
+          }}
+        >
+          <span style={{ fontSize: '1.2rem' }}>💬</span>
+          <span>LINE 分享取餐號碼與明細給同事</span>
+        </button>
+      )}
 
       {order.type === 'takeout' && (
         <div style={{ margin: '14px 0', padding: '10px', backgroundColor: 'var(--bg-body)', borderRadius: '8px', border: '1px solid var(--border)' }}>

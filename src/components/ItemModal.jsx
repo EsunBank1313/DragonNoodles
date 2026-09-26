@@ -11,6 +11,7 @@ export default function ItemModal({
   upgradeCombos = defaultUpgradeCombos 
 }) {
   const [quantity, setQuantity] = useState(1);
+  const [forWhom, setForWhom] = useState(editingCartItem?.forWhom || '');
   const [selectedRadioOptions, setSelectedRadioOptions] = useState({});
   const [addonQuantities, setAddonQuantities] = useState({});
   const [selectedDropdowns, setSelectedDropdowns] = useState({});
@@ -76,8 +77,10 @@ export default function ItemModal({
       }
 
       setQuantity(editingCartItem.quantity || 1);
+      setForWhom(editingCartItem.forWhom || '');
     } else {
       setQuantity(1);
+      setForWhom('');
       setSelectedUpgradeId(null);
       setSelectedUpgradeSlots({});
     }
@@ -282,6 +285,7 @@ export default function ItemModal({
       specs,
       image: item.image,
       upgradeCombo: upgradeComboPayload,
+      forWhom: forWhom ? forWhom.trim() : (editingCartItem?.forWhom || ''),
       selections: {
         radios: selectedRadioOptions,
         addons: addonQuantities,
@@ -667,6 +671,33 @@ export default function ItemModal({
                 </div>
               </div>
             )}
+            {/* 👤 點餐人標記 (揪團分餐/合點) */}
+            <div className="option-group" style={{ margin: '14px 0 6px 0', padding: '10px 12px', backgroundColor: 'rgba(234, 88, 12, 0.05)', borderRadius: '10px', border: '1px dashed rgba(234, 88, 12, 0.3)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+                <span style={{ fontSize: '0.8rem', fontWeight: 'bold', color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <span>👤 誰點的餐點？(選填)</span>
+                </span>
+                <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                  揪團合點・分帳標記更清楚
+                </span>
+              </div>
+              <input
+                type="text"
+                placeholder="例如: 小美、老王、主管 (選填)"
+                value={forWhom}
+                onChange={(e) => setForWhom(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '8px 10px',
+                  borderRadius: '6px',
+                  border: '1px solid var(--border)',
+                  fontSize: '0.85rem',
+                  backgroundColor: 'var(--bg-card)',
+                  color: 'var(--text-main)',
+                  boxSizing: 'border-box'
+                }}
+              />
+            </div>
           </div>
         </form>
 

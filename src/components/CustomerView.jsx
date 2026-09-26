@@ -4,6 +4,7 @@ import ItemModal from './ItemModal';
 
 import CartPanel from './CartPanel';
 import OrderTracker from './OrderTracker';
+import GroupOrderShareModal from './GroupOrderShareModal';
 import { supabase } from '../supabaseClient';
 import { getActiveStoreCode, filterItemsByStore, prefixNameForStore } from '../utils/storeContext';
 import { getStoredCustomerAuth, initCustomerAuth, loginWithCustomerProvider, logoutCustomerAuth } from '../utils/customerAuthHelper';
@@ -413,6 +414,7 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
   };
 
   const [showCart, setShowCart] = useState(false);
+  const [showGroupShareModal, setShowGroupShareModal] = useState(false);
   const [editingCartItem, setEditingCartItem] = useState(null);
   const [remarks, setRemarks] = useState('');
   const [upgradeCombos, setUpgradeCombos] = useState(() => {
@@ -1075,7 +1077,8 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
 
       const existingIdx = prev.findIndex(item => 
         item.id === cartItem.id && 
-        JSON.stringify(item.specs) === JSON.stringify(cartItem.specs)
+        JSON.stringify(item.specs) === JSON.stringify(cartItem.specs) &&
+        (item.forWhom || '') === (cartItem.forWhom || '')
       );
 
       if (existingIdx > -1) {
@@ -1087,6 +1090,12 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
       return [...prev, cartItem];
     });
     setEditingCartItem(null);
+  };
+
+  const handleUpdateItemForWhom = (cartId, forWhom) => {
+    setCart(prev => prev.map(item => 
+      item.cartId === cartId ? { ...item, forWhom } : item
+    ));
   };
 
   const handleUpdateQty = (cartId, newQty) => {
@@ -1737,6 +1746,29 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
               <button
                 type="button"
+                onClick={() => setShowGroupShareModal(true)}
+                style={{
+                  backgroundColor: '#ecfdf5',
+                  color: '#059669',
+                  border: '1.5px solid #a7f3d0',
+                  borderRadius: '8px',
+                  padding: '5px 9px',
+                  fontSize: '0.78rem',
+                  fontWeight: 'bold',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '3px',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+                  whiteSpace: 'nowrap'
+                }}
+                title="邀請同事好友點餐或分享明細對帳"
+              >
+                <span>👥</span> 揪團點餐
+              </button>
+
+              <button
+                type="button"
                 onClick={() => handleOpenOrderHistory()}
                 style={{
                   backgroundColor: '#ffffff',
@@ -1991,7 +2023,32 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
                 </div>
                 <span className="cart-price-total">NT$ {cart.reduce((sum, item) => sum + item.totalPrice, 0)}</span>
               </div>
-              <span className="view-cart-txt">查看購物籃 ➔</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowGroupShareModal(true);
+                  }}
+                  style={{
+                    backgroundColor: 'rgba(255, 255, 255, 0.22)',
+                    color: '#ffffff',
+                    border: '1px solid rgba(255, 255, 255, 0.45)',
+                    borderRadius: '20px',
+                    padding: '4px 10px',
+                    fontSize: '0.75rem',
+                    fontWeight: 'bold',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px'
+                  }}
+                  title="分享明細給同事"
+                >
+                  <span>👥 分享</span>
+                </button>
+                <span className="view-cart-txt">查看購物籃 ➔</span>
+              </div>
             </div>
           )}
         </>
@@ -2016,9 +2073,31 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
               backgroundColor: 'var(--bg-card)',
               textAlign: 'left'
             }}>
-              <h4 className="checkout-section-title" style={{ margin: '0 0 12px 0', borderBottom: '1px solid var(--border)', paddingBottom: '6px' }}>
-                🛒 訂購明細與取餐資訊
-              </h4>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '0 0 12px 0', borderBottom: '1px solid var(--border)', paddingBottom: '6px' }}>
+                <h4 className="checkout-section-title" style={{ margin: 0 }}>
+                  🛒 訂購明細與取餐資訊
+                </h4>
+                <button
+                  type="button"
+                  onClick={() => setShowGroupShareModal(true)}
+                  style={{
+                    backgroundColor: '#ecfdf5',
+                    color: '#059669',
+                    border: '1px solid #a7f3d0',
+                    borderRadius: '16px',
+                    padding: '3px 10px',
+                    fontSize: '0.75rem',
+                    fontWeight: 'bold',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px'
+                  }}
+                  title="分享明細給同事核對或傳到 LINE"
+                >
+                  <span>👥 分享核對單</span>
+                </button>
+              </div>
               
               {/* 取餐方式與時間 */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '0.85rem', marginBottom: '12px' }}>
@@ -2033,7 +2112,14 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
                 {cart.map((item, idx) => (
                   <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', gap: '16px', fontSize: '0.85rem' }}>
                     <div style={{ minWidth: 0 }}>
-                      <strong style={{ color: 'var(--text-main)' }}>{item.name} x {item.quantity}</strong>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <strong style={{ color: 'var(--text-main)' }}>{item.name} x {item.quantity}</strong>
+                        {item.forWhom && (
+                          <span style={{ fontSize: '0.7rem', backgroundColor: '#eff6ff', color: '#2563eb', padding: '1px 6px', borderRadius: '10px', fontWeight: 'bold' }}>
+                            👤 {item.forWhom}
+                          </span>
+                        )}
+                      </div>
                       <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', paddingLeft: '6px', wordBreak: 'break-all' }}>
                         {item.specs.join(', ')}
                       </div>
@@ -2580,6 +2666,7 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
           }}
           onEditOrder={handleEditOrder}
           onCancelOrder={handleCancelOrder}
+          onShareGroupOrder={() => setShowGroupShareModal(true)}
         />
       )}
 
@@ -2626,8 +2713,20 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
               setShowCart(false);
             }
           }}
+          onOpenShareModal={() => setShowGroupShareModal(true)}
+          onUpdateForWhom={handleUpdateItemForWhom}
         />
       )}
+
+      {/* 👥 Group Order Share Modal */}
+      <GroupOrderShareModal
+        isOpen={showGroupShareModal}
+        onClose={() => setShowGroupShareModal(false)}
+        storeName={storeName || '龍城麵線'}
+        cart={cart}
+        order={viewState === 'tracking' ? activeOrder : null}
+        storeUrl={window.location.href}
+      />
 
       {/* OTP Verification Modal */}
       {showOtpModal && (
