@@ -1,0 +1,588 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>智膳 AI - 全通路餐飲 POS 解決方案 (iPad 展演專用)</title>
+  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&display=swap');
+    body {
+      font-family: 'Noto Sans TC', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      touch-action: manipulation;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+    }
+    .slide-enter {
+      animation: fadeInScale 0.45s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+    @keyframes fadeInScale {
+      from { opacity: 0; transform: scale(0.96) translateY(12px); }
+      to { opacity: 1; transform: scale(1) translateY(0); }
+    }
+    .progress-bar-fill {
+      transition: width 0.1s linear;
+    }
+  </style>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen flex flex-col justify-between overflow-hidden">
+
+  <!-- Top Navigation Bar -->
+  <header class="h-16 px-6 bg-slate-800/80 backdrop-blur-md border-b border-slate-700/60 flex items-center justify-between z-20">
+    <div class="flex items-center gap-3">
+      <span class="text-2xl">🍜</span>
+      <div>
+        <h1 class="text-lg font-black tracking-wide bg-gradient-to-r from-orange-400 to-amber-300 bg-clip-text text-transparent">
+          智膳 AI (SmartBite POS)
+        </h1>
+        <p class="text-xs text-slate-400">全通路餐飲客製化 × 全代管自動出單方案</p>
+      </div>
+    </div>
+
+    <!-- Slide Indicators -->
+    <div class="flex items-center gap-2" id="slideDots"></div>
+
+    <!-- Header Actions -->
+    <div class="flex items-center gap-3">
+      <button id="btnVoiceToggle" class="px-3 py-1.5 rounded-full text-xs font-bold border transition flex items-center gap-1.5 bg-emerald-500/20 text-emerald-300 border-emerald-500/40">
+        <span id="voiceIcon">🔊</span>
+        <span id="voiceStatusText">語音導覽：開</span>
+      </button>
+
+      <button id="btnFullscreen" class="p-2 rounded-lg bg-slate-700/50 hover:bg-slate-700 text-slate-300 text-sm">
+        ⛶ 全螢幕
+      </button>
+    </div>
+  </header>
+
+  <!-- Main Slide Canvas -->
+  <main class="flex-1 p-6 md:p-10 flex items-center justify-center relative overflow-hidden">
+    <div id="slideContainer" class="w-full max-w-5xl h-full flex flex-col justify-center slide-enter">
+      <!-- Injected via JavaScript -->
+    </div>
+
+    <!-- On-screen Subtitle / Narration Banner -->
+    <div class="absolute bottom-4 left-6 right-6 max-w-4xl mx-auto bg-slate-950/80 backdrop-blur-md border border-slate-800 rounded-2xl px-5 py-3 shadow-2xl flex items-center gap-3.5 z-10 transition-opacity duration-300" id="narrationBanner">
+      <div class="w-8 h-8 rounded-full bg-orange-500/20 text-orange-400 flex items-center justify-center font-bold text-sm shrink-0 animate-pulse">
+        🎙️
+      </div>
+      <p id="narrationText" class="text-sm md:text-base text-slate-200 font-medium leading-relaxed line-clamp-2">
+        正在載入語音導覽...
+      </p>
+    </div>
+  </main>
+
+  <!-- Bottom Control Deck -->
+  <footer class="h-20 bg-slate-800/95 border-t border-slate-700/80 px-6 flex flex-col justify-center gap-2 z-20">
+    <!-- Progress Bar -->
+    <div class="w-full bg-slate-700/50 h-1.5 rounded-full overflow-hidden">
+      <div id="progressBar" class="h-full bg-gradient-to-r from-orange-500 to-amber-400 progress-bar-fill w-0"></div>
+    </div>
+
+    <!-- Controls -->
+    <div class="flex items-center justify-between">
+      <div class="text-xs text-slate-400 flex items-center gap-2 font-mono">
+        <span id="slideIndexLabel">01 / 06</span>
+        <span class="text-slate-600">|</span>
+        <span id="timerLabel">剩餘 10s</span>
+      </div>
+
+      <div class="flex items-center gap-3">
+        <button id="btnPrev" class="px-4 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 text-white font-bold text-sm transition">
+          ⬅ 上一頁
+        </button>
+
+        <button id="btnPlayPause" class="px-6 py-2.5 rounded-xl bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-slate-950 font-black text-sm shadow-lg shadow-orange-500/25 transition flex items-center gap-2">
+          <span id="playPauseIcon">⏸️</span>
+          <span id="playPauseText">暫停</span>
+        </button>
+
+        <button id="btnNext" class="px-4 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 text-white font-bold text-sm transition">
+          下一頁 ➔
+        </button>
+      </div>
+
+      <div class="flex items-center gap-2">
+        <label class="text-xs text-slate-400 flex items-center gap-1.5 cursor-pointer">
+          <input type="checkbox" id="chkAutoLoop" checked class="rounded border-slate-600 text-orange-500 focus:ring-0">
+          <span>自動無限循環</span>
+        </label>
+      </div>
+    </div>
+  </footer>
+
+  <!-- Start Overlay for iOS Audio Unlock (Required by iPad Safari) -->
+  <div id="startOverlay" class="fixed inset-0 bg-slate-950/90 backdrop-blur-lg flex flex-col items-center justify-center gap-6 z-50 p-6 text-center">
+    <div class="w-20 h-20 rounded-3xl bg-gradient-to-tr from-orange-500 to-amber-400 flex items-center justify-center text-4xl shadow-2xl shadow-orange-500/40">
+      🍜
+    </div>
+    <div class="max-w-md">
+      <h2 class="text-2xl md:text-3xl font-black text-white mb-2">
+        智膳 AI 門市展演系統
+      </h2>
+      <p class="text-sm text-slate-400 leading-relaxed">
+        專為 iPad 與展會平板設計。點擊下方按鈕啟動全螢幕自動輪播與真人台灣語音旁白導覽！
+      </p>
+    </div>
+    <button id="btnStartPresentation" class="px-8 py-4 rounded-2xl bg-gradient-to-r from-orange-500 to-amber-400 hover:from-orange-600 hover:to-amber-500 text-slate-950 font-black text-lg shadow-xl shadow-orange-500/30 transition transform hover:scale-105 active:scale-95 flex items-center gap-3">
+      <span>▶️</span>
+      <span>開始播放展示</span>
+    </button>
+  </div>
+
+  <script>
+    // Slide Data Definition
+    const slides = [
+      {
+        id: 1,
+        tag: "🚀 顛覆傳統餐飲 POS",
+        title: "不用換專用機！AI 客製化與全自動外送雲端系統",
+        subtitle: "為台灣中小型餐飲與連鎖體系量身打造的全通路智慧餐飲大腦",
+        narration: "歡迎了解智膳 AI 全通路餐飲 POS 與自動化方案！不用花大錢換專用 POS 機，現場收銀、顧客手機掃碼、雙外送全自動出單，一機全搞定！",
+        color: "from-orange-500 to-amber-500",
+        contentHtml: `
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-5 mt-4">
+            <div class="bg-slate-800/70 border border-slate-700 p-6 rounded-2xl flex flex-col items-center text-center">
+              <span class="text-4xl mb-3">🛵</span>
+              <h3 class="text-lg font-bold text-white mb-1">外送雙平台自動出單</h3>
+              <p class="text-xs text-slate-400">Uber Eats 與熊貓新單進來，出單機直接吐單切單，免專人看平板。</p>
+            </div>
+            <div class="bg-slate-800/70 border border-slate-700 p-6 rounded-2xl flex flex-col items-center text-center">
+              <span class="text-4xl mb-3">👥</span>
+              <h3 class="text-lg font-bold text-white mb-1">LINE 辦公室揪團對帳</h3>
+              <p class="text-xs text-slate-400">全台首創！同事手機點開即可合點，每人標註姓名，一鍵自動算錢分帳。</p>
+            </div>
+            <div class="bg-slate-800/70 border border-slate-700 p-6 rounded-2xl flex flex-col items-center text-center">
+              <span class="text-4xl mb-3">🤖</span>
+              <h3 class="text-lg font-bold text-white mb-1">AI 自由客製 × 全託管</h3>
+              <p class="text-xs text-slate-400">可以自己透過 AI 隨時改菜單，也能全權交給我們技術團隊一站式代管！</p>
+            </div>
+          </div>
+        `
+      },
+      {
+        id: 2,
+        tag: "🤝 雙軌彈性模式",
+        title: "想自己玩 AI，還是讓專家全權代管？任您挑選！",
+        subtitle: "打破傳統套裝軟體死板限制，針對老闆風格提供最舒服的合作方式",
+        narration: "我們提供兩種彈性合作方式：您可以透過 AI 輕鬆自定義菜單與點餐規則；也可以全權委託我們技術團隊一站式代管，從外送串接到硬體出單全包，讓您專心顧店賺錢！",
+        color: "from-blue-500 to-cyan-400",
+        contentHtml: `
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4">
+            <div class="bg-gradient-to-b from-blue-900/30 to-slate-800/60 border-2 border-blue-500/40 p-6 rounded-3xl">
+              <div class="flex items-center justify-between mb-4">
+                <span class="px-3 py-1 rounded-full text-xs font-black bg-blue-500 text-white">模式 A</span>
+                <span class="text-xs text-blue-300 font-bold">適合喜歡靈活彈性的老闆</span>
+              </div>
+              <h3 class="text-xl font-black text-white mb-2">🤖 AI 驅動自定義 (SaaS)</h3>
+              <p class="text-xs text-slate-300 mb-4 leading-relaxed">用聊天對話即可微調點餐邏輯、特製調味、滿額促銷，雲端 0 秒同步更新！免付昂貴工程費。</p>
+              <ul class="text-xs text-slate-400 space-y-2">
+                <li>✓ 隨心所欲新增菜單與客製選項</li>
+                <li>✓ 支援階梯加價購與套餐自由配</li>
+                <li>✓ 手機隨時隨地查看即時利潤報表</li>
+              </ul>
+            </div>
+
+            <div class="bg-gradient-to-b from-amber-900/30 to-slate-800/60 border-2 border-amber-500/40 p-6 rounded-3xl">
+              <div class="flex items-center justify-between mb-4">
+                <span class="px-3 py-1 rounded-full text-xs font-black bg-amber-500 text-slate-950">模式 B</span>
+                <span class="text-xs text-amber-300 font-bold">適合專注手藝與出餐的老闆</span>
+              </div>
+              <h3 class="text-xl font-black text-white mb-2">👑 專家尊榮全代管 (Turnkey)</h3>
+              <p class="text-xs text-slate-300 mb-4 leading-relaxed">老闆只要負責煮好吃的料理！從菜單建置、外送雙平台串接、到印表機與錢箱連動，我們全包！</p>
+              <ul class="text-xs text-slate-400 space-y-2">
+                <li>✓ 專人 1 對 1 導入與出單機邊界校對</li>
+                <li>✓ Uber Eats + 熊貓永久 Cookie 與排程設定</li>
+                <li>✓ 全年無休雲端監控與自動備份</li>
+              </ul>
+            </div>
+          </div>
+        `
+      },
+      {
+        id: 3,
+        tag: "🍜 實戰案例 A",
+        title: "傳統小吃 / 麵食館【龍城麵線】：外送出單與備註零出錯！",
+        subtitle: "廚房高溫忙碌、客製調料多、外帶人潮洶湧的終極解法",
+        narration: "以傳統小吃龍城麵線為例：尖峰煮麵時外送新單一進來，出單機自動切單吐出貼袋單，備註黑底放大防漏看；中午還有上班族最愛的 LINE 揪團分帳神器，大幅省下顧台人力！",
+        color: "from-emerald-500 to-teal-400",
+        contentHtml: `
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-5 mt-2">
+            <div class="bg-slate-800/80 border border-slate-700 p-5 rounded-2xl flex flex-col gap-3">
+              <div class="text-sm font-black text-emerald-400 flex items-center gap-2">
+                <span>🖨️</span> 專利「外送貼袋單」自動切單
+              </div>
+              <p class="text-xs text-slate-300 leading-relaxed">
+                外送訂單免人工顧平板，新單秒級吐出。包含<strong>特大取餐號碼 (#P-76A3)</strong> 與<strong>反白黑底備註標籤 (👉 備註: 小辣多蒜不要香菜)</strong>，廚房備餐一目了然零客訴！
+              </p>
+              <div class="p-3 bg-black rounded-lg border border-slate-600 text-white font-mono text-xs">
+                <div class="text-center font-bold pb-1 border-b border-white/30">#P-76A3 (熊貓外送)</div>
+                <div class="py-1">1. 大份綜合麵線 x 2</div>
+                <div class="bg-white text-black font-black px-1.5 py-0.5 rounded text-[11px] inline-block">👉 備註: 小辣、多蒜、不要香菜</div>
+              </div>
+            </div>
+
+            <div class="bg-slate-800/80 border border-slate-700 p-5 rounded-2xl flex flex-col gap-3">
+              <div class="text-sm font-black text-teal-400 flex items-center gap-2">
+                <span>👥</span> 辦公室 LINE 揪團與自動對帳
+              </div>
+              <p class="text-xs text-slate-300 leading-relaxed">
+                附近大樓上班族一鍵 LINE 揪團點餐，每份餐點直接<strong>標註點餐人姓名 (小美、老王)</strong>。系統自動計算每人應付金額，主揪發回群組秒收錢，拿餐不翻袋！
+              </p>
+              <div class="bg-slate-900 p-3 rounded-lg border border-slate-700 text-xs text-slate-300 font-mono space-y-1">
+                <div class="text-emerald-400 font-bold">📋 揪團訂購明細核對單</div>
+                <div>1. 綜合麵線 x 1 (👤 小明: 微辣不加香菜)</div>
+                <div>2. 招牌肉包 x 2 (👤 老王)</div>
+                <div class="text-amber-400 font-bold pt-1 border-t border-slate-700">💵 各人分帳：小明 $91、老王 $66</div>
+              </div>
+            </div>
+          </div>
+        `
+      },
+      {
+        id: 4,
+        tag: "🥤 實戰案例 B",
+        title: "手搖茶飲 / 咖啡店【茶韻鮮飲】：冰塊甜度矩陣與杯貼標籤！",
+        subtitle: "高頻次客製組合、貼杯標籤機 (Cup Label) 與下午茶爆單管理",
+        narration: "換到手搖飲料店，AI 立即切換為冰塊甜度矩陣，吧台三秒完成點餐。支援五十乘三十毫米貼杯標籤機，下午茶團購更可直接在杯身印上同事姓名，拿飲料不再混淆！",
+        color: "from-pink-500 to-rose-400",
+        contentHtml: `
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-5 mt-2">
+            <div class="bg-slate-800/80 border border-slate-700 p-5 rounded-2xl flex flex-col gap-3">
+              <div class="text-sm font-black text-pink-400 flex items-center gap-2">
+                <span>🧊</span> 一鍵式「冰塊甜度多選矩陣」
+              </div>
+              <p class="text-xs text-slate-300 leading-relaxed">
+                針對手搖吧台觸控習慣打造：直觀點選「大杯/中杯 ➔ 冰塊 (正常/微冰/去冰/溫熱) ➔ 甜度 (全/半/微/無) ➔ 加料 (珍珠/椰果/茶凍)」，3 秒完成一杯！
+              </p>
+              <div class="grid grid-cols-4 gap-1.5 text-center text-xs font-bold text-slate-300">
+                <span class="p-2 bg-slate-700 rounded-lg">微冰</span>
+                <span class="p-2 bg-slate-700 rounded-lg">微糖</span>
+                <span class="p-2 bg-pink-500/30 text-pink-300 border border-pink-500/50 rounded-lg">+珍珠</span>
+                <span class="p-2 bg-slate-700 rounded-lg">+椰果</span>
+              </div>
+            </div>
+
+            <div class="bg-slate-800/80 border border-slate-700 p-5 rounded-2xl flex flex-col gap-3">
+              <div class="text-sm font-black text-rose-400 flex items-center gap-2">
+                <span>🏷️</span> 貼杯標籤 (Cup Label) 雙機連動
+              </div>
+              <p class="text-xs text-slate-300 leading-relaxed">
+                自動輸出 50x30mm 防水貼杯標籤。下午茶團購更直接<strong>印上同事姓名 (行銷部-Amy)</strong>，飲料送到大樓直接依姓名領取，免拆封膜看內容物！
+              </p>
+              <div class="bg-white text-black p-3 rounded-lg font-mono text-xs shadow-md border-l-4 border-rose-500">
+                <div class="font-bold flex justify-between"><span>四季春青茶 (大)</span> <span>$40</span></div>
+                <div class="text-[11px] font-bold text-slate-700">微冰 / 微糖 / 加茶凍 (+10)</div>
+                <div class="text-[11px] text-rose-600 font-black mt-1">👤 點餐人: 行銷部 Amy</div>
+              </div>
+            </div>
+          </div>
+        `
+      },
+      {
+        id: 5,
+        tag: "⚙️ 零門檻硬體相容",
+        title: "拒絕硬體綁架！現有電腦與出單機隨插即用",
+        subtitle: "不用花 5~8 萬買專用 POS 機，手邊設備無縫升級！",
+        narration: "我們的系統完全不綁定昂貴硬體！您手邊現有的 Windows 筆電、平板、或迷你主機，搭配標準熱感應出單機與錢箱即可立即上線，大幅降低開店建置成本！",
+        color: "from-purple-500 to-indigo-400",
+        contentHtml: `
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-5 mt-4">
+            <div class="bg-slate-800/70 border border-slate-700 p-5 rounded-2xl text-center">
+              <span class="text-3xl mb-2 block">💻</span>
+              <h4 class="text-base font-bold text-white mb-1">現有 Windows 電腦</h4>
+              <p class="text-xs text-slate-400">Surface 平板、筆電、迷你小主機皆可使用，免買專用機。</p>
+            </div>
+            <div class="bg-slate-800/70 border border-slate-700 p-5 rounded-2xl text-center">
+              <span class="text-3xl mb-2 block">🖨️</span>
+              <h4 class="text-base font-bold text-white mb-1">熱感應出單 / 標籤機</h4>
+              <p class="text-xs text-slate-400">支援市售 58mm/80mm 出單機 (SLK-TL122S, EPSON 等)，耗材超便宜。</p>
+            </div>
+            <div class="bg-slate-800/70 border border-slate-700 p-5 rounded-2xl text-center">
+              <span class="text-3xl mb-2 block">🔒</span>
+              <h4 class="text-base font-bold text-white mb-1">RJ11 自動彈跳錢箱</h4>
+              <p class="text-xs text-slate-400">直接插在出單機後面，現金結帳吐單瞬間「啪！」自動彈開。</p>
+            </div>
+          </div>
+        `
+      },
+      {
+        id: 6,
+        tag: "💰 效益與投資回報",
+        title: "一個月省下的成本，遠超過系統建置費！",
+        subtitle: "讓科技當您的全天候接單助手，把時間留給賺錢！",
+        narration: "導入智膳 AI，每月平均省下兩萬元顧單人力與損耗。歡迎預約門市實機體驗，立即開啟您的餐飲自動化升級！",
+        color: "from-amber-400 to-orange-500",
+        contentHtml: `
+          <div class="bg-slate-800/90 border border-slate-700 p-6 rounded-3xl mt-2">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div>
+                <h4 class="text-sm font-bold text-red-400 mb-3 flex items-center gap-1.5">
+                  <span>❌</span> 傳統作業的隱形虧損
+                </h4>
+                <ul class="text-xs text-slate-300 space-y-2">
+                  <li>• 尖峰專人守外送平板 ➔ 約耗費 0.5 員額 (~$15,000/月)</li>
+                  <li>• 看錯備註、漏單客訴退款 ➔ 損耗損失 (~$3,000/月)</li>
+                  <li>• 傳統專用 POS 軟體年費與硬體分攤 ➔ (~$2,000/月)</li>
+                  <li class="font-bold text-red-400 pt-1">每月浪費近 2 萬元無效成本！</li>
+                </ul>
+              </div>
+
+              <div>
+                <h4 class="text-sm font-bold text-emerald-400 mb-3 flex items-center gap-1.5">
+                  <span>✅</span> 智膳 AI 導入後效益
+                </h4>
+                <ul class="text-xs text-slate-300 space-y-2">
+                  <li>✓ 雙外送全自動出單切單 ➔ 節省 100% 顧單時間</li>
+                  <li>✓ 貼袋單備註反白加粗 ➔ 客製出錯率降至 0</li>
+                  <li>✓ 辦公室 LINE 揪團對帳 ➔ 午間與下午茶大單暴增 30%+</li>
+                  <li class="font-bold text-emerald-400 pt-1">導入第 1 個月立即收回投資！</li>
+                </ul>
+              </div>
+            </div>
+
+            <div class="mt-6 pt-5 border-t border-slate-700/80 flex flex-col md:flex-row items-center justify-between gap-4">
+              <div class="text-xs text-slate-400">
+                ★ 歡迎預約現場門市實機示範！(體驗雙外送秒級自動出單)
+              </div>
+              <div class="text-sm font-bold text-amber-400">
+                專屬諮詢專線：09xx-xxx-xxx ｜ LINE：@smartbite_pos
+              </div>
+            </div>
+          </div>
+        `
+      }
+    ];
+
+    // State
+    let currentIndex = 0;
+    let isPlaying = true;
+    let isVoiceEnabled = true;
+    let slideSeconds = 14;
+    let remainingTime = slideSeconds;
+    let intervalTimer = null;
+    let isSpeaking = false;
+
+    // Elements
+    const slideContainer = document.getElementById('slideContainer');
+    const slideDots = document.getElementById('slideDots');
+    const progressBar = document.getElementById('progressBar');
+    const slideIndexLabel = document.getElementById('slideIndexLabel');
+    const timerLabel = document.getElementById('timerLabel');
+    const btnPlayPause = document.getElementById('btnPlayPause');
+    const playPauseIcon = document.getElementById('playPauseIcon');
+    const playPauseText = document.getElementById('playPauseText');
+    const btnVoiceToggle = document.getElementById('btnVoiceToggle');
+    const voiceIcon = document.getElementById('voiceIcon');
+    const voiceStatusText = document.getElementById('voiceStatusText');
+    const btnPrev = document.getElementById('btnPrev');
+    const btnNext = document.getElementById('btnNext');
+    const btnFullscreen = document.getElementById('btnFullscreen');
+    const chkAutoLoop = document.getElementById('chkAutoLoop');
+    const narrationText = document.getElementById('narrationText');
+    const startOverlay = document.getElementById('startOverlay');
+    const btnStartPresentation = document.getElementById('btnStartPresentation');
+
+    // Initialize Indicators
+    function renderDots() {
+      slideDots.innerHTML = slides.map((s, idx) => `
+        <button onclick="goToSlide(${idx})" class="w-2.5 h-2.5 rounded-full transition-all duration-300 ${idx === currentIndex ? 'w-8 bg-orange-400' : 'bg-slate-600 hover:bg-slate-500'}"></button>
+      `).join('');
+    }
+
+    // Render Current Slide
+    function renderSlide() {
+      const slide = slides[currentIndex];
+      slideContainer.classList.remove('slide-enter');
+      void slideContainer.offsetWidth; // trigger reflow
+      slideContainer.classList.add('slide-enter');
+
+      slideContainer.innerHTML = `
+        <div class="flex flex-col gap-2">
+          <div class="flex items-center gap-2">
+            <span class="px-3 py-1 rounded-full text-xs font-black bg-gradient-to-r ${slide.color} text-slate-950 uppercase tracking-wider">
+              ${slide.tag}
+            </span>
+            <span class="text-xs text-slate-400 font-mono">SLIDE ${String(slide.id).padStart(2, '0')}</span>
+          </div>
+          <h2 class="text-2xl md:text-4xl font-black text-white leading-tight">
+            ${slide.title}
+          </h2>
+          <p class="text-sm md:text-base text-slate-400 font-medium">
+            ${slide.subtitle}
+          </p>
+        </div>
+
+        ${slide.contentHtml}
+      `;
+
+      slideIndexLabel.textContent = `${String(currentIndex + 1).padStart(2, '0')} / ${String(slides.length).padStart(2, '0')}`;
+      narrationText.textContent = slide.narration;
+      renderDots();
+
+      // Trigger Voice
+      if (isVoiceEnabled) {
+        speakNarration(slide.narration);
+      }
+    }
+
+    // Speech Synthesis
+    function speakNarration(text) {
+      if (!('speechSynthesis' in window)) return;
+      window.speechSynthesis.cancel();
+
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = 'zh-TW';
+      utterance.rate = 1.05; // Slightly lively presentation pace
+      utterance.pitch = 1.0;
+
+      // Select Best Chinese Voice
+      const voices = window.speechSynthesis.getVoices();
+      const twVoice = voices.find(v => v.lang === 'zh-TW' || v.lang.includes('TW') || v.name.includes('Taiwan') || v.name.includes('Mei-Jia') || v.name.includes('HanHan'));
+      if (twVoice) utterance.voice = twVoice;
+
+      utterance.onstart = () => { isSpeaking = true; };
+      utterance.onend = () => { isSpeaking = false; };
+      utterance.onerror = () => { isSpeaking = false; };
+
+      window.speechSynthesis.speak(utterance);
+    }
+
+    // Timer & Auto-play Engine
+    function startTimer() {
+      clearInterval(intervalTimer);
+      remainingTime = slideSeconds;
+
+      intervalTimer = setInterval(() => {
+        if (!isPlaying) return;
+
+        remainingTime -= 0.1;
+        const progressPercent = ((slideSeconds - remainingTime) / slideSeconds) * 100;
+        progressBar.style.width = `${Math.min(100, Math.max(0, progressPercent))}%`;
+        timerLabel.textContent = `剩餘 ${Math.ceil(remainingTime)}s`;
+
+        if (remainingTime <= 0) {
+          // If voice is still speaking, wait a little bit
+          if (isSpeaking && isVoiceEnabled) {
+            remainingTime = 1;
+            return;
+          }
+          nextSlide();
+        }
+      }, 100);
+    }
+
+    function nextSlide() {
+      if (currentIndex < slides.length - 1) {
+        currentIndex++;
+        renderSlide();
+        remainingTime = slideSeconds;
+      } else if (chkAutoLoop.checked) {
+        currentIndex = 0;
+        renderSlide();
+        remainingTime = slideSeconds;
+      } else {
+        pause();
+      }
+    }
+
+    function prevSlide() {
+      if (currentIndex > 0) {
+        currentIndex--;
+        renderSlide();
+        remainingTime = slideSeconds;
+      }
+    }
+
+    window.goToSlide = function(index) {
+      currentIndex = index;
+      renderSlide();
+      remainingTime = slideSeconds;
+    };
+
+    function play() {
+      isPlaying = true;
+      playPauseIcon.textContent = "⏸️";
+      playPauseText.textContent = "暫停";
+    }
+
+    function pause() {
+      isPlaying = false;
+      playPauseIcon.textContent = "▶️";
+      playPauseText.textContent = "播放";
+      if ('speechSynthesis' in window) window.speechSynthesis.pause();
+    }
+
+    btnPlayPause.addEventListener('click', () => {
+      if (isPlaying) {
+        pause();
+      } else {
+        play();
+        if ('speechSynthesis' in window && window.speechSynthesis.paused) {
+          window.speechSynthesis.resume();
+        }
+      }
+    });
+
+    btnPrev.addEventListener('click', prevSlide);
+    btnNext.addEventListener('click', nextSlide);
+
+    // Voice Toggle
+    btnVoiceToggle.addEventListener('click', () => {
+      isVoiceEnabled = !isVoiceEnabled;
+      if (isVoiceEnabled) {
+        btnVoiceToggle.className = "px-3 py-1.5 rounded-full text-xs font-bold border transition flex items-center gap-1.5 bg-emerald-500/20 text-emerald-300 border-emerald-500/40";
+        voiceIcon.textContent = "🔊";
+        voiceStatusText.textContent = "語音導覽：開";
+        speakNarration(slides[currentIndex].narration);
+      } else {
+        btnVoiceToggle.className = "px-3 py-1.5 rounded-full text-xs font-bold border transition flex items-center gap-1.5 bg-slate-700/50 text-slate-400 border-slate-600";
+        voiceIcon.textContent = "🔇";
+        voiceStatusText.textContent = "語音導覽：關";
+        if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+      }
+    });
+
+    // Fullscreen Support
+    btnFullscreen.addEventListener('click', () => {
+      if (!document.fullscreenElement) {
+        document.documentElement.requestFullscreen().catch(() => {});
+      } else {
+        if (document.exitFullscreen) document.exitFullscreen();
+      }
+    });
+
+    // iPad Start Presentation Unlock
+    btnStartPresentation.addEventListener('click', () => {
+      startOverlay.classList.add('opacity-0', 'pointer-events-none');
+      setTimeout(() => startOverlay.remove(), 400);
+
+      // Unlock Audio & Start
+      if ('speechSynthesis' in window) {
+        const dummy = new SpeechSynthesisUtterance('');
+        window.speechSynthesis.speak(dummy);
+      }
+
+      renderSlide();
+      startTimer();
+      play();
+    });
+
+    // Keyboard Navigation for wireless clickers
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowRight' || e.key === 'PageDown' || e.key === ' ') {
+        nextSlide();
+      } else if (e.key === 'ArrowLeft' || e.key === 'PageUp') {
+        prevSlide();
+      }
+    });
+
+    // Preload voices
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.onvoiceschanged = () => {
+        window.speechSynthesis.getVoices();
+      };
+    }
+  </script>
+</body>
+</html>
