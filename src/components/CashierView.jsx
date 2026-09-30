@@ -196,6 +196,7 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
   // Cash Register Calculations
   const [cashReceived, setCashReceived] = useState('');
   const [changeAmount, setChangeAmount] = useState(0);
+  const [isCheckoutModalOpen, setIsCheckoutModalOpen] = useState(false);
 
   // Success view details
   const [viewState, setViewState] = useState('pos'); // 'pos' or 'success'
@@ -1786,6 +1787,7 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
         cashReceived: received,
         changeAmount: received - finalTotal
       });
+      setIsCheckoutModalOpen(false);
       setViewState('success');
 
       // 4. Immediately refresh cloud orders list in POS so new order shows right away!
@@ -1844,11 +1846,49 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
       }
 
       setLatestOrder(fallbackPrintOrder);
+      setIsCheckoutModalOpen(false);
       setViewState('success');
     } finally {
       setIsSubmittingOrder(false);
     }
   };
+
+  // Keyboard shortcut listener when Checkout Modal is active
+  useEffect(() => {
+    if (!isCheckoutModalOpen) return;
+
+    const handleCheckoutKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        setIsCheckoutModalOpen(false);
+        return;
+      }
+      if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          handleCheckoutSubmit(e);
+        }
+        return;
+      }
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        handleCheckoutSubmit(e);
+        return;
+      }
+      if (isCash) {
+        if (/^[0-9]$/.test(e.key)) {
+          setCashReceived(prev => {
+            const next = prev + e.key;
+            return next.length > 8 ? prev : next;
+          });
+        } else if (e.key === 'Backspace') {
+          setCashReceived(prev => prev.slice(0, -1));
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleCheckoutKeyDown);
+    return () => window.removeEventListener('keydown', handleCheckoutKeyDown);
+  }, [isCheckoutModalOpen, isCash, finalTotal, cashReceived, isSubmittingOrder, cart]);
 
   // Reset screen for next customer
   const handleResetPos = () => {
@@ -1858,6 +1898,8 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
     if (posPaymentMethods.length > 0) setSelectedPaymentMethod(posPaymentMethods[0]);
     setRemarks('');
     setCustName('');
+    setTableNumber(null);
+    setIsCheckoutModalOpen(false);
     setViewState('pos');
     setLatestOrder(null);
     setDiscountType('none');
@@ -3977,8 +4019,8 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                 /* Products grid for the active category (Supports combos, mee-sua, specialties, and any category!) */
                 <div style={{
                   display: 'grid',
-                  gridTemplateColumns: activeCategory === 'combos' ? 'repeat(auto-fit, minmax(210px, 1fr))' : 'repeat(3, 1fr)',
-                  gap: '12px'
+                  gridTemplateColumns: activeCategory === 'combos' ? 'repeat(auto-fit, minmax(210px, 1fr))' : 'repeat(auto-fill, minmax(175px, 1fr))',
+                  gap: '14px'
                 }}>
                   {menuItems.filter(item => (item.category === activeCategory) || (activeCategory === 'combos' && (item.category === 'combos' || item.customizations?.is_combo))).map(item => {
                     const isAvailable = item.customizations?.is_available !== false;
@@ -4000,9 +4042,9 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                           border: isAvailable 
                             ? (isCombo ? '2px solid var(--primary)' : (item.category === 'specialties' ? '2px solid rgba(220, 38, 38, 0.3)' : '2px solid rgba(255, 107, 53, 0.3)'))
                             : '2px solid var(--border)',
-                          borderRadius: '12px',
-                          padding: '12px 10px',
-                          minHeight: '105px',
+                          borderRadius: '14px',
+                          padding: '14px 12px',
+                          minHeight: '118px',
                           display: 'flex',
                           flexDirection: 'column',
                           justifyContent: 'space-between',
@@ -4016,11 +4058,11 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                           opacity: isAvailable ? 1 : 0.55
                         }}
                       >
-                        {isCombo && <span style={{ fontSize: '1.4rem' }}>🍱</span>}
-                        <div style={{ fontSize: isCombo ? '1.1rem' : '1.3rem', fontWeight: '900', lineHeight: '1.2' }}>
+                        {isCombo && <span style={{ fontSize: '1.5rem' }}>🍱</span>}
+                        <div style={{ fontSize: isCombo ? '1.18rem' : '1.35rem', fontWeight: '900', lineHeight: '1.25', color: 'var(--text-main)' }}>
                           {item.name}
                         </div>
-                        <span className="price-tag" style={{ fontSize: '1.05rem', fontWeight: '900', color: isAvailable ? 'var(--primary)' : 'var(--text-muted)' }}>
+                        <span className="price-tag" style={{ fontSize: '1.18rem', fontWeight: '900', color: isAvailable ? 'var(--primary)' : 'var(--text-muted)' }}>
                           NT$ {item.price} {isCombo ? '起' : ''}
                         </span>
                         {isManagingSoldOut ? (
@@ -4098,678 +4140,1134 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                 </div>
               )}
             </div>
-            {/* Cart Items List */}
+          </div>
+
+          {/* Right Panel: 【訂單內容】（專屬點餐購物車面板） */}
+          <div style={{
+            width: '420px',
+            maxWidth: '460px',
+            backgroundColor: 'var(--bg-card)',
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden',
+            borderLeft: '2px solid var(--border)',
+            boxShadow: 'var(--shadow-md)',
+            zIndex: 5
+          }}>
+            {/* Cart Header */}
+            <div style={{
+              padding: '14px 18px',
+              backgroundColor: 'var(--bg-body)',
+              borderBottom: '2px solid var(--border)',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ fontSize: '1.4rem' }}>🛒</span>
+                <h2 style={{ fontSize: '1.2rem', fontWeight: '900', margin: 0, color: 'var(--text-main)' }}>
+                  本次點餐內容
+                </h2>
+                <span style={{
+                  backgroundColor: 'var(--primary)',
+                  color: 'white',
+                  fontSize: '0.85rem',
+                  fontWeight: '900',
+                  padding: '2px 8px',
+                  borderRadius: '20px'
+                }}>
+                  {cart.reduce((s, i) => s + i.quantity, 0)} 份
+                </span>
+              </div>
+              {cart.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => { if (confirm("確定要清空點餐清單嗎？")) setCart([]); }}
+                  style={{
+                    border: '1px solid #ef4444',
+                    backgroundColor: 'rgba(239, 68, 68, 0.08)',
+                    color: '#ef4444',
+                    borderRadius: '6px',
+                    padding: '4px 10px',
+                    fontSize: '0.82rem',
+                    cursor: 'pointer',
+                    fontWeight: 'bold',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px'
+                  }}
+                >
+                  🧹 清空
+                </button>
+              )}
+            </div>
+
+            {/* Cart Items List (Full height scrollable, big text, easy-to-touch controls) */}
             <div style={{
               flex: 1,
+              overflowY: 'auto',
+              padding: '14px',
               display: 'flex',
               flexDirection: 'column',
-              backgroundColor: 'var(--bg-card)',
-              borderRadius: '12px',
-              padding: '10px 14px',
-              border: '1px solid var(--border)',
-              marginTop: '6px',
-              overflow: 'hidden',
-              boxSizing: 'border-box',
-              minHeight: 0
+              gap: '10px'
             }}>
-              <h2 style={{ fontSize: '0.85rem', fontWeight: 'bold', borderBottom: '1px solid var(--border)', paddingBottom: '4px', margin: '0 0 6px 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>🛒 點餐清單 <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 'normal' }}>({cart.length} 品項)</span></span>
-                {cart.length > 0 && (
-                  <button 
-                    type="button" 
-                    onClick={() => { if(confirm("確定要清空點餐清單嗎？")) setCart([]); }}
-                    style={{ border: 'none', background: 'none', color: '#ef4444', fontSize: '0.75rem', cursor: 'pointer', padding: 0, fontWeight: 'bold' }}
-                  >
-                    🧹 清空所有
-                  </button>
-                )}
-              </h2>
-
-              <div style={{ flex: 1, overflowY: 'auto' }}>
-                {cart.length === 0 ? (
-                  <div style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    height: '100%',
-                    color: 'var(--text-muted)',
-                    gap: '4px'
-                  }}>
-                    <span style={{ fontSize: '1.8rem' }}>🛒</span>
-                    <span style={{ fontSize: '0.75rem' }}>點餐清單為空，請點選上方商品</span>
+              {cart.length === 0 ? (
+                <div style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  height: '100%',
+                  color: 'var(--text-muted)',
+                  gap: '12px',
+                  textAlign: 'center',
+                  padding: '40px 10px'
+                }}>
+                  <span style={{ fontSize: '3.5rem', opacity: 0.6 }}>🛒</span>
+                  <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: 'var(--text-main)' }}>
+                    點餐清單目前為空
                   </div>
-                ) : (
-                  <div style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '6px'
-                  }}>
-                    {cart.map((cartItem) => (
-                      <div 
-                        key={cartItem.cartId}
-                        style={{
-                          display: 'flex',
-                          justifyContent: 'space-between',
-                          alignItems: 'center',
-                          gap: '12px',
-                          border: '1px solid var(--border)',
-                          borderRadius: '8px',
-                          padding: '6px 12px',
-                          backgroundColor: 'var(--bg-body)',
-                          boxSizing: 'border-box'
-                        }}
-                      >
-                        {/* Name and specs (Left) */}
-                        <div style={{ flex: 1, display: 'flex', alignItems: 'baseline', gap: '8px', flexWrap: 'wrap' }}>
-                          <span style={{ fontSize: '0.85rem', fontWeight: 'bold', color: 'var(--text-main)', minWidth: '120px' }}>{cartItem.name}</span>
-                          <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                            {cartItem.specs && cartItem.specs
+                  <span style={{ fontSize: '0.92rem', color: 'var(--text-muted)' }}>
+                    請點選左側菜單項目加入餐點
+                  </span>
+                </div>
+              ) : (
+                cart.map((cartItem) => (
+                  <div
+                    key={cartItem.cartId}
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '8px',
+                      border: '1px solid var(--border)',
+                      borderRadius: '12px',
+                      padding: '12px 14px',
+                      backgroundColor: 'var(--bg-body)',
+                      boxShadow: 'var(--shadow-sm)'
+                    }}
+                  >
+                    {/* Item Top: Name, specs, edit & delete */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: '1.15rem', fontWeight: 'bold', color: 'var(--text-main)', lineHeight: '1.3' }}>
+                          {cartItem.name}
+                        </div>
+                        {cartItem.specs && cartItem.specs.length > 0 && (
+                          <div style={{ fontSize: '0.88rem', color: 'var(--text-muted)', marginTop: '3px', lineHeight: '1.4' }}>
+                            {cartItem.specs
                               .map(s => typeof s === 'object' && s ? (s.value || `${s.name ? s.name + ': ' : ''}${s.value}`) : String(s))
                               .filter(Boolean)
                               .map(s => s.replace(/^undefined:\s*/i, ''))
                               .map(s => `• ${s}`)
                               .join(' ')}
-                          </span>
-                        </div>
-
-                        {/* Controls & Price (Right) */}
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                          {/* Edit Item Customizations */}
-                          <button
-                            type="button"
-                            onClick={() => handleEditCartItem(cartItem)}
-                            style={{
-                              padding: '3px 7px',
-                              fontSize: '0.75rem',
-                              borderRadius: '4px',
-                              border: '1px solid var(--primary)',
-                              backgroundColor: 'rgba(234, 88, 12, 0.08)',
-                              color: 'var(--primary)',
-                              cursor: 'pointer',
-                              fontWeight: 'bold',
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '2px'
-                            }}
-                            title="修改餐點加料與調料客製"
-                          >
-                            ✏️ 修改
-                          </button>
-                          <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>單價: NT$ {cartItem.itemPrice}</span>
-                          
-                          {/* Qty edit */}
-                          <div style={{ display: 'flex', alignItems: 'center', border: '1px solid var(--border)', borderRadius: '4px', overflow: 'hidden', backgroundColor: 'var(--bg-card)' }}>
-                            <button 
-                              type="button"
-                              onClick={() => handleUpdateQty(cartItem.cartId, -1)}
-                              style={{ border: 'none', background: 'none', width: '22px', height: '22px', fontSize: '0.8rem', cursor: 'pointer', padding: 0 }}
-                            >-</button>
-                            <span style={{ width: '24px', textAlign: 'center', fontSize: '0.8rem', fontWeight: 'bold' }}>{cartItem.quantity}</span>
-                            <button 
-                              type="button"
-                              onClick={() => handleUpdateQty(cartItem.cartId, 1)}
-                              style={{ border: 'none', background: 'none', width: '22px', height: '22px', fontSize: '0.8rem', cursor: 'pointer', padding: 0 }}
-                            >+</button>
                           </div>
-
-                          <span style={{ fontSize: '0.85rem', fontWeight: '800', color: 'var(--primary)', minWidth: '70px', textAlign: 'right' }}>
-                            NT$ {cartItem.totalPrice}
-                          </span>
-
-                          {/* Delete item */}
-                          <button 
-                            type="button"
-                            onClick={() => handleRemoveFromCart(cartItem.cartId)}
-                            style={{
-                              border: 'none',
-                              backgroundColor: 'transparent',
-                              color: '#ef4444',
-                              fontSize: '1rem',
-                              cursor: 'pointer',
-                              padding: '2px 6px'
-                            }}
-                            title="刪除"
-                          >
-                            🗑️
-                          </button>
-                        </div>
+                        )}
                       </div>
-                    ))}
-                  </div>
-                )}              </div>
-            </div>
-</div>
 
-          {/* Right Panel: Transaction Cart & Checkout */}
-          <div style={{
-            width: '360px',
-            backgroundColor: 'var(--bg-card)',
-            display: 'flex',
-            flexDirection: 'column',
-            overflow: 'hidden'
-          }}>
-            {/* Checkout Form & Register Panel */}
-            <form onSubmit={handleCheckoutSubmit} style={{
-              padding: '8px 12px',
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <button
+                          type="button"
+                          onClick={() => handleEditCartItem(cartItem)}
+                          style={{
+                            padding: '4px 8px',
+                            fontSize: '0.8rem',
+                            borderRadius: '6px',
+                            border: '1px solid var(--primary)',
+                            backgroundColor: 'rgba(234, 88, 12, 0.08)',
+                            color: 'var(--primary)',
+                            cursor: 'pointer',
+                            fontWeight: 'bold',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '2px'
+                          }}
+                          title="修改餐點加料與調料客製"
+                        >
+                          ✏️ 改
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveFromCart(cartItem.cartId)}
+                          style={{
+                            border: 'none',
+                            backgroundColor: 'transparent',
+                            color: '#ef4444',
+                            fontSize: '1.2rem',
+                            cursor: 'pointer',
+                            padding: '2px 4px'
+                          }}
+                          title="移除此項"
+                        >
+                          🗑️
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Item Bottom: Unit price, Qty control, Subtotal */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px dashed var(--border)', paddingTop: '8px', marginTop: '2px' }}>
+                      <span style={{ fontSize: '0.88rem', color: 'var(--text-muted)' }}>
+                        單價 NT$ {cartItem.itemPrice}
+                      </span>
+
+                      {/* Qty edit buttons */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '2px', border: '1px solid var(--border)', borderRadius: '8px', overflow: 'hidden', backgroundColor: 'var(--bg-card)' }}>
+                        <button
+                          type="button"
+                          onClick={() => handleUpdateQty(cartItem.cartId, -1)}
+                          style={{
+                            border: 'none',
+                            background: 'none',
+                            width: '34px',
+                            height: '34px',
+                            fontSize: '1.15rem',
+                            fontWeight: 'bold',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            color: 'var(--text-main)'
+                          }}
+                        >
+                          -
+                        </button>
+                        <span style={{ width: '34px', textAlign: 'center', fontSize: '1.1rem', fontWeight: 'bold', color: 'var(--text-main)' }}>
+                          {cartItem.quantity}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleUpdateQty(cartItem.cartId, 1)}
+                          style={{
+                            border: 'none',
+                            background: 'none',
+                            width: '34px',
+                            height: '34px',
+                            fontSize: '1.15rem',
+                            fontWeight: 'bold',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            color: 'var(--text-main)'
+                          }}
+                        >
+                          +
+                        </button>
+                      </div>
+
+                      <span style={{ fontSize: '1.18rem', fontWeight: '900', color: 'var(--primary)' }}>
+                        NT$ {cartItem.totalPrice}
+                      </span>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* Cart Footer: Summary & Giant Checkout Trigger Button */}
+            <div style={{
+              padding: '16px 18px',
               backgroundColor: 'var(--bg-body)',
+              borderTop: '2px solid var(--border)',
               display: 'flex',
               flexDirection: 'column',
-              gap: '4px',
-              height: '100%',
-              boxSizing: 'border-box',
-              justifyContent: 'space-between',
-              overflowY: 'auto'
+              gap: '12px',
+              boxShadow: '0 -4px 14px rgba(0, 0, 0, 0.06)'
             }}>
-              {/* Order Type Toggle buttons side-by-side (Scaled) */}
-              <div style={{ display: 'flex', gap: '4px', marginBottom: '2px', width: '100%' }}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setOrderType('dine-in');
-                    if (posPaymentMethods.length > 0) setSelectedPaymentMethod(posPaymentMethods[0]);
-                  }}
-                  style={{
-                    flex: 1,
-                    height: posUiScale === 'large' ? '48px' : posUiScale === 'medium' ? '40px' : '34px',
-                    padding: '2px 4px',
-                    borderRadius: '8px',
-                    border: orderType === 'dine-in' ? '2px solid var(--primary)' : '1px solid var(--border)',
-                    backgroundColor: orderType === 'dine-in' ? 'var(--primary)' : 'var(--bg-card)',
-                    color: orderType === 'dine-in' ? 'white' : 'var(--text-main)',
-                    fontWeight: '900',
-                    cursor: 'pointer',
-                    fontSize: posUiScale === 'large' ? '0.98rem' : posUiScale === 'medium' ? '0.9rem' : '0.82rem',
-                    transition: 'all 0.15s',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '2px',
-                    boxShadow: orderType === 'dine-in' ? '0 2px 8px rgba(255, 107, 53, 0.25)' : 'none'
-                  }}
-                >
-                  🏠 內用
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setOrderType('takeout');
-                    if (posPaymentMethods.length > 0) setSelectedPaymentMethod(posPaymentMethods[0]);
-                  }}
-                  style={{
-                    flex: 1,
-                    height: posUiScale === 'large' ? '48px' : posUiScale === 'medium' ? '40px' : '34px',
-                    padding: '2px 4px',
-                    borderRadius: '8px',
-                    border: orderType === 'takeout' ? '2px solid #dc2626' : '1px solid var(--border)',
-                    backgroundColor: orderType === 'takeout' ? '#dc2626' : 'var(--bg-card)',
-                    color: orderType === 'takeout' ? 'white' : 'var(--text-main)',
-                    fontWeight: '900',
-                    cursor: 'pointer',
-                    fontSize: posUiScale === 'large' ? '0.98rem' : posUiScale === 'medium' ? '0.9rem' : '0.82rem',
-                    transition: 'all 0.15s',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '2px',
-                    boxShadow: orderType === 'takeout' ? '0 2px 8px rgba(220, 38, 38, 0.25)' : 'none'
-                  }}
-                >
-                  🥡 外帶
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setOrderType('uber');
-                    setSelectedPaymentMethod('ubereats');
-                    setCashReceived(String(finalTotal));
-                  }}
-                  style={{
-                    flex: 1.15,
-                    height: posUiScale === 'large' ? '48px' : posUiScale === 'medium' ? '40px' : '34px',
-                    padding: '2px 4px',
-                    borderRadius: '8px',
-                    border: orderType === 'uber' ? '2px solid #06C167' : '1px solid var(--border)',
-                    backgroundColor: orderType === 'uber' ? '#06C167' : 'var(--bg-card)',
-                    color: orderType === 'uber' ? 'white' : '#06C167',
-                    fontWeight: '900',
-                    cursor: 'pointer',
-                    fontSize: posUiScale === 'large' ? '0.95rem' : posUiScale === 'medium' ? '0.88rem' : '0.8rem',
-                    transition: 'all 0.15s',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '2px',
-                    boxShadow: orderType === 'uber' ? '0 2px 8px rgba(6, 193, 103, 0.3)' : 'none'
-                  }}
-                >
-                  🛵 Uber
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setOrderType('foodpanda');
-                    setSelectedPaymentMethod('foodpanda');
-                    setCashReceived(String(finalTotal));
-                  }}
-                  style={{
-                    flex: 1.15,
-                    height: posUiScale === 'large' ? '48px' : posUiScale === 'medium' ? '40px' : '34px',
-                    padding: '2px 4px',
-                    borderRadius: '8px',
-                    border: orderType === 'foodpanda' ? '2px solid #D70F64' : '1px solid var(--border)',
-                    backgroundColor: orderType === 'foodpanda' ? '#D70F64' : 'var(--bg-card)',
-                    color: orderType === 'foodpanda' ? 'white' : '#D70F64',
-                    fontWeight: '900',
-                    cursor: 'pointer',
-                    fontSize: posUiScale === 'large' ? '0.95rem' : posUiScale === 'medium' ? '0.88rem' : '0.8rem',
-                    transition: 'all 0.15s',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '2px',
-                    boxShadow: orderType === 'foodpanda' ? '0 2px 8px rgba(215, 15, 100, 0.3)' : 'none'
-                  }}
-                >
-                  🐼 熊貓
-                </button>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.95rem', color: 'var(--text-muted)' }}>
+                <span>商品小計 ({cart.reduce((s, i) => s + i.quantity, 0)} 份):</span>
+                <span style={{ fontWeight: 'bold', color: 'var(--text-main)' }}>NT$ {cartTotal}</span>
               </div>
 
-              {orderType === 'uber' && (
-                <div style={{
-                  padding: '8px 10px',
-                  backgroundColor: 'rgba(6, 193, 103, 0.08)',
-                  borderRadius: '8px',
-                  border: '1px solid rgba(6, 193, 103, 0.3)',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '4px'
-                }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontSize: '0.78rem', fontWeight: 'bold', color: '#06C167' }}>🛵 Uber Eats 單號 / 備註 (選填)</span>
-                    <span style={{ fontSize: '0.72rem', color: '#059669', fontWeight: 'bold' }}>免收現 · 自動出單</span>
-                  </div>
-                  <input
-                    type="text"
-                    placeholder="例: Uber 單號 4 碼或外送員備註"
-                    value={custName}
-                    onChange={(e) => setCustName(e.target.value)}
-                    style={{
-                      padding: '6px 8px',
-                      fontSize: '0.85rem',
-                      borderRadius: '6px',
-                      border: '1px solid var(--border)',
-                      backgroundColor: 'var(--bg-card)',
-                      color: 'var(--text-main)'
-                    }}
-                  />
+              {discountType !== 'none' && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.95rem', color: '#ef4444', fontWeight: 'bold' }}>
+                  <span>已套用折讓:</span>
+                  <span>- NT$ {discountAmount}</span>
                 </div>
               )}
 
-              {orderType === 'foodpanda' && (
-                <div style={{
-                  padding: '8px 10px',
-                  backgroundColor: 'rgba(215, 15, 100, 0.08)',
-                  borderRadius: '8px',
-                  border: '1px solid rgba(215, 15, 100, 0.3)',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '4px'
-                }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontSize: '0.78rem', fontWeight: 'bold', color: '#D70F64' }}>🐼 foodpanda 熊貓單號 / 備註 (選填)</span>
-                    <span style={{ fontSize: '0.72rem', color: '#BE185D', fontWeight: 'bold' }}>免收現 · 自動出單</span>
-                  </div>
-                  <input
-                    type="text"
-                    placeholder="例: 熊貓單號 4 碼或取餐備註"
-                    value={custName}
-                    onChange={(e) => setCustName(e.target.value)}
-                    style={{
-                      padding: '6px 8px',
-                      fontSize: '0.85rem',
-                      borderRadius: '6px',
-                      border: '1px solid var(--border)',
-                      backgroundColor: 'var(--bg-card)',
-                      color: 'var(--text-main)'
-                    }}
-                  />
-                </div>
-              )}
-
-              {/* Total & Discount display */}
               <div style={{
-                borderTop: '1px dashed var(--border)',
-                paddingTop: '10px',
-                marginTop: '4px',
                 display: 'flex',
-                flexDirection: 'column',
-                gap: '6px'
+                justifyContent: 'space-between',
+                alignItems: 'baseline',
+                borderTop: '1px dashed var(--border)',
+                paddingTop: '8px'
               }}>
-                {/* Discount Select */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginBottom: '4px' }}>
-                  <label style={{ fontSize: '0.75rem', fontWeight: 'bold', color: 'var(--text-muted)' }}>折扣折讓</label>
-                  <div style={{ display: 'flex', gap: '4px' }}>
-                    <button type="button" onClick={() => { setDiscountType('amount'); setDiscountValue(5); }} style={{ flex: 1, padding: '5px', fontSize: '0.75rem', borderRadius: '4px', border: '1px solid var(--border)', backgroundColor: discountType === 'amount' && discountValue === 5 ? 'var(--primary)' : 'var(--bg-card)', color: discountType === 'amount' && discountValue === 5 ? 'white' : 'var(--text-main)', cursor: 'pointer', fontWeight: 'bold' }}>-5元</button>
-                    <button type="button" onClick={() => { setDiscountType('amount'); setDiscountValue(10); }} style={{ flex: 1, padding: '5px', fontSize: '0.75rem', borderRadius: '4px', border: '1px solid var(--border)', backgroundColor: discountType === 'amount' && discountValue === 10 ? 'var(--primary)' : 'var(--bg-card)', color: discountType === 'amount' && discountValue === 10 ? 'white' : 'var(--text-main)', cursor: 'pointer', fontWeight: 'bold' }}>-10元</button>
-                    <button type="button" onClick={() => { setDiscountType('percent'); setDiscountValue(10); }} style={{ flex: 1, padding: '5px', fontSize: '0.75rem', borderRadius: '4px', border: '1px solid var(--border)', backgroundColor: discountType === 'percent' && discountValue === 10 ? 'var(--primary)' : 'var(--bg-card)', color: discountType === 'percent' && discountValue === 10 ? 'white' : 'var(--text-main)', cursor: 'pointer', fontWeight: 'bold' }}>9折</button>
-                    <button type="button" onClick={() => {
-                      const amt = prompt("請輸入折讓金額 (元)：");
-                      if (amt !== null && amt !== '') {
-                        setDiscountType('amount');
-                        setDiscountValue(parseInt(amt) || 0);
-                      }
-                    }} style={{ flex: 1, padding: '5px', fontSize: '0.75rem', borderRadius: '4px', border: '1px solid var(--border)', backgroundColor: discountType === 'amount' && discountValue !== 5 && discountValue !== 10 ? 'var(--primary)' : 'var(--bg-card)', color: discountType === 'amount' && discountValue !== 5 && discountValue !== 10 ? 'white' : 'var(--text-main)', cursor: 'pointer', fontWeight: 'bold' }}>折抵 $</button>
-                    <button type="button" onClick={() => { setDiscountType('none'); setDiscountValue(0); }} style={{ padding: '5px 8px', fontSize: '0.75rem', borderRadius: '4px', border: '1px solid #ef4444', color: '#ef4444', backgroundColor: 'rgba(239,68,68,0.05)', cursor: 'pointer', fontWeight: 'bold' }}>清除</button>
-                  </div>
-                </div>
-
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-                  <span>商品小計:</span>
-                  <span>NT$ {cartTotal}</span>
-                </div>
-                {discountType !== 'none' && (
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', color: '#ef4444' }}>
-                    <span>折扣折讓:</span>
-                    <span>- NT$ {discountAmount}</span>
-                  </div>
-                )}
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '1.3rem', fontWeight: '900', borderTop: '1px dashed var(--border)', paddingTop: '6px' }}>
-                  <span>應收金額:</span>
-                  <span style={{ color: 'var(--primary)' }}>NT$ {finalTotal}</span>
+                <span style={{ fontSize: '1.15rem', fontWeight: '900', color: 'var(--text-main)' }}>
+                  合計應收:
+                </span>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: '4px' }}>
+                  <span style={{ fontSize: '1.1rem', color: 'var(--primary)', fontWeight: 'bold' }}>NT$</span>
+                  <span style={{ fontSize: '2.4rem', fontWeight: '900', color: 'var(--primary)', lineHeight: 1 }}>
+                    {finalTotal}
+                  </span>
                 </div>
               </div>
 
-              {/* POS Payment Methods Selection */}
-              {orderType === 'uber' ? (
-                <div style={{
-                  padding: '10px 12px',
-                  borderRadius: '8px',
-                  backgroundColor: 'rgba(6, 193, 103, 0.1)',
-                  border: '1px solid #06C167',
-                  color: '#06C167',
-                  fontSize: '0.82rem',
-                  fontWeight: 'bold',
+              {/* Giant Checkout Action Button */}
+              <button
+                type="button"
+                disabled={cart.length === 0}
+                onClick={() => {
+                  if (cart.length === 0) {
+                    alert("點餐清單內尚無餐點項目，請先點選左側菜單！");
+                    return;
+                  }
+                  if (selectedPaymentMethod === '現金') {
+                    setCashReceived(String(finalTotal));
+                  }
+                  setIsCheckoutModalOpen(true);
+                }}
+                style={{
+                  width: '100%',
+                  height: '64px',
+                  borderRadius: '14px',
+                  border: 'none',
+                  background: cart.length === 0 ? 'var(--border)' : 'linear-gradient(135deg, #f97316 0%, #ea580c 100%)',
+                  color: cart.length === 0 ? 'var(--text-muted)' : '#ffffff',
+                  fontSize: '1.35rem',
+                  fontWeight: '900',
+                  cursor: cart.length === 0 ? 'not-allowed' : 'pointer',
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '6px'
-                }}>
-                  <span>🛵 結帳方式:</span>
-                  <span style={{ color: '#059669', fontWeight: '900' }}>Uber Eats 平台線上結清（免收現）</span>
+                  justifyContent: 'center',
+                  gap: '10px',
+                  boxShadow: cart.length === 0 ? 'none' : '0 6px 20px rgba(234, 88, 12, 0.4)',
+                  transition: 'all 0.15s ease',
+                  letterSpacing: '1px'
+                }}
+              >
+                <span>💳 前往結帳</span>
+                <span style={{ fontSize: '1.5rem' }}>➔</span>
+              </button>
+            </div>
+          </div>
+
+        {/* =========================================================================
+            CHECKOUT POPUP MODAL (結帳專屬彈窗頁面)
+            呈現：數字鍵盤、內用外帶、現金支付與線上支付
+            ========================================================================= */}
+        {isCheckoutModalOpen && (
+          <div className="modal-backdrop" style={{
+            position: 'fixed',
+            top: 0, left: 0, right: 0, bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.78)',
+            backdropFilter: 'blur(8px)',
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            zIndex: 9999,
+            padding: '16px'
+          }}>
+            <div style={{
+              maxWidth: '960px',
+              width: '100%',
+              maxHeight: '92vh',
+              backgroundColor: 'var(--bg-card)',
+              borderRadius: '20px',
+              border: '2px solid var(--primary)',
+              boxShadow: '0 25px 60px -15px rgba(0, 0, 0, 0.7)',
+              display: 'flex',
+              flexDirection: 'column',
+              overflow: 'hidden',
+              animation: 'fadeIn 0.2s ease-out'
+            }}>
+              {/* Modal Top Bar */}
+              <div style={{
+                padding: '16px 24px',
+                backgroundColor: 'var(--bg-body)',
+                borderBottom: '2px solid var(--border)',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <div style={{
+                    width: '44px',
+                    height: '44px',
+                    borderRadius: '12px',
+                    backgroundColor: 'var(--primary)',
+                    color: 'white',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: '1.5rem',
+                    boxShadow: '0 4px 10px rgba(234, 88, 12, 0.35)'
+                  }}>
+                    💳
+                  </div>
+                  <div>
+                    <h2 style={{ fontSize: '1.45rem', fontWeight: '900', margin: 0, color: 'var(--text-main)', letterSpacing: '0.5px' }}>
+                      收銀結帳
+                    </h2>
+                    <div style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                      共 {cart.reduce((s, i) => s + i.quantity, 0)} 件餐點 · 結帳後自動出單並彈出錢箱
+                    </div>
+                  </div>
                 </div>
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                  <label style={{ fontSize: '0.75rem', fontWeight: 'bold', color: 'var(--text-muted)' }}>選擇支付方式</label>
-                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                    {posPaymentMethods.map((method) => (
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                  <div style={{
+                    backgroundColor: 'rgba(234, 88, 12, 0.12)',
+                    border: '2px solid var(--primary)',
+                    borderRadius: '14px',
+                    padding: '6px 20px',
+                    display: 'flex',
+                    alignItems: 'baseline',
+                    gap: '8px'
+                  }}>
+                    <span style={{ fontSize: '1.05rem', fontWeight: 'bold', color: 'var(--primary)' }}>應收合計:</span>
+                    <span style={{ fontSize: '2.2rem', fontWeight: '900', color: 'var(--primary)', lineHeight: 1 }}>
+                      NT$ {finalTotal}
+                    </span>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setIsCheckoutModalOpen(false)}
+                    style={{
+                      width: '42px',
+                      height: '42px',
+                      borderRadius: '50%',
+                      border: '1px solid var(--border)',
+                      backgroundColor: 'var(--bg-card)',
+                      color: 'var(--text-main)',
+                      fontSize: '1.4rem',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      transition: 'all 0.15s ease'
+                    }}
+                    title="關閉結帳視窗 (Esc)"
+                  >
+                    ✕
+                  </button>
+                </div>
+              </div>
+
+              {/* Modal Main Form */}
+              <form onSubmit={handleCheckoutSubmit} style={{
+                display: 'flex',
+                flex: 1,
+                overflow: 'hidden',
+                margin: 0
+              }}>
+                {/* Left Column: Order Options & Discounts */}
+                <div style={{
+                  flex: '1 1 45%',
+                  padding: '20px 24px',
+                  overflowY: 'auto',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '18px',
+                  borderRight: '2px solid var(--border)',
+                  backgroundColor: 'var(--bg-body)'
+                }}>
+                  {/* Dining Options */}
+                  <div>
+                    <div style={{ fontSize: '1rem', fontWeight: '900', color: 'var(--text-main)', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span>📍 用餐方式</span>
+                      <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 'normal' }}>(必選)</span>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px' }}>
                       <button
-                        key={method}
                         type="button"
                         onClick={() => {
-                          setSelectedPaymentMethod(method);
-                          if (method !== '現金') {
+                          setOrderType('dine-in');
+                          if (posPaymentMethods.length > 0) setSelectedPaymentMethod(posPaymentMethods[0]);
+                        }}
+                        style={{
+                          height: '56px',
+                          borderRadius: '12px',
+                          border: orderType === 'dine-in' ? '3px solid var(--primary)' : '2px solid var(--border)',
+                          backgroundColor: orderType === 'dine-in' ? 'var(--primary)' : 'var(--bg-card)',
+                          color: orderType === 'dine-in' ? '#ffffff' : 'var(--text-main)',
+                          fontWeight: '900',
+                          fontSize: '1.15rem',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '8px',
+                          boxShadow: orderType === 'dine-in' ? '0 4px 14px rgba(255, 107, 53, 0.35)' : 'none',
+                          transition: 'all 0.15s ease'
+                        }}
+                      >
+                        <span>🏠 內用</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setOrderType('takeout');
+                          if (posPaymentMethods.length > 0) setSelectedPaymentMethod(posPaymentMethods[0]);
+                        }}
+                        style={{
+                          height: '56px',
+                          borderRadius: '12px',
+                          border: orderType === 'takeout' ? '3px solid #dc2626' : '2px solid var(--border)',
+                          backgroundColor: orderType === 'takeout' ? '#dc2626' : 'var(--bg-card)',
+                          color: orderType === 'takeout' ? '#ffffff' : 'var(--text-main)',
+                          fontWeight: '900',
+                          fontSize: '1.15rem',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '8px',
+                          boxShadow: orderType === 'takeout' ? '0 4px 14px rgba(220, 38, 38, 0.35)' : 'none',
+                          transition: 'all 0.15s ease'
+                        }}
+                      >
+                        <span>🥡 外帶</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setOrderType('uber');
+                          setSelectedPaymentMethod('ubereats');
+                          setCashReceived(String(finalTotal));
+                        }}
+                        style={{
+                          height: '50px',
+                          borderRadius: '10px',
+                          border: orderType === 'uber' ? '3px solid #06C167' : '2px solid var(--border)',
+                          backgroundColor: orderType === 'uber' ? '#06C167' : 'var(--bg-card)',
+                          color: orderType === 'uber' ? '#ffffff' : '#06C167',
+                          fontWeight: '900',
+                          fontSize: '1.05rem',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '6px',
+                          boxShadow: orderType === 'uber' ? '0 4px 12px rgba(6, 193, 103, 0.35)' : 'none',
+                          transition: 'all 0.15s ease'
+                        }}
+                      >
+                        <span>🛵 Uber Eats</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setOrderType('foodpanda');
+                          setSelectedPaymentMethod('foodpanda');
+                          setCashReceived(String(finalTotal));
+                        }}
+                        style={{
+                          height: '50px',
+                          borderRadius: '10px',
+                          border: orderType === 'foodpanda' ? '3px solid #D70F64' : '2px solid var(--border)',
+                          backgroundColor: orderType === 'foodpanda' ? '#D70F64' : 'var(--bg-card)',
+                          color: orderType === 'foodpanda' ? '#ffffff' : '#D70F64',
+                          fontWeight: '900',
+                          fontSize: '1.05rem',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '6px',
+                          boxShadow: orderType === 'foodpanda' ? '0 4px 12px rgba(215, 15, 100, 0.35)' : 'none',
+                          transition: 'all 0.15s ease'
+                        }}
+                      >
+                        <span>🐼 foodpanda</span>
+                      </button>
+                    </div>
+
+                    {/* Table Number selector if Dine-in */}
+                    {orderType === 'dine-in' && (
+                      <div style={{ marginTop: '10px', padding: '10px 14px', borderRadius: '10px', backgroundColor: 'var(--bg-card)', border: '1px solid var(--border)' }}>
+                        <div style={{ fontSize: '0.85rem', fontWeight: 'bold', color: 'var(--text-muted)', marginBottom: '6px' }}>
+                          🪑 內用桌號 / 取餐牌號 (選填):
+                        </div>
+                        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
+                          {[1, 2, 3, 4, 5, 6, 7, 8].map(tbl => (
+                            <button
+                              key={tbl}
+                              type="button"
+                              onClick={() => setTableNumber(tableNumber === String(tbl) ? null : String(tbl))}
+                              style={{
+                                padding: '6px 12px',
+                                borderRadius: '6px',
+                                border: tableNumber === String(tbl) ? '2px solid var(--primary)' : '1px solid var(--border)',
+                                backgroundColor: tableNumber === String(tbl) ? 'rgba(255, 107, 53, 0.15)' : 'var(--bg-body)',
+                                color: tableNumber === String(tbl) ? 'var(--primary)' : 'var(--text-main)',
+                                fontWeight: 'bold',
+                                fontSize: '0.9rem',
+                                cursor: 'pointer'
+                              }}
+                            >
+                              {tbl} 桌
+                            </button>
+                          ))}
+                          <input
+                            type="text"
+                            placeholder="其他桌號"
+                            value={tableNumber || ''}
+                            onChange={(e) => setTableNumber(e.target.value)}
+                            style={{
+                              width: '90px',
+                              padding: '6px 8px',
+                              fontSize: '0.85rem',
+                              borderRadius: '6px',
+                              border: '1px solid var(--border)',
+                              backgroundColor: 'var(--bg-body)',
+                              color: 'var(--text-main)',
+                              textAlign: 'center'
+                            }}
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Delivery Order Number input if Uber/Panda */}
+                    {(orderType === 'uber' || orderType === 'foodpanda') && (
+                      <div style={{ marginTop: '10px', padding: '10px 14px', borderRadius: '10px', backgroundColor: 'var(--bg-card)', border: '1px solid var(--border)' }}>
+                        <div style={{ fontSize: '0.85rem', fontWeight: 'bold', color: orderType === 'uber' ? '#06C167' : '#D70F64', marginBottom: '6px' }}>
+                          外送單號 / 外送員備註 (選填):
+                        </div>
+                        <input
+                          type="text"
+                          placeholder="輸入平台單號後 4 碼"
+                          value={custName}
+                          onChange={(e) => setCustName(e.target.value)}
+                          style={{
+                            width: '100%',
+                            padding: '8px 12px',
+                            fontSize: '0.95rem',
+                            borderRadius: '8px',
+                            border: '1px solid var(--border)',
+                            backgroundColor: 'var(--bg-body)',
+                            color: 'var(--text-main)'
+                          }}
+                        />
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Payment Method */}
+                  {orderType !== 'uber' && orderType !== 'foodpanda' && (
+                    <div>
+                      <div style={{ fontSize: '1rem', fontWeight: '900', color: 'var(--text-main)', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span>💰 支付方式</span>
+                        <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 'normal' }}>(必選)</span>
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px' }}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedPaymentMethod('現金');
+                            if (!cashReceived || cashReceived === '0') {
+                              setCashReceived(String(finalTotal));
+                            }
+                          }}
+                          style={{
+                            height: '56px',
+                            borderRadius: '12px',
+                            border: isCash ? '3px solid #16a34a' : '2px solid var(--border)',
+                            backgroundColor: isCash ? '#16a34a' : 'var(--bg-card)',
+                            color: isCash ? '#ffffff' : 'var(--text-main)',
+                            fontWeight: '900',
+                            fontSize: '1.15rem',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '8px',
+                            boxShadow: isCash ? '0 4px 14px rgba(22, 163, 74, 0.35)' : 'none',
+                            transition: 'all 0.15s ease'
+                          }}
+                        >
+                          <span>💵 現金支付</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedPaymentMethod('LINE Pay');
                             setCashReceived(String(finalTotal));
-                          } else {
-                            setCashReceived('');
+                          }}
+                          style={{
+                            height: '56px',
+                            borderRadius: '12px',
+                            border: (!isCash && selectedPaymentMethod !== '現金') ? '3px solid #06C167' : '2px solid var(--border)',
+                            backgroundColor: (!isCash && selectedPaymentMethod !== '現金') ? '#06C167' : 'var(--bg-card)',
+                            color: (!isCash && selectedPaymentMethod !== '現金') ? '#ffffff' : 'var(--text-main)',
+                            fontWeight: '900',
+                            fontSize: '1.15rem',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '8px',
+                            boxShadow: (!isCash && selectedPaymentMethod !== '現金') ? '0 4px 14px rgba(6, 193, 103, 0.35)' : 'none',
+                            transition: 'all 0.15s ease'
+                          }}
+                        >
+                          <span>📱 線上支付</span>
+                        </button>
+                      </div>
+
+                      {/* Online payment sub-method selection */}
+                      {!isCash && (
+                        <div style={{ marginTop: '10px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                          {posPaymentMethods.filter(m => m !== '現金').map(m => (
+                            <button
+                              key={m}
+                              type="button"
+                              onClick={() => setSelectedPaymentMethod(m)}
+                              style={{
+                                padding: '6px 14px',
+                                borderRadius: '8px',
+                                border: selectedPaymentMethod === m ? '2px solid #06C167' : '1px solid var(--border)',
+                                backgroundColor: selectedPaymentMethod === m ? 'rgba(6, 193, 103, 0.15)' : 'var(--bg-card)',
+                                color: selectedPaymentMethod === m ? '#06C167' : 'var(--text-main)',
+                                fontWeight: 'bold',
+                                fontSize: '0.88rem',
+                                cursor: 'pointer'
+                              }}
+                            >
+                              {m}
+                            </button>
+                          ))}
+                          {['街口支付', '台灣 Pay', '悠遊卡'].filter(m => !posPaymentMethods.includes(m)).map(m => (
+                            <button
+                              key={m}
+                              type="button"
+                              onClick={() => setSelectedPaymentMethod(m)}
+                              style={{
+                                padding: '6px 14px',
+                                borderRadius: '8px',
+                                border: selectedPaymentMethod === m ? '2px solid #06C167' : '1px solid var(--border)',
+                                backgroundColor: selectedPaymentMethod === m ? 'rgba(6, 193, 103, 0.15)' : 'var(--bg-card)',
+                                color: selectedPaymentMethod === m ? '#06C167' : 'var(--text-main)',
+                                fontWeight: 'bold',
+                                fontSize: '0.88rem',
+                                cursor: 'pointer'
+                              }}
+                            >
+                              {m}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Discounts */}
+                  <div>
+                    <div style={{ fontSize: '0.95rem', fontWeight: 'bold', color: 'var(--text-main)', marginBottom: '8px' }}>
+                      🏷️ 折扣與折讓 (選填)
+                    </div>
+                    <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                      <button
+                        type="button"
+                        onClick={() => { setDiscountType('none'); setDiscountValue(0); }}
+                        style={{
+                          padding: '6px 12px',
+                          borderRadius: '6px',
+                          border: discountType === 'none' ? '2px solid var(--primary)' : '1px solid var(--border)',
+                          backgroundColor: discountType === 'none' ? 'rgba(255, 107, 53, 0.15)' : 'var(--bg-card)',
+                          color: discountType === 'none' ? 'var(--primary)' : 'var(--text-main)',
+                          fontWeight: 'bold',
+                          fontSize: '0.85rem',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        原價無折讓
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setDiscountType('amount'); setDiscountValue(5); }}
+                        style={{
+                          padding: '6px 12px',
+                          borderRadius: '6px',
+                          border: discountType === 'amount' && discountValue === 5 ? '2px solid var(--primary)' : '1px solid var(--border)',
+                          backgroundColor: discountType === 'amount' && discountValue === 5 ? 'var(--primary)' : 'var(--bg-card)',
+                          color: discountType === 'amount' && discountValue === 5 ? '#fff' : 'var(--text-main)',
+                          fontWeight: 'bold',
+                          fontSize: '0.85rem',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        -5 元
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setDiscountType('amount'); setDiscountValue(10); }}
+                        style={{
+                          padding: '6px 12px',
+                          borderRadius: '6px',
+                          border: discountType === 'amount' && discountValue === 10 ? '2px solid var(--primary)' : '1px solid var(--border)',
+                          backgroundColor: discountType === 'amount' && discountValue === 10 ? 'var(--primary)' : 'var(--bg-card)',
+                          color: discountType === 'amount' && discountValue === 10 ? '#fff' : 'var(--text-main)',
+                          fontWeight: 'bold',
+                          fontSize: '0.85rem',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        -10 元
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setDiscountType('percent'); setDiscountValue(10); }}
+                        style={{
+                          padding: '6px 12px',
+                          borderRadius: '6px',
+                          border: discountType === 'percent' && discountValue === 10 ? '2px solid var(--primary)' : '1px solid var(--border)',
+                          backgroundColor: discountType === 'percent' && discountValue === 10 ? 'var(--primary)' : 'var(--bg-card)',
+                          color: discountType === 'percent' && discountValue === 10 ? '#fff' : 'var(--text-main)',
+                          fontWeight: 'bold',
+                          fontSize: '0.85rem',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        9 折優惠
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const amt = prompt("請輸入折讓金額 (元)：");
+                          if (amt !== null && amt !== '') {
+                            setDiscountType('amount');
+                            setDiscountValue(parseInt(amt) || 0);
                           }
                         }}
                         style={{
                           padding: '6px 12px',
-                          fontSize: '0.75rem',
                           borderRadius: '6px',
-                          border: selectedPaymentMethod === method ? '2px solid var(--primary)' : '1px solid var(--border)',
-                          backgroundColor: selectedPaymentMethod === method ? 'var(--primary)' : 'var(--bg-card)',
-                          color: selectedPaymentMethod === method ? 'white' : 'var(--text-main)',
+                          border: discountType === 'amount' && discountValue !== 5 && discountValue !== 10 && discountValue > 0 ? '2px solid var(--primary)' : '1px solid var(--border)',
+                          backgroundColor: discountType === 'amount' && discountValue !== 5 && discountValue !== 10 && discountValue > 0 ? 'var(--primary)' : 'var(--bg-card)',
+                          color: discountType === 'amount' && discountValue !== 5 && discountValue !== 10 && discountValue > 0 ? '#fff' : 'var(--text-main)',
                           fontWeight: 'bold',
-                          cursor: 'pointer',
-                          transition: 'all 0.2s'
+                          fontSize: '0.85rem',
+                          cursor: 'pointer'
                         }}
                       >
-                        {method}
+                        自訂折抵 $
                       </button>
-                    ))}
+                    </div>
                   </div>
                 </div>
-              )}
 
-              {isCash ? (
-                <>
-                  {/* Cash input and Change calculations */}
-                  <div style={{ display: 'flex', gap: '12px' }}>
-                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                      <label style={{ fontSize: '0.75rem', fontWeight: 'bold', color: 'var(--text-muted)' }}>實收現金 (NT$) *</label>
-                      <input 
-                        type="text" 
-                        placeholder="點選下方鍵盤輸入"
-                        value={cashReceived ? `NT$ ${cashReceived}` : ''}
-                        readOnly
-                        style={{ padding: '8px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', fontSize: '0.9rem', fontWeight: 'bold', backgroundColor: 'var(--bg-input)', color: 'var(--text-main)', textAlign: 'right' }}
-                        required
-                      />
-                    </div>
-                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                      <label style={{ fontSize: '0.75rem', fontWeight: 'bold', color: 'var(--text-muted)' }}>找零金額</label>
+                {/* Right Column: Numeric Keypad & Change OR Online Payment Confirmation */}
+                <div style={{
+                  flex: '1 1 55%',
+                  padding: '20px 24px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  justifyContent: 'space-between',
+                  backgroundColor: 'var(--bg-card)'
+                }}>
+                  {isCash ? (
+                    /* Cash & Large Keypad Mode */
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', flex: 1 }}>
+                      {/* Dual Big Display Cards: Cash Received & Change Amount */}
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px' }}>
+                        {/* Cash Received Card */}
+                        <div style={{
+                          padding: '12px 16px',
+                          borderRadius: '12px',
+                          border: '2px solid var(--border)',
+                          backgroundColor: 'var(--bg-body)',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '4px'
+                        }}>
+                          <span style={{ fontSize: '0.85rem', fontWeight: 'bold', color: 'var(--text-muted)' }}>
+                            實收現金 (NT$)
+                          </span>
+                          <div style={{
+                            fontSize: '2.2rem',
+                            fontWeight: '900',
+                            color: 'var(--text-main)',
+                            lineHeight: 1.1,
+                            textAlign: 'right'
+                          }}>
+                            ${cashReceived || '0'}
+                          </div>
+                        </div>
+
+                        {/* Change Amount Card */}
+                        <div style={{
+                          padding: '12px 16px',
+                          borderRadius: '12px',
+                          border: changeAmount >= 0 ? '2px solid #10b981' : '2px solid #ef4444',
+                          backgroundColor: changeAmount >= 0 ? 'rgba(16, 185, 129, 0.08)' : 'rgba(239, 68, 68, 0.08)',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '4px'
+                        }}>
+                          <span style={{ fontSize: '0.85rem', fontWeight: 'bold', color: changeAmount >= 0 ? '#059669' : '#dc2626' }}>
+                            {changeAmount >= 0 ? '應找零錢' : '金額不足'}
+                          </span>
+                          <div style={{
+                            fontSize: '2.2rem',
+                            fontWeight: '900',
+                            color: changeAmount >= 0 ? '#16a34a' : '#ef4444',
+                            lineHeight: 1.1,
+                            textAlign: 'right'
+                          }}>
+                            ${changeAmount >= 0 ? changeAmount : Math.abs(changeAmount)}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Quick Cash Presets */}
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                        <button
+                          type="button"
+                          onClick={() => setCashReceived(String(finalTotal))}
+                          style={{
+                            flex: 1.5,
+                            height: '46px',
+                            borderRadius: '8px',
+                            border: 'none',
+                            background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                            color: '#ffffff',
+                            fontWeight: '900',
+                            fontSize: '1.1rem',
+                            cursor: 'pointer',
+                            boxShadow: '0 3px 10px rgba(16, 185, 129, 0.35)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '6px'
+                          }}
+                        >
+                          <span>剛好收足</span>
+                          <span style={{ backgroundColor: 'rgba(255,255,255,0.25)', padding: '2px 6px', borderRadius: '4px' }}>
+                            ${finalTotal}
+                          </span>
+                        </button>
+
+                        {['100', '200', '500', '1000'].map(amt => (
+                          <button
+                            key={amt}
+                            type="button"
+                            onClick={() => setCashReceived(amt)}
+                            style={{
+                              flex: 1,
+                              height: '46px',
+                              borderRadius: '8px',
+                              border: cashReceived === amt ? '2px solid var(--primary)' : '1px solid var(--border)',
+                              backgroundColor: cashReceived === amt ? 'rgba(255, 107, 53, 0.15)' : 'var(--bg-body)',
+                              color: cashReceived === amt ? 'var(--primary)' : 'var(--text-main)',
+                              fontWeight: '900',
+                              fontSize: '1.05rem',
+                              cursor: 'pointer'
+                            }}
+                          >
+                            ${amt}
+                          </button>
+                        ))}
+                      </div>
+
+                      {/* Giant Numeric Touch Keypad (3x4) */}
                       <div style={{
-                        padding: '8px 10px',
-                        borderRadius: 'var(--radius-sm)',
-                        border: '1px solid var(--border)',
-                        fontSize: '0.9rem',
-                        fontWeight: '800',
-                        color: changeAmount > 0 ? '#16a34a' : 'var(--text-main)',
-                        backgroundColor: 'var(--bg-input)',
-                        textAlign: 'right'
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(3, 1fr)',
+                        gap: '8px',
+                        flex: 1
                       }}>
-                        NT$ {changeAmount}
+                        {[7, 8, 9, 4, 5, 6, 1, 2, 3].map(num => (
+                          <button
+                            key={num}
+                            type="button"
+                            onClick={() => {
+                              setCashReceived(prev => {
+                                const next = prev + String(num);
+                                return next.length > 8 ? prev : next;
+                              });
+                            }}
+                            style={{
+                              height: '56px',
+                              fontSize: '1.65rem',
+                              fontWeight: '900',
+                              borderRadius: '8px',
+                              border: '1px solid var(--border)',
+                              backgroundColor: 'var(--bg-body)',
+                              color: 'var(--text-main)',
+                              cursor: 'pointer',
+                              boxShadow: 'var(--shadow-sm)'
+                            }}
+                          >
+                            {num}
+                          </button>
+                        ))}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCashReceived(prev => {
+                              const next = prev + '00';
+                              return next.length > 8 ? prev : next;
+                            });
+                          }}
+                          style={{
+                            height: '56px',
+                            fontSize: '1.4rem',
+                            fontWeight: '900',
+                            borderRadius: '8px',
+                            border: '1px solid var(--border)',
+                            backgroundColor: 'var(--bg-body)',
+                            color: 'var(--text-main)',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          00
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCashReceived(prev => {
+                              const next = prev + '0';
+                              return next.length > 8 ? prev : next;
+                            });
+                          }}
+                          style={{
+                            height: '56px',
+                            fontSize: '1.65rem',
+                            fontWeight: '900',
+                            borderRadius: '8px',
+                            border: '1px solid var(--border)',
+                            backgroundColor: 'var(--bg-body)',
+                            color: 'var(--text-main)',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          0
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setCashReceived(prev => prev.slice(0, -1))}
+                          style={{
+                            height: '56px',
+                            fontSize: '1.4rem',
+                            fontWeight: '900',
+                            borderRadius: '8px',
+                            border: '1px solid #ef4444',
+                            backgroundColor: 'rgba(239, 68, 68, 0.08)',
+                            color: '#ef4444',
+                            cursor: 'pointer'
+                          }}
+                          title="清除一位數"
+                        >
+                          ⌫ 退格
+                        </button>
                       </div>
                     </div>
-                  </div>
-
-                  {/* POS Built-in Cash Preset Buttons (Prominent Exact Cash + Quick Bill Selector) */}
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
-                    {/* Top High-Visibility Exact Cash Button */}
-                    <button
-                      type="button"
-                      onClick={() => setCashReceived(String(finalTotal))}
-                      style={{
-                        width: '100%',
-                        height: posUiScale === 'large' ? '44px' : posUiScale === 'medium' ? '36px' : '32px',
-                        fontSize: posUiScale === 'large' ? '1.15rem' : posUiScale === 'medium' ? '1.05rem' : '0.95rem',
-                        borderRadius: '8px',
-                        border: cashReceived === String(finalTotal) ? '2px solid #047857' : 'none',
-                        background: 'linear-gradient(135deg, #16a34a 0%, #15803d 100%)',
-                        color: '#ffffff',
-                        cursor: 'pointer',
-                        fontWeight: '900',
+                  ) : (
+                    /* Online / Delivery Payment Confirmation Mode */
+                    <div style={{
+                      flex: 1,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '16px',
+                      padding: '24px',
+                      borderRadius: '16px',
+                      backgroundColor: 'var(--bg-body)',
+                      border: '2px dashed var(--border)',
+                      textAlign: 'center'
+                    }}>
+                      <div style={{
+                        width: '72px',
+                        height: '72px',
+                        borderRadius: '50%',
+                        backgroundColor: 'rgba(6, 193, 103, 0.15)',
+                        color: '#06C167',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        gap: '6px',
-                        boxShadow: '0 3px 8px rgba(22, 163, 74, 0.35)',
-                        letterSpacing: '0.5px',
-                        transition: 'all 0.15s ease'
-                      }}
-                    >
-                      <span>💰 剛好收</span>
-                      <span style={{ backgroundColor: 'rgba(255, 255, 255, 0.25)', padding: '2px 8px', borderRadius: '4px', textDecoration: 'underline' }}>
-                        NT$ {finalTotal}
-                      </span>
-                      {cashReceived === String(finalTotal) && <span>✓</span>}
-                    </button>
-
-                    {/* Quick Bill Preset Buttons */}
-                    <div style={{ display: 'flex', gap: '4px' }}>
-                      {['50', '100', '200', '500', '1000'].map(amt => (
-                        <button
-                          key={amt}
-                          type="button"
-                          onClick={() => setCashReceived(amt)}
-                          style={{
-                            flex: 1,
-                            height: posUiScale === 'large' ? '36px' : posUiScale === 'medium' ? '30px' : '26px',
-                            fontSize: posUiScale === 'large' ? '0.95rem' : '0.85rem',
-                            borderRadius: '6px',
-                            border: cashReceived === amt ? '2px solid var(--primary)' : '1px solid var(--border)',
-                            backgroundColor: cashReceived === amt ? 'rgba(255, 107, 53, 0.1)' : 'var(--bg-card)',
-                            color: cashReceived === amt ? 'var(--primary)' : 'var(--text-main)',
-                            cursor: 'pointer',
-                            fontWeight: '900'
-                          }}
-                        >
-                          ${amt}
-                        </button>
-                      ))}
+                        fontSize: '2.5rem'
+                      }}>
+                        📱
+                      </div>
+                      <div>
+                        <h3 style={{ fontSize: '1.35rem', fontWeight: '900', margin: '0 0 6px 0', color: 'var(--text-main)' }}>
+                          {orderType === 'uber' ? 'Uber Eats 平台線上扣款' : (orderType === 'foodpanda' ? 'foodpanda 平台線上扣款' : `以【${selectedPaymentMethod}】支付`)}
+                        </h3>
+                        <p style={{ fontSize: '0.95rem', color: 'var(--text-muted)', margin: 0, maxWidth: '360px', lineHeight: '1.5' }}>
+                          {orderType === 'uber' || orderType === 'foodpanda' 
+                            ? '外送平台已由線上結清款項，免現場找零收現。' 
+                            : '請引導顧客掃描櫃台收款條碼或出示手機扣款碼。確認款項後即可點擊下方完成出單。'}
+                        </p>
+                      </div>
+                      <div style={{
+                        fontSize: '1.8rem',
+                        fontWeight: '900',
+                        color: 'var(--primary)',
+                        backgroundColor: 'var(--bg-card)',
+                        padding: '8px 24px',
+                        borderRadius: '10px',
+                        border: '1px solid var(--border)'
+                      }}>
+                        扣款 NT$ {finalTotal}
+                      </div>
                     </div>
-                  </div>
+                  )}
 
-                  {/* Built-in Visual Keypad (Scaled: Compact fits 100% without scroll) */}
-                  <div style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(3, 1fr)',
-                    gap: posUiScale === 'large' ? '5px' : '3px',
-                    border: '1px solid var(--border)',
-                    borderRadius: '8px',
-                    padding: posUiScale === 'large' ? '6px' : '4px',
-                    backgroundColor: 'var(--bg-card)'
-                  }}>
-                    {[7, 8, 9, 4, 5, 6, 1, 2, 3].map(num => (
-                      <button
-                        key={num}
-                        type="button"
-                        onClick={() => {
-                          setCashReceived(prev => {
-                            const next = prev + String(num);
-                            return next.length > 8 ? prev : next;
-                          });
-                        }}
-                        style={{
-                          height: posUiScale === 'large' ? '52px' : posUiScale === 'medium' ? '42px' : '35px',
-                          fontSize: posUiScale === 'large' ? '1.4rem' : posUiScale === 'medium' ? '1.25rem' : '1.1rem',
-                          fontWeight: '900',
-                          border: '1px solid var(--border)',
-                          backgroundColor: 'var(--bg-body)',
-                          borderRadius: '4px',
-                          cursor: 'pointer',
-                          color: 'var(--text-main)'
-                        }}
-                      >
-                        {num}
-                      </button>
-                    ))}
+                  {/* Action Buttons: Cancel and Submit */}
+                  <div style={{ display: 'flex', gap: '12px', marginTop: '16px', paddingTop: '12px', borderTop: '1px solid var(--border)' }}>
                     <button
                       type="button"
-                      onClick={() => {
-                        setCashReceived(prev => {
-                          const next = prev + '00';
-                          return next.length > 8 ? prev : next;
-                        });
-                      }}
+                      onClick={() => setIsCheckoutModalOpen(false)}
                       style={{
-                        height: posUiScale === 'large' ? '52px' : posUiScale === 'medium' ? '42px' : '35px',
-                        fontSize: posUiScale === 'large' ? '1.25rem' : posUiScale === 'medium' ? '1.1rem' : '1rem',
-                        fontWeight: '900',
+                        flex: 1,
+                        height: '60px',
+                        borderRadius: '12px',
                         border: '1px solid var(--border)',
                         backgroundColor: 'var(--bg-body)',
-                        borderRadius: '4px',
-                        cursor: 'pointer',
-                        color: 'var(--text-main)'
-                      }}
-                    >
-                      00
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setCashReceived(prev => {
-                          const next = prev + '0';
-                          return next.length > 8 ? prev : next;
-                        });
-                      }}
-                      style={{
-                        height: posUiScale === 'large' ? '52px' : posUiScale === 'medium' ? '42px' : '35px',
-                        fontSize: posUiScale === 'large' ? '1.4rem' : posUiScale === 'medium' ? '1.25rem' : '1.1rem',
-                        fontWeight: '900',
-                        border: '1px solid var(--border)',
-                        backgroundColor: 'var(--bg-body)',
-                        borderRadius: '4px',
-                        cursor: 'pointer',
-                        color: 'var(--text-main)'
-                      }}
-                    >
-                      0
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setCashReceived(prev => prev.slice(0, -1));
-                      }}
-                      style={{
-                        height: posUiScale === 'large' ? '52px' : posUiScale === 'medium' ? '42px' : '35px',
-                        fontSize: posUiScale === 'large' ? '1.25rem' : posUiScale === 'medium' ? '1.1rem' : '1rem',
-                        fontWeight: '900',
-                        border: '1px solid #ef4444',
-                        color: '#ef4444',
-                        backgroundColor: 'rgba(239,68,68,0.05)',
-                        borderRadius: '4px',
+                        color: 'var(--text-main)',
+                        fontSize: '1.15rem',
+                        fontWeight: 'bold',
                         cursor: 'pointer'
                       }}
                     >
-                      ⌫
+                      ⬅ 返回修改點餐
+                    </button>
+
+                    <button
+                      type="submit"
+                      disabled={isSubmittingOrder || (isCash && (parseFloat(cashReceived) || 0) < finalTotal)}
+                      style={{
+                        flex: 2,
+                        height: '60px',
+                        borderRadius: '12px',
+                        border: 'none',
+                        background: (isSubmittingOrder || (isCash && (parseFloat(cashReceived) || 0) < finalTotal))
+                          ? 'var(--border)'
+                          : 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                        color: (isSubmittingOrder || (isCash && (parseFloat(cashReceived) || 0) < finalTotal))
+                          ? 'var(--text-muted)'
+                          : '#ffffff',
+                        fontSize: '1.35rem',
+                        fontWeight: '900',
+                        cursor: (isSubmittingOrder || (isCash && (parseFloat(cashReceived) || 0) < finalTotal))
+                          ? 'not-allowed'
+                          : 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '8px',
+                        boxShadow: (isSubmittingOrder || (isCash && (parseFloat(cashReceived) || 0) < finalTotal))
+                          ? 'none'
+                          : '0 6px 20px rgba(16, 185, 129, 0.4)',
+                        letterSpacing: '1px'
+                      }}
+                    >
+                      {isSubmittingOrder ? '⏳ 正在出單送單中...' : '💸 確認結帳送單 (Enter)'}
                     </button>
                   </div>
-                </>
-              ) : orderType === 'uber' ? (
-                <div style={{
-                  padding: '14px',
-                  borderRadius: '8px',
-                  border: '1px solid #06C167',
-                  backgroundColor: 'rgba(6, 193, 103, 0.08)',
-                  color: '#06C167',
-                  fontSize: '0.85rem',
-                  fontWeight: 'bold',
-                  textAlign: 'center',
-                  lineHeight: '1.5'
-                }}>
-                  🛵 Uber Eats 平台線上已結清（免收現）<br />
-                  <span style={{ fontSize: '0.75rem', color: '#059669' }}>點擊下方按鈕即可送單並印出客收據與廚房聯</span>
                 </div>
-              ) : (
-                <div style={{
-                  padding: '16px',
-                  borderRadius: '8px',
-                  border: '1px dashed var(--border)',
-                  backgroundColor: 'rgba(234, 88, 12, 0.03)',
-                  color: 'var(--text-muted)',
-                  fontSize: '0.8rem',
-                  fontWeight: 'bold',
-                  textAlign: 'center'
-                }}>
-                  💳 預計以【{selectedPaymentMethod}】結帳，無須找零。
-                </div>
-              )}
-
-              {/* Submit transaction */}
-              <button
-                type="submit"
-                disabled={cart.length === 0 || isSubmittingOrder}
-                style={{
-                  padding: '12px',
-                  borderRadius: 'var(--radius-sm)',
-                  backgroundColor: (cart.length === 0 || isSubmittingOrder) ? 'var(--border)' : '#16a34a',
-                  color: 'white',
-                  fontWeight: 'bold',
-                  fontSize: '0.95rem',
-                  border: 'none',
-                  cursor: (cart.length === 0 || isSubmittingOrder) ? 'not-allowed' : 'pointer',
-                  marginTop: '4px',
-                  boxShadow: 'var(--shadow-sm)'
-                }}
-              >
-                {isSubmittingOrder ? '⏳ 正在送單出單中...' : '💸 確認收銀結帳送單'}
-              </button>
-            </form>
-            
-
+              </form>
+            </div>
           </div>
+        )}
         </div>
       ) : (
         /* POS Receipt Success view */
