@@ -57,9 +57,15 @@
       </button>
 
       <!-- Voice Toggle -->
-      <button id="btnVoiceToggle" class="px-4 py-2 rounded-xl text-sm font-black border transition flex items-center gap-2 bg-emerald-500/20 text-emerald-300 border-emerald-500/50 shadow-sm">
+      <button id="btnVoiceToggle" class="px-4 py-2 rounded-xl text-sm font-black border transition flex items-center gap-2 bg-emerald-500/20 text-emerald-300 border-emerald-500/50 shadow-sm" title="開關語音導覽">
         <span id="voiceIcon" class="text-base">🔊</span>
-        <span id="voiceStatusText">語音導覽：開</span>
+        <span id="voiceStatusText">語音：開</span>
+      </button>
+
+      <!-- AI Speaker Voice Selector -->
+      <button id="btnVoiceSpeakerToggle" class="px-3.5 py-2 rounded-xl text-sm font-black border transition flex items-center gap-1.5 bg-indigo-500/20 text-indigo-300 border-indigo-500/40 hover:bg-indigo-500/30 shadow-sm" title="切換 AI 擬真配音員">
+        <span id="speakerIcon">👩</span>
+        <span id="speakerNameText">曉臻 (女聲)</span>
       </button>
 
       <button id="btnFullscreen" class="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-bold border border-slate-700">
@@ -407,11 +413,13 @@
     let currentIndex = 0;
     let isPlaying = true;
     let isVoiceEnabled = true;
+    let currentVoiceSpeaker = 'female'; // 'female': 曉臻, 'male': 雲哲
     let slideSeconds = 14;
     let remainingTime = slideSeconds;
     let intervalTimer = null;
     let isSpeaking = false;
     let fontSizeModeIndex = 0; // 0: Normal Large (特大), 1: Huge (巨大)
+    let currentAudio = null;
 
     // Elements
     const slideContainer = document.getElementById('slideContainer');
@@ -425,6 +433,9 @@
     const btnVoiceToggle = document.getElementById('btnVoiceToggle');
     const voiceIcon = document.getElementById('voiceIcon');
     const voiceStatusText = document.getElementById('voiceStatusText');
+    const btnVoiceSpeakerToggle = document.getElementById('btnVoiceSpeakerToggle');
+    const speakerIcon = document.getElementById('speakerIcon');
+    const speakerNameText = document.getElementById('speakerNameText');
     const btnFontSizeToggle = document.getElementById('btnFontSizeToggle');
     const fontSizeLabel = document.getElementById('fontSizeLabel');
     const btnPrev = document.getElementById('btnPrev');
@@ -450,6 +461,21 @@
     btnFontSizeToggle.addEventListener('click', () => {
       fontSizeModeIndex = (fontSizeModeIndex + 1) % fontModes.length;
       applyFontSizeMode(fontSizeModeIndex);
+    });
+
+    // Voice Speaker (Female / Male) Handler
+    btnVoiceSpeakerToggle.addEventListener('click', () => {
+      currentVoiceSpeaker = (currentVoiceSpeaker === 'female') ? 'male' : 'female';
+      if (currentVoiceSpeaker === 'female') {
+        speakerIcon.textContent = "👩";
+        speakerNameText.textContent = "曉臻 (女聲)";
+      } else {
+        speakerIcon.textContent = "👨";
+        speakerNameText.textContent = "雲哲 (男聲)";
+      }
+      if (isVoiceEnabled && isPlaying) {
+        playSlideAudio(slides[currentIndex]);
+      }
     });
 
     // Initialize Indicators
@@ -489,14 +515,74 @@
       narrationText.textContent = slide.narration;
       renderDots();
 
-      // Trigger Voice
-      if (isVoiceEnabled) {
-        speakNarration(slide.narration);
+      // Trigger High-Fidelity Voice
+      if (isVoiceEnabled && isPlaying) {
+        playSlideAudio(slide);
+      } else {
+        stopAudio();
       }
     }
 
-    // Speech Synthesis (Natural Taiwan Chinese)
-    function speakNarration(text) {
+    // Audio Engine: High-Fidelity Studio Neural AI Voice
+    function stopAudio() {
+      if (currentAudio) {
+        try {
+          currentAudio.pause();
+          currentAudio.removeAttribute('src');
+          currentAudio.load();
+        } catch (e) {}
+        currentAudio = null;
+      }
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
+      isSpeaking = false;
+    }
+
+    function playSlideAudio(slide) {
+      stopAudio();
+      if (!isVoiceEnabled) return;
+
+      const audioSrc = currentVoiceSpeaker === 'female'
+        ? `./audio/slide_${slide.id}.mp3`
+        : `./audio/slide_${slide.id}_male.mp3`;
+
+      const audio = new Audio(audioSrc);
+      currentAudio = audio;
+      isSpeaking = true;
+
+      // Dynamically sync slide timing with narration duration
+      audio.addEventListener('loadedmetadata', () => {
+        if (audio.duration && !isNaN(audio.duration)) {
+          slideSeconds = Math.max(12, Math.ceil(audio.duration) + 3);
+          remainingTime = slideSeconds;
+        }
+      });
+
+      audio.addEventListener('ended', () => {
+        isSpeaking = false;
+        // If remaining time is still long, finish the slide in 2 seconds
+        if (remainingTime > 2.5) {
+          remainingTime = 2.5;
+        }
+      });
+
+      audio.addEventListener('error', (err) => {
+        console.warn("Neural audio file could not be loaded, falling back to Web Speech:", err);
+        speakNarrationWebSpeech(slide.narration);
+      });
+
+      const playPromise = audio.play();
+      if (playPromise !== undefined) {
+        playPromise.catch(err => {
+          console.warn("Audio autoplay was restricted, falling back to Web Speech:", err);
+          speakNarrationWebSpeech(slide.narration);
+        });
+      }
+    }
+
+    // Fallback Speech Synthesis (if MP3 files are unreachable)
+    function speakNarrationWebSpeech(text) {
       if (!('speechSynthesis' in window)) return;
       window.speechSynthesis.cancel();
 
@@ -527,7 +613,7 @@
         remainingTime -= 0.1;
         const progressPercent = ((slideSeconds - remainingTime) / slideSeconds) * 100;
         progressBar.style.width = `${Math.min(100, Math.max(0, progressPercent))}%`;
-        timerLabel.textContent = `剩餘 ${Math.ceil(remainingTime)}s`;
+        timerLabel.textContent = `剩餘 ${Math.ceil(Math.max(0, remainingTime))}s`;
 
         if (remainingTime <= 0) {
           if (isSpeaking && isVoiceEnabled) {
@@ -571,12 +657,22 @@
       isPlaying = true;
       playPauseIcon.textContent = "⏸️";
       playPauseText.textContent = "暫停";
+      if (currentAudio && currentAudio.paused) {
+        currentAudio.play().catch(() => {});
+      } else if ('speechSynthesis' in window && window.speechSynthesis.paused) {
+        window.speechSynthesis.resume();
+      } else if (isVoiceEnabled && !currentAudio) {
+        playSlideAudio(slides[currentIndex]);
+      }
     }
 
     function pause() {
       isPlaying = false;
       playPauseIcon.textContent = "▶️";
       playPauseText.textContent = "播放";
+      if (currentAudio && !currentAudio.paused) {
+        currentAudio.pause();
+      }
       if ('speechSynthesis' in window) window.speechSynthesis.pause();
     }
 
@@ -585,9 +681,6 @@
         pause();
       } else {
         play();
-        if ('speechSynthesis' in window && window.speechSynthesis.paused) {
-          window.speechSynthesis.resume();
-        }
       }
     });
 
@@ -600,13 +693,13 @@
       if (isVoiceEnabled) {
         btnVoiceToggle.className = "px-4 py-2 rounded-xl text-sm font-black border transition flex items-center gap-2 bg-emerald-500/20 text-emerald-300 border-emerald-500/50 shadow-sm";
         voiceIcon.textContent = "🔊";
-        voiceStatusText.textContent = "語音導覽：開";
-        speakNarration(slides[currentIndex].narration);
+        voiceStatusText.textContent = "語音：開";
+        playSlideAudio(slides[currentIndex]);
       } else {
         btnVoiceToggle.className = "px-4 py-2 rounded-xl text-sm font-black border transition flex items-center gap-2 bg-slate-800 text-slate-400 border-slate-700 shadow-sm";
         voiceIcon.textContent = "🔇";
-        voiceStatusText.textContent = "語音導覽：關";
-        if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+        voiceStatusText.textContent = "語音：關";
+        stopAudio();
       }
     });
 
@@ -624,7 +717,12 @@
       startOverlay.classList.add('opacity-0', 'pointer-events-none');
       setTimeout(() => startOverlay.remove(), 400);
 
-      // Unlock Audio & Start
+      // Unlock HTML5 Audio for iOS Safari
+      try {
+        const dummyAudio = new Audio();
+        dummyAudio.play().catch(() => {});
+      } catch (e) {}
+
       if ('speechSynthesis' in window) {
         const dummy = new SpeechSynthesisUtterance('');
         window.speechSynthesis.speak(dummy);
