@@ -84,7 +84,23 @@ export default function ThermalPrintPortal({ printPayload, onClose }) {
     const remarksStr = order.remarks || order.note || '';
     const shouldPrintKitchen = receiptConfig.printKitchenTicket !== false;
 
-    const isOnlineOrder = order.source === 'customer' || order.items?.source === 'customer' || String(orderNumStr).startsWith('O-') || !!order.authUser || !!order.lineUser || !!order.customerAuth || order.channel === '線上點餐' || order.items?.channel === '線上點餐';
+    const isPosOrder = !isUber && !isPanda && (
+      order.source === 'pos' ||
+      order.items?.source === 'pos' ||
+      !!order.cashier ||
+      !!order.items?.cashier ||
+      String(order.customerName || order.custName || order.items?.customerName || '').includes('(POS)')
+    );
+    const isOnlineOrder = !isUber && !isPanda && !isPosOrder && (
+      order.source === 'customer' ||
+      order.items?.source === 'customer' ||
+      order.isOnline === true ||
+      !!order.authUser ||
+      !!order.lineUser ||
+      !!order.customerAuth ||
+      order.channel === '線上點餐' ||
+      order.items?.channel === '線上點餐'
+    );
 
     printableContent = (
       <div style={{ width: printWidth, maxWidth: printWidth, boxSizing: 'border-box', color: '#000', fontFamily: 'monospace, sans-serif', fontSize: baseFontSize, lineHeight: 1.3, wordBreak: 'break-all', textAlign: 'left', margin: 0, padding: 0, overflow: 'hidden' }}>
@@ -101,6 +117,11 @@ export default function ThermalPrintPortal({ printPayload, onClose }) {
             <div style={{ textAlign: 'center', fontSize: '10px' }}>{storeProfile.storeAddress}</div>
           )}
           <div style={{ textAlign: 'center', fontSize: subFontSize, fontWeight: 'bold', marginTop: '2px' }}>=== 交易收據明細 ===</div>
+          {isPosOrder && (
+            <div style={{ textAlign: 'center', fontSize: '12px', fontWeight: '900', margin: '3px 0', padding: '2px 0', border: '1px solid #000' }}>
+              【 💻 POS機點餐 】
+            </div>
+          )}
           {isOnlineOrder && (
             <div style={{ textAlign: 'center', fontSize: '12px', fontWeight: '900', margin: '3px 0', padding: '2px 0', border: '1px solid #000' }}>
               【 📱 線上點餐 】
@@ -109,7 +130,7 @@ export default function ThermalPrintPortal({ printPayload, onClose }) {
           <div style={{ borderTop: '1px dashed #000', margin: '4px 0' }}></div>
           <div style={{ fontSize: is58mm ? '13px' : '15px', fontWeight: 'bold', marginBottom: '2px', wordBreak: 'break-all' }}>單號: {orderNumStr}</div>
           {receiptConfig.printType !== false && (
-            <div style={{ fontWeight: 'bold', wordBreak: 'break-all' }}>類型: {isOnlineOrder ? '【線上點餐】' : ''}{typeStr} {tableNameStr ? `(${tableNameStr}桌)` : ''}</div>
+            <div style={{ fontWeight: 'bold', wordBreak: 'break-all' }}>類型: {isPosOrder ? '【POS機點餐】' : (isOnlineOrder ? '【線上點餐】' : '')}{typeStr} {tableNameStr ? `(${tableNameStr}桌)` : ''}</div>
           )}
           {order.pickupTime && (
             <div style={{ fontWeight: 'bold', fontSize: is58mm ? '12px' : '14px', margin: '2px 0' }}>取餐時間: {order.pickupTime}</div>
@@ -195,8 +216,13 @@ export default function ThermalPrintPortal({ printPayload, onClose }) {
             <div className="kitchen-ticket-section" style={{ paddingTop: '4px', width: '100%', boxSizing: 'border-box' }}>
               <div style={{ textAlign: 'center', fontSize: is58mm ? '15px' : '18px', fontWeight: '900' }}>=== 廚房備餐單 ===</div>
               <div style={{ textAlign: 'center', fontSize: is58mm ? '14px' : '18px', fontWeight: '900', padding: '2px 4px', border: '2px solid #000', margin: '3px 0', wordBreak: 'break-all', boxSizing: 'border-box' }}>
-                {isUber ? '🛵 Uber Eats 外送' : (isPanda ? '🐼 熊貓外送' : (isOnlineOrder ? '【線上點餐】' : '') + typeStr + (tableNameStr ? ' ' + tableNameStr + '桌' : ''))}
+                {isUber ? '🛵 Uber Eats 外送' : (isPanda ? '🐼 熊貓外送' : ((isPosOrder ? '【POS機點餐】' : (isOnlineOrder ? '【線上點餐】' : '')) + typeStr + (tableNameStr ? ' ' + tableNameStr + '桌' : '')))}
               </div>
+              {isPosOrder && (
+                <div style={{ textAlign: 'center', fontSize: '12px', fontWeight: '900', margin: '2px 0', letterSpacing: '1px' }}>
+                  ★ 門市現場 POS 收銀送單 ★
+                </div>
+              )}
               {isOnlineOrder && (
                 <div style={{ textAlign: 'center', fontSize: '12px', fontWeight: '900', margin: '2px 0', letterSpacing: '1px' }}>
                   ★ 顧客手機線上送單 ★

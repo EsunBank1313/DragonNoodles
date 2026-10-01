@@ -31,7 +31,23 @@ export default function PosThermalPrintArea({ printPayload }) {
     const remarksStr = order.remarks || order.note || '';
     const shouldPrintKitchen = receiptConfig.printKitchenTicket !== false;
 
-    const isOnlineOrder = order.source === 'customer' || order.items?.source === 'customer' || String(orderNumStr).startsWith('O-') || !!order.authUser || !!order.lineUser || !!order.customerAuth || order.channel === '線上點餐' || order.items?.channel === '線上點餐';
+    const isPosOrder = !isUber && !isPanda && (
+      order.source === 'pos' ||
+      order.items?.source === 'pos' ||
+      !!order.cashier ||
+      !!order.items?.cashier ||
+      String(order.customerName || order.custName || order.items?.customerName || '').includes('(POS)')
+    );
+    const isOnlineOrder = !isUber && !isPanda && !isPosOrder && (
+      order.source === 'customer' ||
+      order.items?.source === 'customer' ||
+      order.isOnline === true ||
+      !!order.authUser ||
+      !!order.lineUser ||
+      !!order.customerAuth ||
+      order.channel === '線上點餐' ||
+      order.items?.channel === '線上點餐'
+    );
 
     return (
       <div id="pos-thermal-print-area" style={{ width: printWidth }}>
@@ -52,6 +68,11 @@ export default function PosThermalPrintArea({ printPayload }) {
           <div style={{ textAlign: 'center', fontSize: '12px', fontWeight: 'bold', marginTop: '2px' }}>
             === 交易收據明細 ===
           </div>
+          {isPosOrder && (
+            <div style={{ textAlign: 'center', fontSize: '13px', fontWeight: '900', margin: '3px 0', padding: '2px 0', border: '1px solid #000' }}>
+              【 💻 POS機點餐 】
+            </div>
+          )}
           {isOnlineOrder && (
             <div style={{ textAlign: 'center', fontSize: '13px', fontWeight: '900', margin: '3px 0', padding: '2px 0', border: '1px solid #000' }}>
               【 📱 線上點餐 】
@@ -62,7 +83,7 @@ export default function PosThermalPrintArea({ printPayload }) {
             單號: {orderNumStr}
           </div>
           {receiptConfig.printType !== false && (
-            <div>類型: {isOnlineOrder ? '【線上點餐】' : ''}{typeStr} {tableNameStr ? `(${tableNameStr}桌)` : ''}</div>
+            <div>類型: {isPosOrder ? '【POS機點餐】' : (isOnlineOrder ? '【線上點餐】' : '')}{typeStr} {tableNameStr ? `(${tableNameStr}桌)` : ''}</div>
           )}
           {order.pickupTime && (
             <div style={{ fontSize: '13px', fontWeight: 'bold', margin: '2px 0' }}>取餐時間: {order.pickupTime}</div>
@@ -130,8 +151,13 @@ export default function PosThermalPrintArea({ printPayload }) {
             <div className="kitchen-ticket">
               <div style={{ textAlign: 'center', fontSize: '16px', fontWeight: '900' }}>=== 廚房備餐單 ===</div>
               <div style={{ textAlign: 'center', fontSize: '20px', fontWeight: '900', padding: '3px 0', border: '2px solid #000', margin: '4px 0' }}>
-                {isOnlineOrder ? '【線上點餐】' : ''}{typeStr} {tableNameStr ? tableNameStr + '桌' : ''}
+                {isPosOrder ? '【POS機點餐】' : (isOnlineOrder ? '【線上點餐】' : '')}{typeStr} {tableNameStr ? tableNameStr + '桌' : ''}
               </div>
+              {isPosOrder && (
+                <div style={{ textAlign: 'center', fontSize: '12px', fontWeight: '900', margin: '2px 0', letterSpacing: '1px' }}>
+                  ★ 門市現場 POS 收銀送單 ★
+                </div>
+              )}
               {isOnlineOrder && (
                 <div style={{ textAlign: 'center', fontSize: '12px', fontWeight: '900', margin: '2px 0', letterSpacing: '1px' }}>
                   ★ 顧客手機線上送單 ★
