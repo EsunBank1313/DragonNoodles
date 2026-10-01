@@ -399,6 +399,8 @@ export default function ManagementView({ storeCode: propStoreCode, onSwitchStore
     }
   }, [storeCode, staffSecretToken]);
   const [generatedQrs, setGeneratedQrs] = useState([]);
+  const [generalTakeoutQr, setGeneralTakeoutQr] = useState('');
+  const [includeTakeoutInBatchPrint, setIncludeTakeoutInBatchPrint] = useState(true);
   const [isGeneratingQrs, setIsGeneratingQrs] = useState(false);
   const [menuOrder, setMenuOrder] = useState([]);
   const [globalAddons, setGlobalAddons] = useState([
@@ -477,11 +479,85 @@ const [closedDates, setClosedDates] = useState(() => {
   const [posPaymentMethods, setPosPaymentMethods] = useState(['現金', '信用卡', 'LINE Pay']);
   const [newPosPaymentMethod, setNewPosPaymentMethod] = useState('');
 
+  // Copy QR Code Image directly to Clipboard for easy pasting in LINE, FB, Canva, etc.
+  const handleCopyQrImage = async (qrDataUrl, label = 'QR Code') => {
+    if (!qrDataUrl) return;
+    try {
+      if (navigator.clipboard && window.ClipboardItem) {
+        const response = await fetch(qrDataUrl);
+        const blob = await response.blob();
+        await navigator.clipboard.write([
+          new ClipboardItem({ 'image/png': blob })
+        ]);
+        alert(`✅ 【${label}】圖片已成功複製至剪貼簿！\n您可以在 LINE 訊息、Facebook 貼文、Canva 或 Word 中直接按 Ctrl+V (貼上) 發送！`);
+        return;
+      }
+    } catch (err) {
+      console.warn("ClipboardItem write failed:", err);
+    }
+    alert(`ℹ️ 您的瀏覽器目前未開啟直接複製圖片權限，請點擊「💾 下載圖檔」儲存圖片後轉貼！`);
+  };
+
+  // Print Single QR Code Card
+  const handlePrintSingleQr = (titleText, badgeText, qrDataUrl, instructions = '📱 手機掃碼．免排隊立即點餐') => {
+    if (!qrDataUrl) return;
+    const currentStore = newStoreName.trim() || storeName || '龍城麵線';
+    const html = `
+      <html>
+        <head>
+          <title>${currentStore} - ${badgeText}</title>
+          <style>
+            @page { size: A4 portrait; margin: 15mm; }
+            body { font-family: system-ui, -apple-system, sans-serif; margin: 0; padding: 0; color: #1e293b; background-color: #fff; display: flex; justify-content: center; align-items: center; min-height: 90vh; }
+            .qr-card {
+              border: 3px solid #16a34a; border-radius: 20px; padding: 36px 28px; text-align: center;
+              display: flex; flex-direction: column; align-items: center; justify-content: center;
+              box-sizing: border-box; width: 140mm; background: #fff; box-shadow: 0 4px 20px rgba(0,0,0,0.06);
+            }
+            .store-title { font-size: 26px; font-weight: 900; color: #ea580c; margin-bottom: 6px; }
+            .table-badge { font-size: 28px; font-weight: 900; background: #16a34a; color: #fff; padding: 8px 32px; border-radius: 30px; margin: 12px 0 16px 0; }
+            .qr-img { width: 220px; height: 220px; border: 1px solid #e2e8f0; border-radius: 12px; padding: 8px; }
+            .instructions { font-size: 16px; font-weight: bold; color: #1e293b; margin-top: 16px; }
+            .sub-desc { font-size: 13px; color: #64748b; margin-top: 4px; }
+          </style>
+        </head>
+        <body onload="window.print();">
+          <div class="qr-card">
+            <div class="store-title">${currentStore}</div>
+            <div class="table-badge">${badgeText}</div>
+            <img src="${qrDataUrl}" class="qr-img" alt="QR Code" />
+            <div class="instructions">${instructions}</div>
+            <div class="sub-desc">打開手機相機或 LINE 掃一掃，免下載 APP 直接線上點餐</div>
+          </div>
+        </body>
+      </html>
+    `;
+    printViaHiddenIframe(html);
+  };
+
   // Load menu items
-  // Generate QR Codes for Tables
+  // Generate QR Codes for Tables and General Takeout
   const generateTableQrs = async () => {
     setIsGeneratingQrs(true);
     try {
+      // 1. Generate General Takeout / Customer Online Ordering QR Code
+      try {
+        const storeLinks = getStoreLinks(storeCode);
+        const generalUrl = storeLinks.customerUrl;
+        const generalQr = await QRCode.toDataURL(generalUrl, {
+          width: 400,
+          margin: 1,
+          color: {
+            dark: '#0f172a',
+            light: '#ffffff'
+          }
+        });
+        setGeneralTakeoutQr(generalQr);
+      } catch (e) {
+        console.error("Failed to generate general takeout QR:", e);
+      }
+
+      // 2. Generate Table specific QR codes
       let tables = [];
       if (customTableNames.trim()) {
         tables = customTableNames.split(/[,，\n]/).map(t => t.trim()).filter(Boolean);
@@ -534,19 +610,28 @@ const [closedDates, setClosedDates] = useState(() => {
 
   useEffect(() => {
     generateTableQrs();
-  }, [tableCount, customTableNames, qrBaseUrl]);
+  }, [tableCount, customTableNames, qrBaseUrl, storeCode]);
 
   // Batch Print Table QR Code Cards
   const handlePrintAllQrCodes = () => {
-    if (generatedQrs.length === 0) return;
+    if (generatedQrs.length === 0 && !generalTakeoutQr) return;
     // Use silent iframe printing to avoid popup blocker completely
 
     const currentStore = newStoreName.trim() || storeName || '龍城麵線';
+    const allToPrint = (includeTakeoutInBatchPrint && generalTakeoutQr) ? [
+      {
+        tableName: '🛍️ 外帶／現場通用',
+        isGeneral: true,
+        qrDataUrl: generalTakeoutQr,
+        instructions: '📱 手機掃碼．免排隊立即點餐'
+      },
+      ...generatedQrs
+    ] : generatedQrs;
 
     const html = `
       <html>
         <head>
-          <title>${currentStore} - 內用桌號點餐立牌</title>
+          <title>${currentStore} - 點餐立牌 (含外帶與桌號)</title>
           <style>
             @page {
               size: A4 portrait;
@@ -585,13 +670,16 @@ const [closedDates, setClosedDates] = useState(() => {
               margin-bottom: 4px;
             }
             .table-badge {
-              font-size: 26px;
+              font-size: 24px;
               font-weight: 900;
               background: #1e293b;
               color: #fff;
-              padding: 6px 24px;
+              padding: 6px 20px;
               border-radius: 30px;
               margin: 6px 0 10px 0;
+            }
+            .general-badge {
+              background: #16a34a !important;
             }
             .qr-img {
               width: 170px;
@@ -618,12 +706,12 @@ const [closedDates, setClosedDates] = useState(() => {
         </head>
         <body onload="window.print();">
           <div class="grid-container">
-            ${generatedQrs.map(item => `
+            ${allToPrint.map(item => `
               <div class="qr-card">
                 <div class="store-title">${currentStore}</div>
-                <div class="table-badge">【 ${item.tableName} 號桌 】</div>
+                <div class="table-badge ${item.isGeneral ? 'general-badge' : ''}">【 ${item.tableName}${item.isGeneral ? '' : ' 號桌'} 】</div>
                 <img src="${item.qrDataUrl}" class="qr-img" alt="QR Code" />
-                <div class="instructions">📱 手機掃碼．免排隊入座即點</div>
+                <div class="instructions">${item.instructions || '📱 手機掃碼．免排隊入座即點'}</div>
                 <div class="sub-desc">掃描上方 QR Code 即可進入專屬點餐頁面</div>
               </div>
             `).join('')}
@@ -3090,6 +3178,187 @@ const handleSaveGlobalAddons = async (newAddons) => {
           const storeLinks = getStoreLinks(storeCode);
           return (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', textAlign: 'left' }}>
+            {/* 🛍️ Featured Takeout & General Online Ordering QR Code Card */}
+            <div style={{
+              backgroundColor: 'var(--bg-card)',
+              border: '2px solid #16a34a',
+              borderRadius: '16px',
+              padding: '20px',
+              boxShadow: '0 6px 20px rgba(22, 163, 74, 0.12)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '16px'
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', borderBottom: '1px solid var(--border)', paddingBottom: '12px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <span style={{ fontSize: '1.6rem' }}>🛍️</span>
+                  <div>
+                    <h3 style={{ margin: 0, fontSize: '1.18rem', fontWeight: '900', color: '#16a34a' }}>
+                      外帶／通用「線上點餐專屬 QR Code」與網址
+                    </h3>
+                    <p style={{ margin: '3px 0 0 0', fontSize: '0.82rem', color: 'var(--text-muted)' }}>
+                      不綁定固定桌號，最適合轉貼推廣：外帶櫃台立牌、LINE 官方帳號、Facebook 粉專、IG 首頁簡介、海報傳單、Google 地標
+                    </p>
+                  </div>
+                </div>
+                <div style={{ padding: '4px 12px', backgroundColor: 'rgba(22, 163, 74, 0.12)', color: '#16a34a', borderRadius: '20px', fontWeight: 'bold', fontSize: '0.8rem', border: '1px solid rgba(22, 163, 74, 0.3)' }}>
+                  🌟 社群轉貼與宣傳首選
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '20px', alignItems: 'center' }}>
+                {/* QR Image Box */}
+                <div style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: '8px',
+                  backgroundColor: 'var(--bg-body)',
+                  padding: '14px',
+                  borderRadius: '12px',
+                  border: '1px solid var(--border)',
+                  minWidth: '170px'
+                }}>
+                  {generalTakeoutQr ? (
+                    <img
+                      src={generalTakeoutQr}
+                      alt="外帶通用線上點餐 QR Code"
+                      style={{ width: '160px', height: '160px', borderRadius: '8px', backgroundColor: '#fff', padding: '6px', border: '1px solid var(--border)' }}
+                    />
+                  ) : (
+                    <div style={{ width: '160px', height: '160px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)' }}>
+                      產生中...
+                    </div>
+                  )}
+                  <span style={{ fontSize: '0.75rem', fontWeight: 'bold', color: 'var(--text-muted)' }}>
+                    📱 手機相機或 LINE 掃碼即開
+                  </span>
+                </div>
+
+                {/* Details & Action Buttons */}
+                <div style={{ flex: 1, minWidth: '280px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  <div style={{ fontSize: '0.88rem', color: 'var(--text-main)', lineHeight: 1.5 }}>
+                    顧客以手機掃瞄此 QR Code，即可直接開啟 <strong>{newStoreName.trim() || storeName || '龍城麵線'}</strong> 線上點餐菜單，選擇外帶或內用並送單至廚房與現場 POS 收銀機！
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <label style={{ fontSize: '0.8rem', fontWeight: 'bold', color: 'var(--text-muted)' }}>
+                      專屬線上點餐網址（直接開啟點餐前台）：
+                    </label>
+                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                      <input
+                        type="text"
+                        readOnly
+                        value={storeLinks.customerUrl}
+                        style={{
+                          flex: 1,
+                          minWidth: '220px',
+                          padding: '8px 12px',
+                          fontSize: '0.82rem',
+                          borderRadius: '6px',
+                          border: '1px solid var(--border)',
+                          backgroundColor: 'var(--bg-body)',
+                          color: 'var(--text-main)',
+                          fontFamily: 'monospace'
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard.writeText(storeLinks.customerUrl);
+                          alert('✅ 已複製線上點餐專屬網址至剪貼簿！');
+                        }}
+                        style={{
+                          padding: '8px 14px',
+                          fontSize: '0.82rem',
+                          fontWeight: 'bold',
+                          borderRadius: '6px',
+                          border: 'none',
+                          backgroundColor: '#0284c7',
+                          color: 'white',
+                          cursor: 'pointer',
+                          whiteSpace: 'nowrap'
+                        }}
+                      >
+                        📋 複製網址
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* High Utility Action Buttons */}
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', marginTop: '6px' }}>
+                    <button
+                      type="button"
+                      onClick={() => handleCopyQrImage(generalTakeoutQr, '外帶通用點餐 QR Code')}
+                      style={{
+                        padding: '10px 16px',
+                        fontSize: '0.88rem',
+                        fontWeight: 'bold',
+                        borderRadius: '8px',
+                        border: 'none',
+                        backgroundColor: '#16a34a',
+                        color: 'white',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        boxShadow: '0 2px 6px rgba(22, 163, 74, 0.25)'
+                      }}
+                      title="直接複製 QR Code 圖片，可於 LINE 聊天室、FB 貼文按 Ctrl+V 貼上"
+                    >
+                      📋 複製 QR Code 圖片 (貼至 LINE / 社群)
+                    </button>
+
+                    <a
+                      href={generalTakeoutQr}
+                      download={`${newStoreName.trim() || storeName}_外帶通用線上點餐_QRCode.png`}
+                      style={{
+                        padding: '10px 16px',
+                        fontSize: '0.88rem',
+                        fontWeight: 'bold',
+                        borderRadius: '8px',
+                        border: '1px solid var(--border)',
+                        backgroundColor: 'var(--bg-body)',
+                        color: 'var(--text-main)',
+                        textDecoration: 'none',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px'
+                      }}
+                    >
+                      💾 下載圖片 (PNG)
+                    </a>
+
+                    <button
+                      type="button"
+                      onClick={() => handlePrintSingleQr(
+                        newStoreName.trim() || storeName || '龍城麵線',
+                        '🛍️ 外帶／現場通用點餐',
+                        generalTakeoutQr,
+                        '📱 手機掃碼．免排隊立即點餐'
+                      )}
+                      style={{
+                        padding: '10px 16px',
+                        fontSize: '0.88rem',
+                        fontWeight: 'bold',
+                        borderRadius: '8px',
+                        border: '1px solid var(--border)',
+                        backgroundColor: 'var(--bg-body)',
+                        color: 'var(--text-main)',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px'
+                      }}
+                    >
+                      🖨️ 單張列印外帶立牌 (A4)
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
             {/* 🔐 Secret Token Links Card */}
             <div style={{ backgroundColor: 'var(--bg-card)', border: '2px solid #3b82f6', borderRadius: '12px', padding: '20px', boxShadow: '0 4px 12px rgba(59, 130, 246, 0.15)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', borderBottom: '1px solid var(--border)', paddingBottom: '12px', marginBottom: '14px' }}>
@@ -3108,7 +3377,7 @@ const handleSaveGlobalAddons = async (newAddons) => {
 
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '12px' }}>
                 {[
-                  { label: '📱 顧客手機掃碼點餐', url: storeLinks.customerUrl, color: '#16a34a' },
+                  { label: '📱 顧客手機掃碼點餐', url: storeLinks.customerUrl, color: '#16a34a', isCustomer: true },
                   { label: '💵 現場 POS 收銀系統', url: storeLinks.posUrl, color: '#ea580c' },
                   { label: '📊 營業記帳與財務系統', url: storeLinks.bookkeepingUrl, color: '#0284c7' },
                   { label: '🛠️ 後台管理系統', url: storeLinks.adminUrl, color: '#4f46e5' }
@@ -3121,16 +3390,28 @@ const handleSaveGlobalAddons = async (newAddons) => {
                       value={linkItem.url} 
                       style={{ padding: '6px 8px', fontSize: '0.75rem', borderRadius: '4px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-card)', color: 'var(--text-main)', fontFamily: 'monospace' }} 
                     />
-                    <button
-                      type="button"
-                      onClick={() => {
-                        navigator.clipboard.writeText(linkItem.url);
-                        alert(`✅ 已複製【${linkItem.label}】專屬安全網址至剪貼簿！`);
-                      }}
-                      style={{ padding: '6px', fontSize: '0.75rem', fontWeight: 'bold', border: 'none', borderRadius: '4px', backgroundColor: linkItem.color, color: 'white', cursor: 'pointer' }}
-                    >
-                      📋 複製專屬網址
-                    </button>
+                    <div style={{ display: 'flex', gap: '6px' }}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard.writeText(linkItem.url);
+                          alert(`✅ 已複製【${linkItem.label}】專屬安全網址至剪貼簿！`);
+                        }}
+                        style={{ flex: 1, padding: '6px', fontSize: '0.75rem', fontWeight: 'bold', border: 'none', borderRadius: '4px', backgroundColor: linkItem.color, color: 'white', cursor: 'pointer' }}
+                      >
+                        📋 複製專屬網址
+                      </button>
+                      {linkItem.isCustomer && generalTakeoutQr && (
+                        <button
+                          type="button"
+                          onClick={() => handleCopyQrImage(generalTakeoutQr, '外帶通用點餐 QR Code')}
+                          style={{ padding: '6px 10px', fontSize: '0.75rem', fontWeight: 'bold', border: '1px solid #16a34a', borderRadius: '4px', backgroundColor: '#fff', color: '#16a34a', cursor: 'pointer' }}
+                          title="複製 QR Code 圖片直接按 Ctrl+V 貼在 LINE 或 FB"
+                        >
+                          🖼️ 複製 QR 圖片
+                        </button>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -3144,26 +3425,37 @@ const handleSaveGlobalAddons = async (newAddons) => {
                     為每張桌子自動生成專屬點餐連結與 QR Code，顧客入座掃碼即可直接點餐並自動帶入桌號！
                   </p>
                 </div>
-                <button
-                  type="button"
-                  onClick={handlePrintAllQrCodes}
-                  style={{
-                    padding: '10px 20px',
-                    fontSize: '0.9rem',
-                    backgroundColor: '#16a34a',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '8px',
-                    cursor: 'pointer',
-                    fontWeight: 'bold',
-                    boxShadow: '0 2px 8px rgba(22, 163, 74, 0.3)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px'
-                  }}
-                >
-                  🖨️ 一鍵批次列印全店桌牌 (A4 排版)
-                </button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.82rem', cursor: 'pointer', fontWeight: 'bold', color: 'var(--text-main)' }}>
+                    <input
+                      type="checkbox"
+                      checked={includeTakeoutInBatchPrint}
+                      onChange={(e) => setIncludeTakeoutInBatchPrint(e.target.checked)}
+                      style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+                    />
+                    包含【🛍️ 外帶通用點餐立牌】
+                  </label>
+                  <button
+                    type="button"
+                    onClick={handlePrintAllQrCodes}
+                    style={{
+                      padding: '10px 20px',
+                      fontSize: '0.9rem',
+                      backgroundColor: '#16a34a',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '8px',
+                      cursor: 'pointer',
+                      fontWeight: 'bold',
+                      boxShadow: '0 2px 8px rgba(22, 163, 74, 0.3)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px'
+                    }}
+                  >
+                    🖨️ 一鍵批次列印全店桌牌 (A4 排版)
+                  </button>
+                </div>
               </div>
 
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px', marginBottom: '16px' }}>
@@ -3205,9 +3497,88 @@ const handleSaveGlobalAddons = async (newAddons) => {
             {/* Live QR Code Cards Grid */}
             <div style={{
               display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
+              gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))',
               gap: '16px'
             }}>
+              {/* Card 0: General / Takeout */}
+              {generalTakeoutQr && (
+                <div
+                  style={{
+                    backgroundColor: 'var(--bg-card)',
+                    border: '2px solid #16a34a',
+                    borderRadius: '12px',
+                    padding: '16px',
+                    textAlign: 'center',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    gap: '8px',
+                    boxShadow: '0 4px 12px rgba(22, 163, 74, 0.15)'
+                  }}
+                >
+                  <span style={{ fontSize: '0.85rem', fontWeight: 'bold', color: 'var(--primary)' }}>
+                    {newStoreName.trim() || storeName || '龍城麵線'}
+                  </span>
+                  <div style={{
+                    fontSize: '1.05rem',
+                    fontWeight: '900',
+                    backgroundColor: '#16a34a',
+                    color: '#fff',
+                    padding: '4px 14px',
+                    borderRadius: '20px'
+                  }}>
+                    【 🛍️ 外帶／現場通用 】
+                  </div>
+                  <img
+                    src={generalTakeoutQr}
+                    alt="外帶通用點餐 QR Code"
+                    style={{ width: '150px', height: '150px', borderRadius: '8px', border: '1px solid var(--border)', padding: '4px', backgroundColor: 'white' }}
+                  />
+                  <span style={{ fontSize: '0.75rem', fontWeight: 'bold', color: 'var(--text-muted)' }}>
+                    📱 手機掃碼．免排隊立即點餐
+                  </span>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', marginTop: '4px', width: '100%' }}>
+                    <button
+                      type="button"
+                      onClick={() => handleCopyQrImage(generalTakeoutQr, '外帶通用點餐 QR Code')}
+                      style={{
+                        padding: '6px',
+                        fontSize: '0.75rem',
+                        textAlign: 'center',
+                        borderRadius: '4px',
+                        border: 'none',
+                        backgroundColor: '#16a34a',
+                        color: 'white',
+                        fontWeight: 'bold',
+                        cursor: 'pointer'
+                      }}
+                      title="直接複製圖片，可按 Ctrl+V 貼在 LINE 或 FB"
+                    >
+                      📋 複製圖片
+                    </button>
+                    <a
+                      href={generalTakeoutQr}
+                      download={`${newStoreName.trim() || storeName}_外帶通用_點餐QRCode.png`}
+                      style={{
+                        padding: '6px',
+                        fontSize: '0.75rem',
+                        textAlign: 'center',
+                        borderRadius: '4px',
+                        border: '1px solid var(--border)',
+                        backgroundColor: 'var(--bg-body)',
+                        color: 'var(--text-main)',
+                        textDecoration: 'none',
+                        fontWeight: 'bold',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      💾 下載圖檔
+                    </a>
+                  </div>
+                </div>
+              )}
+
+              {/* Table Cards */}
               {generatedQrs.map((item, idx) => (
                 <div
                   key={idx}
@@ -3228,7 +3599,7 @@ const handleSaveGlobalAddons = async (newAddons) => {
                     {newStoreName.trim() || storeName || '龍城麵線'}
                   </span>
                   <div style={{
-                    fontSize: '1.2rem',
+                    fontSize: '1.15rem',
                     fontWeight: '900',
                     backgroundColor: 'var(--bg-body)',
                     color: 'var(--text-main)',
@@ -3252,12 +3623,29 @@ const handleSaveGlobalAddons = async (newAddons) => {
                   <span style={{ fontSize: '0.75rem', fontWeight: 'bold', color: 'var(--text-muted)' }}>
                     📱 手機掃碼．免排隊入座即點
                   </span>
-                  <div style={{ display: 'flex', gap: '6px', marginTop: '4px', width: '100%' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', marginTop: '4px', width: '100%' }}>
+                    <button
+                      type="button"
+                      onClick={() => handleCopyQrImage(item.qrDataUrl, `${item.tableName} 號桌 QR Code`)}
+                      style={{
+                        padding: '6px',
+                        fontSize: '0.75rem',
+                        textAlign: 'center',
+                        borderRadius: '4px',
+                        border: 'none',
+                        backgroundColor: '#0284c7',
+                        color: 'white',
+                        fontWeight: 'bold',
+                        cursor: 'pointer'
+                      }}
+                      title="直接複製圖片，可按 Ctrl+V 貼上"
+                    >
+                      📋 複製圖片
+                    </button>
                     <a
                       href={item.qrDataUrl}
                       download={`${newStoreName.trim() || storeName}_${item.tableName}號桌_點餐QRCode.png`}
                       style={{
-                        flex: 1,
                         padding: '6px',
                         fontSize: '0.75rem',
                         textAlign: 'center',
