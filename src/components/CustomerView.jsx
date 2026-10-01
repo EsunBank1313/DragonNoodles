@@ -2947,7 +2947,7 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
                 textAlign: 'left',
                 lineHeight: '1.4'
               }}>
-                💡 <strong>登入小提醒：</strong>跳轉至 LINE 後，請點選畫面下方的<strong>【使用 LINE 應用程式登入】</strong>即可免打帳密；若忘記 LINE 帳密，建議直接點選下方的<strong>【Google 帳號登入】</strong>！
+                💡 <strong>手機授權提醒：</strong>系統會優先<strong>直接開啟 LINE App</strong>授權；若在瀏覽器跳出 LINE 登入頁，請滑至畫面最下方點選<strong>【使用 LINE 應用程式登入】</strong>即可免打帳號密碼！
               </div>
 
               {/* Google 登入按鈕 */}
@@ -2981,6 +2981,43 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
                   <span>使用 Google 帳號登入</span>
                 </div>
                 <span style={{ fontSize: '0.72rem', color: '#5f6368' }}>免密碼</span>
+              </button>
+
+              {/* 訪客直接送單按鈕 (免第三方帳號，保證不卡單) */}
+              <button
+                type="button"
+                onClick={() => {
+                  const guestProfile = {
+                    provider: 'guest',
+                    userId: 'guest_' + Date.now(),
+                    displayName: custName.trim() || '現場顧客',
+                    pictureUrl: '',
+                    email: ''
+                  };
+                  setCustomerAuth(guestProfile);
+                  setShowAuthModal(false);
+                }}
+                style={{
+                  width: '100%',
+                  backgroundColor: '#f8fafc',
+                  color: '#475569',
+                  border: '1px dashed #cbd5e1',
+                  borderRadius: '12px',
+                  padding: '11px 16px',
+                  fontSize: '0.88rem',
+                  fontWeight: 'bold',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  transition: 'background-color 0.15s ease'
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span>👤</span>
+                  <span>免登入 / 訪客快速點餐 (填寫電話即可)</span>
+                </div>
+                <span style={{ fontSize: '0.72rem', color: '#64748b' }}>快速送單</span>
               </button>
             </div>
 

@@ -56,10 +56,45 @@ export const initLiff = async () => {
 
 export const loginWithLine = (redirectUri = '') => {
   try {
-    const targetUri = redirectUri || (typeof window !== 'undefined' ? window.location.href : '');
-    liff.login({ redirectUri: targetUri });
+    const liffId = getLiffId();
+    const isMobile = typeof navigator !== 'undefined' && /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    const isInClient = (typeof liff !== 'undefined' && liff.isInClient) ? liff.isInClient() : false;
+
+    // 1. If already inside LINE in-app browser, call liff.login() directly
+    if (isInClient) {
+      if (!liff.isLoggedIn()) {
+        liff.login();
+      }
+      return;
+    }
+
+    // 2. On mobile browsers (Safari / Chrome), directly redirecting to the official LIFF URL (https://liff.line.me/{liffId})
+    // triggers the OS Universal Link / App Link, opening the LINE App directly!
+    // Inside the LINE App, the customer is already authenticated, avoiding access.line.me web login and password prompts completely!
+    if (isMobile && liffId) {
+      const currentQuery = typeof window !== 'undefined' ? window.location.search : '';
+      try {
+        sessionStorage.setItem('customer_pending_checkout', 'true');
+      } catch (e) {}
+
+      window.location.href = `https://liff.line.me/${liffId}${currentQuery}`;
+      return;
+    }
+
+    // 3. Desktop / PC or fallback: use clean redirect to prevent query param mismatch
+    const cleanRedirect = redirectUri || (typeof window !== 'undefined' ? (window.location.origin + window.location.pathname) : '');
+    try {
+      sessionStorage.setItem('customer_pending_checkout', 'true');
+    } catch (e) {}
+
+    liff.login({ redirectUri: cleanRedirect });
   } catch (err) {
     console.error("LINE login error:", err);
+    // If liff.login throws, fallback to opening official LIFF URL
+    const liffId = getLiffId();
+    if (liffId && typeof window !== 'undefined') {
+      window.location.href = `https://liff.line.me/${liffId}`;
+    }
   }
 };
 
