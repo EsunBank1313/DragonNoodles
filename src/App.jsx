@@ -6,7 +6,15 @@ import ManagementView from './components/ManagementView';
 import UnifiedLoginScreen from './components/UnifiedLoginScreen';
 import SetupWizardModal from './components/SetupWizardModal';
 import { supabase } from './supabaseClient';
-import { isAuthorizedStaffToken, getPinLockoutStatus, recordFailedPinAttempt, resetPinAttempts } from './utils/securityConfig';
+import { 
+  isAuthorizedStaffToken, 
+  getPinLockoutStatus, 
+  recordFailedPinAttempt, 
+  resetPinAttempts,
+  setStaffSecretToken,
+  setStrictTokenMode,
+  setRevokedTokens
+} from './utils/securityConfig';
 import { resolveStoreCode, getActiveStoreCode, syncRegisteredStoresCache, getStoreDisplayName } from './utils/storeContext';
 import { getActiveModuleSettings, isModuleEnabled } from './utils/moduleContext';
 
@@ -31,8 +39,8 @@ const getInitialRoleAndParams = () => {
 
   // Check secret security token from ?store=xxx or ?staff=xxx
   const rawToken = params.get('store') || params.get('staff');
-  const isAuthorized = isAuthorizedStaffToken(rawToken);
   const storeCode = resolveStoreCode(rawToken);
+  const isAuthorized = isAuthorizedStaffToken(rawToken, storeCode);
 
   // Subdomain support (pos.domain.com, admin.domain.com, bookkeeping.domain.com)
   const isSubdomainStaff = hostname.startsWith('pos.') || hostname.startsWith('admin.') || hostname.startsWith('bookkeeping.');
@@ -157,8 +165,33 @@ function App() {
           if (tokenItem && tokenItem.description) {
             const cleanToken = String(tokenItem.description).trim();
             if (cleanToken) {
-              localStorage.setItem('app_staff_secret_token', cleanToken);
-              localStorage.setItem(`${storeCode}_staff_secret_token`, cleanToken);
+              setStaffSecretToken(cleanToken, storeCode);
+            }
+          }
+
+          // Load strict token mode from cloud
+          const strictItem = data.find(i => i.name === 'SYSTEM_SETTING_STRICT_TOKEN_MODE' || i.name === `${storeCode}_SYSTEM_SETTING_STRICT_TOKEN_MODE`);
+          if (strictItem && strictItem.description) {
+            setStrictTokenMode(strictItem.description !== 'false', storeCode);
+          }
+
+          // Load revoked tokens from cloud
+          const revokedItem = data.find(i => i.name === 'SYSTEM_SETTING_REVOKED_TOKENS' || i.name === `${storeCode}_SYSTEM_SETTING_REVOKED_TOKENS`);
+          if (revokedItem && revokedItem.description) {
+            try {
+              const list = JSON.parse(revokedItem.description);
+              if (Array.isArray(list)) setRevokedTokens(list, storeCode);
+            } catch (e) {}
+          }
+
+          // Dynamic re-validation if currently attempting staff access
+          const params = new URLSearchParams(window.location.search);
+          const rawToken = params.get('store') || params.get('staff');
+          const isSub = window.location.hostname.startsWith('pos.') || window.location.hostname.startsWith('admin.') || window.location.hostname.startsWith('bookkeeping.');
+          if (!isSub && initial.isStaffAuthorized) {
+            if (!isAuthorizedStaffToken(rawToken, storeCode)) {
+              console.warn("Staff token revoked or unauthorized under active policy. Reverting to customer view.");
+              setRole('customer');
             }
           }
 

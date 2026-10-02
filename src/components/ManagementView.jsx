@@ -4,7 +4,17 @@ import { supabase } from '../supabaseClient';
 import QRCode from 'qrcode';
 import { defaultStoreProfile, defaultReceiptConfig, printViaHiddenIframe } from '../utils/printHelpers';
 import { getActiveStoreCode, filterItemsByStore, prefixNameForStore, stripNameForStore, getStoreLinks, syncRegisteredStoresCache, generateRandomStoreToken, getStoreDisplayName } from '../utils/storeContext';
-import { getStaffSecretToken, setStaffSecretToken } from '../utils/securityConfig';
+import { 
+  getStaffSecretToken, 
+  setStaffSecretToken,
+  isStrictTokenMode,
+  setStrictTokenMode,
+  getRevokedTokens,
+  setRevokedTokens,
+  revokeToken,
+  unrevokeToken,
+  testTokenStatus
+} from '../utils/securityConfig';
 import ThemeSelector from './ThemeSelector';
 import { menuItems as defaultMenuItems, luzhouFallbackMenuItems, defaultUpgradeCombos } from '../data/menuData';
 import { SYSTEM_MODULES, INDUSTRY_PRESETS, getActiveModuleSettings, saveActiveModuleSettings } from '../utils/moduleContext';
@@ -379,6 +389,11 @@ export default function ManagementView({ storeCode: propStoreCode, onSwitchStore
     return getStaffSecretToken(storeCode) || 'dg_8f2a1c';
   });
   const [tokenCopiedKey, setTokenCopiedKey] = useState('');
+  const [strictMode, setStrictModeState] = useState(() => isStrictTokenMode(storeCode));
+  const [revokedTokens, setRevokedTokensState] = useState(() => getRevokedTokens(storeCode));
+  const [testInput, setTestInput] = useState('');
+  const [testResult, setTestResult] = useState(null);
+  const [activeQrModal, setActiveQrModal] = useState(null); // { title, url, qrDataUrl }
 
   // QR Code Generator States
   const [tableCount, setTableCount] = useState(12);
@@ -533,6 +548,54 @@ const [closedDates, setClosedDates] = useState(() => {
       </html>
     `;
     printViaHiddenIframe(html);
+  };
+
+  const handleOpenQrModal = async (title, url) => {
+    try {
+      const qrDataUrl = await QRCode.toDataURL(url, {
+        width: 320,
+        margin: 2,
+        color: { dark: '#0f172a', light: '#ffffff' }
+      });
+      setActiveQrModal({ title, url, qrDataUrl });
+    } catch (e) {
+      alert("產生 QR Code 失敗：" + e.message);
+    }
+  };
+
+  const saveSecuritySettingsToCloud = async (newToken, newStrict, newRevoked) => {
+    try {
+      const tokenKey = prefixNameForStore('SYSTEM_SETTING_STAFF_TOKEN', storeCode);
+      const strictKey = prefixNameForStore('SYSTEM_SETTING_STRICT_TOKEN_MODE', storeCode);
+      const revokedKey = prefixNameForStore('SYSTEM_SETTING_REVOKED_TOKENS', storeCode);
+
+      const itemsToSave = [
+        { name: tokenKey, val: newToken },
+        { name: strictKey, val: newStrict ? 'true' : 'false' },
+        { name: revokedKey, val: JSON.stringify(newRevoked) }
+      ];
+
+      for (const item of itemsToSave) {
+        const { data: exist } = await supabase.from('menu_items').select('id').eq('name', item.name);
+        if (exist && exist.length > 0) {
+          await supabase.from('menu_items').update({ description: item.val }).eq('name', item.name);
+        } else {
+          await supabase.from('menu_items').insert([{ name: item.name, price: 0, category: 'settings', description: item.val }]);
+        }
+      }
+
+      setStaffSecretToken(newToken, storeCode);
+      setStrictTokenMode(newStrict, storeCode);
+      setRevokedTokens(newRevoked, storeCode);
+
+      setStaffSecretTokenState(newToken);
+      setStrictModeState(newStrict);
+      setRevokedTokensState(newRevoked);
+      return true;
+    } catch (err) {
+      alert("雲端同步失敗：" + err.message);
+      return false;
+    }
   };
 
   // Load menu items
@@ -1083,6 +1146,28 @@ const [closedDates, setClosedDates] = useState(() => {
             setStaffSecretTokenState(cloudToken);
             setStaffSecretToken(cloudToken, storeCode);
           }
+        }
+
+        // Load Strict Token Mode from cloud
+        const strictKey = prefixNameForStore('SYSTEM_SETTING_STRICT_TOKEN_MODE', storeCode);
+        const strictItem = storeItems.find(item => item.name === strictKey || item.name === 'SYSTEM_SETTING_STRICT_TOKEN_MODE');
+        if (strictItem && strictItem.description) {
+          const isStrict = strictItem.description !== 'false';
+          setStrictModeState(isStrict);
+          setStrictTokenMode(isStrict, storeCode);
+        }
+
+        // Load Revoked Tokens from cloud
+        const revokedKey = prefixNameForStore('SYSTEM_SETTING_REVOKED_TOKENS', storeCode);
+        const revokedItem = storeItems.find(item => item.name === revokedKey || item.name === 'SYSTEM_SETTING_REVOKED_TOKENS');
+        if (revokedItem && revokedItem.description) {
+          try {
+            const list = JSON.parse(revokedItem.description);
+            if (Array.isArray(list)) {
+              setRevokedTokensState(list);
+              setRevokedTokens(list, storeCode);
+            }
+          } catch (e) {}
         }
 
         const adminPinItem = storeItems.find(item => item.name === 'SYSTEM_SETTING_ADMIN_PIN');
@@ -4329,75 +4414,34 @@ const handleSaveGlobalAddons = async (newAddons) => {
                 </div>
               </div>
 
-              {/* 🔑 門市專屬網址安全金鑰 (網址亂數代碼) 卡片 */}
-              <div style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px', padding: '24px', display: 'flex', flexDirection: 'column', gap: '14px', boxShadow: 'var(--shadow-sm)' }}>
-                <div style={{ borderBottom: '1px solid var(--border)', paddingBottom: '10px' }}>
-                  <h3 style={{ margin: '0 0 4px 0', fontSize: '1.05rem', fontWeight: 'bold', color: '#2563eb', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    🔑 專屬網址安全金鑰 (網址亂數代碼)
-                  </h3>
-                  <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-muted)', lineHeight: '1.4' }}>
-                    此金鑰（網址亂數）專門用於防護後台收銀機 (POS)、財務記帳與管理系統，防止顧客隨意猜測網址闖入。您可以自由自訂好記的代碼，或一鍵隨機產生新金鑰。
-                  </p>
-                </div>
-
-                {/* Key Input & Action Buttons */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  <span style={{ fontSize: '0.82rem', fontWeight: 'bold', color: 'var(--text-main)' }}>當前專屬安全金鑰：</span>
-                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
-                    <input 
-                      type="text"
-                      value={staffSecretToken}
-                      onChange={(e) => setStaffSecretTokenState(e.target.value.trim().toLowerCase())}
-                      placeholder="自訂英數字代碼 (例如: beef_888)"
-                      style={{ flex: '1 1 200px', padding: '10px 14px', fontSize: '1rem', fontFamily: 'monospace', fontWeight: 'bold', letterSpacing: '1px', borderRadius: '6px', border: '1.5px solid #2563eb', color: '#2563eb', backgroundColor: 'var(--bg-body)' }}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const prefix = storeCode === 'luzhou' || storeCode === 'luzhou7' ? 'lz' : (storeCode === 'dragon' ? 'dg' : storeCode.toLowerCase().slice(0, 4));
-                        const hex = Math.random().toString(36).substring(2, 8);
-                        const generated = `${prefix}_${hex}`;
-                        setStaffSecretTokenState(generated);
-                      }}
-                      style={{ padding: '10px 14px', fontSize: '0.82rem', backgroundColor: 'var(--bg-body)', color: 'var(--text-main)', border: '1px solid var(--border)', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '4px' }}
-                      title="一鍵隨機產生一組符合安全規格的全新亂數金鑰"
-                    >
-                      🎲 隨機產生
-                    </button>
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        const clean = staffSecretToken.trim();
-                        if (!clean) {
-                          alert("專屬安全金鑰不能為空！");
-                          return;
-                        }
-                        try {
-                          const tokenKey = prefixNameForStore('SYSTEM_SETTING_STAFF_TOKEN', storeCode);
-                          await supabase.from('menu_items').upsert({
-                            name: tokenKey,
-                            category: 'settings',
-                            price: 0,
-                            description: clean
-                          }, { onConflict: 'name' });
-
-                          setStaffSecretToken(clean, storeCode);
-                          alert(`🎉 專屬網址安全金鑰已成功更新為：【${clean}】！\n\n全系統入口網址已即時自動同步，請複製下方的新連結使用。`);
-                        } catch (err) {
-                          alert("儲存金鑰失敗：" + err.message);
-                        }
-                      }}
-                      style={{ padding: '10px 18px', fontSize: '0.85rem', backgroundColor: '#2563eb', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}
-                    >
-                      💾 儲存並同步雲端
-                    </button>
+              {/* 🌐 門市專屬入口連結總覽與安全金鑰管理中心 */}
+              <div style={{ backgroundColor: 'var(--bg-card)', border: '2px solid #2563eb', borderRadius: '14px', padding: '24px', display: 'flex', flexDirection: 'column', gap: '20px', boxShadow: '0 4px 16px rgba(37, 99, 235, 0.08)' }}>
+                {/* Header */}
+                <div style={{ borderBottom: '1.5px solid var(--border)', paddingBottom: '14px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '10px' }}>
+                  <div>
+                    <h3 style={{ margin: '0 0 6px 0', fontSize: '1.2rem', fontWeight: '900', color: '#2563eb', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      🌐 系統專屬入口連結總覽與安全金鑰管理
+                    </h3>
+                    <p style={{ margin: 0, fontSize: '0.84rem', color: 'var(--text-muted)', lineHeight: '1.5' }}>
+                      在此即時掌握所有正式對外（顧客點餐）與對內（POS、記帳、管理、Portal）之專屬入口網址。所有內部連結皆受安全金鑰防護，並提供歷史舊金鑰作廢管理與即時驗證檢測。
+                    </p>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span style={{ fontSize: '0.8rem', padding: '4px 10px', borderRadius: '20px', backgroundColor: strictMode ? 'rgba(22, 163, 74, 0.12)' : 'rgba(234, 88, 12, 0.12)', color: strictMode ? '#16a34a' : '#ea580c', fontWeight: 'bold', border: `1px solid ${strictMode ? 'rgba(22, 163, 74, 0.3)' : 'rgba(234, 88, 12, 0.3)'}` }}>
+                      {strictMode ? '🔒 嚴格安全模式（已作廢舊金鑰）' : '⚠️ 相容備援模式（允許舊金鑰）'}
+                    </span>
                   </div>
                 </div>
 
-                {/* Live Entry URLs with One-Click Copy */}
-                <div style={{ backgroundColor: 'var(--bg-body)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px 14px', marginTop: '4px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                  <div style={{ fontSize: '0.82rem', fontWeight: 'bold', color: 'var(--primary)', borderBottom: '1px solid var(--border)', paddingBottom: '6px' }}>
-                    🔗 各系統專屬入口網址一覽 (點擊一鍵複製)：
+                {/* 🔗 區域一：目前已正式生效之各系統專屬入口網址清單 */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                    <span style={{ fontSize: '0.92rem', fontWeight: '900', color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      🔗 當前生效之入口連結一覽 (點擊一鍵複製 / 開啟 / 檢視 QR Code)：
+                    </span>
+                    <span style={{ fontSize: '0.78rem', color: '#2563eb', fontWeight: 'bold' }}>
+                      當前有效金鑰：<code style={{ backgroundColor: 'rgba(37, 99, 235, 0.1)', padding: '2px 6px', borderRadius: '4px' }}>{staffSecretToken.trim() || 'dg_8f2a1c'}</code>
+                    </span>
                   </div>
 
                   {(() => {
@@ -4407,79 +4451,387 @@ const handleSaveGlobalAddons = async (newAddons) => {
                       {
                         key: 'customer',
                         icon: '📱',
-                        title: '顧客點餐網址 (印桌貼/海報)',
+                        title: '顧客線上點餐網址（外帶 / 通用點餐）',
+                        badge: '🟢 公開中',
+                        badgeColor: '#16a34a',
                         url: storeCode === 'dragon' ? `${origin}/` : `${origin}/?store=${storeCode}`,
-                        desc: '客人掃碼直接點餐'
+                        desc: '免金鑰直接開啟點餐菜單，適合印製外帶立牌、海報傳單、LINE 官方帳號圖文選單、FB/IG 宣傳',
+                        isCustomer: true
                       },
                       {
                         key: 'pos',
                         icon: '🖥️',
-                        title: 'POS 櫃檯收銀機 (店員專用)',
+                        title: 'POS 櫃檯收銀機（店員平板 / 電腦專用）',
+                        badge: '🟢 生效中',
+                        badgeColor: '#0284c7',
                         url: `${origin}/?store=${activeToken}&pos=true`,
-                        desc: '店員平板/電腦點餐出單'
+                        desc: '門市店員專用：快速點餐、即時出單、叫號取餐、現場收銀結帳'
                       },
                       {
                         key: 'bookkeeping',
                         icon: '📊',
-                        title: '財務記帳與盤點 (老闆專用)',
+                        title: '營業記帳與財務系統（老闆 / 財務專用）',
+                        badge: '🟢 生效中',
+                        badgeColor: '#059669',
                         url: `${origin}/?store=${activeToken}&bookkeeping=true`,
-                        desc: '營業流水帳、損益月報表'
+                        desc: '老闆每日專用：營收流水帳、損益月報表、原料進貨成本、固定支出核算'
                       },
                       {
                         key: 'management',
                         icon: '⚙️',
-                        title: '商品菜單與後台管理 (後台維護)',
+                        title: '商品菜單與後台管理（系統設定）',
+                        badge: '🟢 生效中',
+                        badgeColor: '#4f46e5',
                         url: `${origin}/?store=${activeToken}&management=true`,
-                        desc: '維護餐點價格規格與門市'
+                        desc: '店長與維護者專用：菜單品項、價格調整、出單機設定、營運參數'
+                      },
+                      {
+                        key: 'login',
+                        icon: '🚪',
+                        title: '全功能統一登入大門（Portal 入口）',
+                        badge: '🟢 生效中',
+                        badgeColor: '#ea580c',
+                        url: `${origin}/?store=${activeToken}&login=true`,
+                        desc: '多功能通用入口：進入後可依權限身分自由切換 POS、記帳或後台管理'
                       }
                     ];
 
                     return (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                         {entries.map(e => {
                           const isCopied = tokenCopiedKey === e.key;
                           return (
-                            <div key={e.key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'var(--bg-card)', padding: '8px 12px', borderRadius: '6px', border: '1px solid var(--border)', flexWrap: 'wrap', gap: '6px' }}>
-                              <div style={{ flex: '1 1 240px', minWidth: '200px' }}>
-                                <div style={{ fontSize: '0.8rem', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                  <span>{e.icon}</span> {e.title}
+                            <div 
+                              key={e.key} 
+                              style={{ 
+                                backgroundColor: 'var(--bg-body)', 
+                                border: '1px solid var(--border)', 
+                                borderRadius: '10px', 
+                                padding: '12px 16px', 
+                                display: 'flex', 
+                                flexDirection: 'column', 
+                                gap: '8px',
+                                transition: 'all 0.2s',
+                                boxShadow: 'var(--shadow-sm)'
+                              }}
+                            >
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                  <span style={{ fontSize: '1.25rem' }}>{e.icon}</span>
+                                  <span style={{ fontSize: '0.9rem', fontWeight: 'bold', color: 'var(--text-main)' }}>{e.title}</span>
+                                  <span style={{ fontSize: '0.72rem', padding: '2px 8px', borderRadius: '12px', backgroundColor: `${e.badgeColor}15`, color: e.badgeColor, fontWeight: 'bold', border: `1px solid ${e.badgeColor}40` }}>
+                                    {e.badge}
+                                  </span>
                                 </div>
-                                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', wordBreak: 'break-all', fontFamily: 'monospace', marginTop: '2px' }}>
-                                  {e.url}
+                                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      if (navigator.clipboard) {
+                                        navigator.clipboard.writeText(e.url);
+                                        setTokenCopiedKey(e.key);
+                                        setTimeout(() => setTokenCopiedKey(''), 2000);
+                                      } else {
+                                        prompt("請手動複製網址：", e.url);
+                                      }
+                                    }}
+                                    style={{
+                                      padding: '5px 12px',
+                                      fontSize: '0.76rem',
+                                      fontWeight: 'bold',
+                                      borderRadius: '6px',
+                                      border: 'none',
+                                      backgroundColor: isCopied ? '#16a34a' : 'var(--primary)',
+                                      color: 'white',
+                                      cursor: 'pointer',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: '4px'
+                                    }}
+                                  >
+                                    {isCopied ? '✅ 已複製！' : '📋 複製連結'}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenQrModal(e.title, e.url)}
+                                    style={{
+                                      padding: '5px 12px',
+                                      fontSize: '0.76rem',
+                                      fontWeight: 'bold',
+                                      borderRadius: '6px',
+                                      border: '1px solid var(--border)',
+                                      backgroundColor: 'var(--bg-card)',
+                                      color: 'var(--text-main)',
+                                      cursor: 'pointer',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: '4px'
+                                    }}
+                                  >
+                                    📱 檢視 QR Code
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => window.open(e.url, '_blank')}
+                                    style={{
+                                      padding: '5px 12px',
+                                      fontSize: '0.76rem',
+                                      fontWeight: 'bold',
+                                      borderRadius: '6px',
+                                      border: '1px solid var(--border)',
+                                      backgroundColor: 'var(--bg-card)',
+                                      color: '#2563eb',
+                                      cursor: 'pointer',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: '4px'
+                                    }}
+                                  >
+                                    🚀 測試開啟
+                                  </button>
                                 </div>
                               </div>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  if (navigator.clipboard) {
-                                    navigator.clipboard.writeText(e.url);
-                                    setTokenCopiedKey(e.key);
-                                    setTimeout(() => setTokenCopiedKey(''), 2000);
-                                  } else {
-                                    prompt("請手動複製網址：", e.url);
-                                  }
-                                }}
-                                style={{
-                                  padding: '5px 12px',
-                                  fontSize: '0.75rem',
-                                  fontWeight: 'bold',
-                                  borderRadius: '5px',
-                                  border: 'none',
-                                  backgroundColor: isCopied ? '#16a34a' : 'var(--primary)',
-                                  color: 'white',
-                                  cursor: 'pointer',
-                                  transition: 'all 0.15s',
-                                  whiteSpace: 'nowrap'
-                                }}
-                              >
-                                {isCopied ? '✅ 已複製！' : '📋 複製連結'}
-                              </button>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: 'var(--bg-card)', padding: '6px 10px', borderRadius: '6px', border: '1px solid var(--border)' }}>
+                                <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 'bold' }}>網址：</span>
+                                <input
+                                  type="text"
+                                  readOnly
+                                  value={e.url}
+                                  style={{ flex: 1, border: 'none', background: 'transparent', color: 'var(--text-main)', fontFamily: 'monospace', fontSize: '0.76rem', outline: 'none' }}
+                                />
+                              </div>
+                              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                                💡 {e.desc}
+                              </div>
                             </div>
                           );
                         })}
                       </div>
                     );
                   })()}
+                </div>
+
+                {/* 🔑 區域二：專屬安全金鑰生命週期與權限管理 */}
+                <div style={{ backgroundColor: 'var(--bg-body)', borderRadius: '10px', padding: '16px', border: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                  <div style={{ borderBottom: '1px solid var(--border)', paddingBottom: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+                    <div>
+                      <h4 style={{ margin: '0 0 4px 0', fontSize: '0.98rem', fontWeight: 'bold', color: '#2563eb' }}>
+                        🔑 安全金鑰管理與更換 (Token Manager)
+                      </h4>
+                      <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                        更換金鑰時，系統會自動同步至雲端資料庫。開啟「嚴格安全模式」可確保舊金鑰徹底失效。
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Key Input & Actions */}
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: '1 1 240px' }}>
+                      <label style={{ fontSize: '0.78rem', fontWeight: 'bold', color: 'var(--text-main)' }}>當前生效金鑰代碼：</label>
+                      <input 
+                        type="text"
+                        value={staffSecretToken}
+                        onChange={(e) => setStaffSecretTokenState(e.target.value.trim().toLowerCase())}
+                        placeholder="自訂英數字代碼 (例如: beef_888)"
+                        style={{ padding: '9px 12px', fontSize: '0.95rem', fontFamily: 'monospace', fontWeight: 'bold', letterSpacing: '1px', borderRadius: '6px', border: '1.5px solid #2563eb', color: '#2563eb', backgroundColor: 'var(--bg-card)' }}
+                      />
+                    </div>
+                    <div style={{ display: 'flex', gap: '8px', alignSelf: 'flex-end', flexWrap: 'wrap' }}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const prefix = storeCode === 'luzhou' || storeCode === 'luzhou7' ? 'lz' : (storeCode === 'dragon' ? 'dg' : storeCode.toLowerCase().slice(0, 4));
+                          const hex = Math.random().toString(36).substring(2, 8);
+                          const generated = `${prefix}_${hex}`;
+                          setStaffSecretTokenState(generated);
+                        }}
+                        style={{ padding: '9px 14px', fontSize: '0.82rem', backgroundColor: 'var(--bg-card)', color: 'var(--text-main)', border: '1px solid var(--border)', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '4px' }}
+                        title="一鍵隨機產生一組全新亂數金鑰"
+                      >
+                        🎲 隨機產生
+                      </button>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          const clean = staffSecretToken.trim();
+                          if (!clean) return alert("安全金鑰不能為空！");
+                          // If token changed, add old token to revoked list if not already there
+                          const oldToken = getStaffSecretToken(storeCode);
+                          let newRevoked = [...revokedTokens];
+                          if (oldToken && oldToken !== clean && !newRevoked.includes(oldToken.toLowerCase())) {
+                            newRevoked.push(oldToken.toLowerCase());
+                          }
+                          const ok = await saveSecuritySettingsToCloud(clean, strictMode, newRevoked);
+                          if (ok) {
+                            alert(`🎉 專屬網址安全金鑰已成功更新為：【${clean}】！\n\n舊有金鑰已自動安全作廢，全系統入口網址已即時自動同步！`);
+                          }
+                        }}
+                        style={{ padding: '9px 18px', fontSize: '0.85rem', backgroundColor: '#2563eb', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}
+                      >
+                        💾 儲存並同步雲端
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* 嚴格安全模式開關與說明 */}
+                  <div style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+                    <div style={{ flex: 1, minWidth: '240px' }}>
+                      <div style={{ fontSize: '0.85rem', fontWeight: 'bold', color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span>🛡️ 嚴格安全模式 (Strict Security Mode)</span>
+                        <span style={{ fontSize: '0.72rem', padding: '1px 6px', borderRadius: '10px', backgroundColor: strictMode ? '#16a34a15' : '#ea580c15', color: strictMode ? '#16a34a' : '#ea580c', fontWeight: 'bold' }}>
+                          {strictMode ? '已啟用 (推薦)' : '已關閉'}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '2px', lineHeight: 1.4 }}>
+                        {strictMode ? (
+                          <span>僅允許當前最新設定的金鑰【<code>{staffSecretToken.trim() || 'dg_ylgq6q'}</code>】通行。所有歷史舊金鑰（包含原廠預設 <code>dg_8f2a1c</code>）將<strong>全面徹底作廢</strong>，外部點擊舊連結將直接留在顧客菜單，不允許進入後台！</span>
+                        ) : (
+                          <span>寬鬆相容模式：系統除當前金鑰外，額外相容原廠歷史初始金鑰（<code>dg_8f2a1c</code>）。</span>
+                        )}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const newStrict = !strictMode;
+                        const ok = await saveSecuritySettingsToCloud(staffSecretToken.trim(), newStrict, revokedTokens);
+                        if (ok) {
+                          alert(newStrict ? "🔒 嚴格安全模式已開啟！舊金鑰已全面作廢。" : "⚠️ 已切換為相容備援模式。");
+                        }
+                      }}
+                      style={{
+                        padding: '6px 14px',
+                        fontSize: '0.8rem',
+                        fontWeight: 'bold',
+                        borderRadius: '6px',
+                        border: '1px solid var(--border)',
+                        backgroundColor: strictMode ? '#ea580c' : '#16a34a',
+                        color: 'white',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      {strictMode ? '切換為相容模式' : '開啟嚴格作廢模式'}
+                    </button>
+                  </div>
+
+                  {/* 歷史/已知金鑰清單與作廢狀態表 */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <div style={{ fontSize: '0.8rem', fontWeight: 'bold', color: 'var(--text-main)' }}>
+                      📋 金鑰授權與作廢管理清單：
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      {/* 當前金鑰 */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'var(--bg-card)', padding: '8px 12px', borderRadius: '6px', border: '1px solid var(--border)' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span style={{ fontSize: '0.75rem', padding: '2px 6px', borderRadius: '4px', backgroundColor: '#16a34a15', color: '#16a34a', fontWeight: 'bold' }}>🟢 當前主要金鑰</span>
+                          <code style={{ fontSize: '0.88rem', fontWeight: 'bold', color: '#2563eb' }}>{staffSecretToken.trim()}</code>
+                          <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>(雲端最新生效中)</span>
+                        </div>
+                        <span style={{ fontSize: '0.75rem', color: '#16a34a', fontWeight: 'bold' }}>✅ 正常通行</span>
+                      </div>
+
+                      {/* 歷史原廠金鑰 dg_8f2a1c */}
+                      {(() => {
+                        const isRevoked = strictMode || revokedTokens.map(t => t.toLowerCase()).includes('dg_8f2a1c');
+                        return (
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'var(--bg-card)', padding: '8px 12px', borderRadius: '6px', border: isRevoked ? '1px solid rgba(220, 38, 38, 0.3)' : '1px solid var(--border)', flexWrap: 'wrap', gap: '6px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <span style={{ fontSize: '0.75rem', padding: '2px 6px', borderRadius: '4px', backgroundColor: isRevoked ? '#dc262615' : '#ea580c15', color: isRevoked ? '#dc2626' : '#ea580c', fontWeight: 'bold' }}>
+                                {isRevoked ? '🔴 已封鎖作廢' : '🟡 相容允許'}
+                              </span>
+                              <code style={{ fontSize: '0.88rem', fontWeight: 'bold', color: isRevoked ? 'var(--text-muted)' : 'var(--text-main)', textDecoration: isRevoked ? 'line-through' : 'none' }}>
+                                dg_8f2a1c
+                              </code>
+                              <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>(原廠預設舊金鑰)</span>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              {isRevoked ? (
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    const updated = revokedTokens.filter(t => t.toLowerCase() !== 'dg_8f2a1c');
+                                    const ok = await saveSecuritySettingsToCloud(staffSecretToken.trim(), false, updated);
+                                    if (ok) alert("已恢復允許 dg_8f2a1c 舊金鑰使用！");
+                                  }}
+                                  style={{ padding: '4px 10px', fontSize: '0.74rem', border: '1px solid var(--border)', borderRadius: '4px', backgroundColor: 'var(--bg-body)', color: 'var(--text-main)', cursor: 'pointer', fontWeight: 'bold' }}
+                                >
+                                  🔄 恢復允許此舊金鑰
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    const updated = Array.from(new Set([...revokedTokens, 'dg_8f2a1c']));
+                                    const ok = await saveSecuritySettingsToCloud(staffSecretToken.trim(), true, updated);
+                                    if (ok) alert("🎉 舊金鑰【dg_8f2a1c】已成功徹底作廢！所有帶有此金鑰的舊網址將無法進入後台。");
+                                  }}
+                                  style={{ padding: '4px 10px', fontSize: '0.74rem', border: 'none', borderRadius: '4px', backgroundColor: '#dc2626', color: 'white', cursor: 'pointer', fontWeight: 'bold' }}
+                                >
+                                  🚫 立即作廢此舊金鑰
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  </div>
+                </div>
+
+                {/* 🧪 區域三：連結即時有效性檢測工具 (Live Link Tester) */}
+                <div style={{ backgroundColor: 'var(--bg-body)', borderRadius: '10px', padding: '16px', border: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span style={{ fontSize: '1rem' }}>🧪</span>
+                    <span style={{ fontSize: '0.88rem', fontWeight: 'bold', color: 'var(--text-main)' }}>連結即時有效性檢測器 (Link Inspector)：</span>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>不用登出，直接貼上任何網址測試其是否有效或已作廢</span>
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                    <input 
+                      type="text" 
+                      value={testInput} 
+                      onChange={(e) => setTestInput(e.target.value)} 
+                      placeholder="貼上完整網址或代碼 (例如: https://dragon.twabc.com/?store=dg_8f2a1c&login=true)"
+                      style={{ flex: '1 1 280px', padding: '8px 12px', fontSize: '0.82rem', fontFamily: 'monospace', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-card)', color: 'var(--text-main)' }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const res = testTokenStatus(testInput, storeCode);
+                        setTestResult(res);
+                      }}
+                      style={{ padding: '8px 16px', fontSize: '0.82rem', fontWeight: 'bold', backgroundColor: '#2563eb', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer' }}
+                    >
+                      🔍 即時檢測
+                    </button>
+                    {testResult && (
+                      <button
+                        type="button"
+                        onClick={() => { setTestInput(''); setTestResult(null); }}
+                        style={{ padding: '8px 12px', fontSize: '0.82rem', border: '1px solid var(--border)', borderRadius: '6px', backgroundColor: 'transparent', color: 'var(--text-muted)', cursor: 'pointer' }}
+                      >
+                        清除
+                      </button>
+                    )}
+                  </div>
+
+                  {testResult && (
+                    <div style={{
+                      backgroundColor: testResult.isValid ? 'rgba(22, 163, 74, 0.08)' : 'rgba(220, 38, 38, 0.08)',
+                      border: `1.5px solid ${testResult.isValid ? '#16a34a' : '#dc2626'}`,
+                      borderRadius: '8px',
+                      padding: '12px 14px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '4px'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 'bold', fontSize: '0.88rem', color: testResult.isValid ? '#16a34a' : '#dc2626' }}>
+                        <span>{testResult.isValid ? '✅ 檢測結果：此連結有效通行' : '🚫 檢測結果：此連結已作廢／無效'}</span>
+                      </div>
+                      <div style={{ fontSize: '0.8rem', color: 'var(--text-main)', lineHeight: 1.4 }}>
+                        {testResult.reason}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -5187,6 +5539,91 @@ const handleSaveGlobalAddons = async (newAddons) => {
                 style={{ flex: 1.5, padding: '8px', border: 'none', borderRadius: '6px', backgroundColor: 'var(--primary)', color: 'white', fontWeight: 'bold', cursor: 'pointer', fontSize: '0.85rem' }}
               >
                 💾 儲存並同步雲端
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 📱 Universal QR Code Preview Modal */}
+      {activeQrModal && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0,0,0,0.65)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 99999,
+          padding: '16px',
+          backdropFilter: 'blur(3px)'
+        }}>
+          <div style={{
+            backgroundColor: 'var(--bg-card)',
+            border: '2px solid #2563eb',
+            borderRadius: '16px',
+            padding: '24px',
+            maxWidth: '420px',
+            width: '100%',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: '16px',
+            boxShadow: '0 20px 40px rgba(0,0,0,0.3)',
+            textAlign: 'center'
+          }}>
+            <div style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border)', paddingBottom: '10px' }}>
+              <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 'bold', color: '#2563eb' }}>
+                📱 {activeQrModal.title}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setActiveQrModal(null)}
+                style={{ border: 'none', background: 'transparent', fontSize: '1.2rem', cursor: 'pointer', color: 'var(--text-muted)' }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div style={{ backgroundColor: '#ffffff', padding: '12px', borderRadius: '12px', border: '1px solid var(--border)' }}>
+              <img src={activeQrModal.qrDataUrl} alt="QR Code" style={{ width: '220px', height: '220px', display: 'block' }} />
+            </div>
+
+            <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)', fontWeight: 'bold' }}>專屬連結：</span>
+              <input
+                type="text"
+                readOnly
+                value={activeQrModal.url}
+                style={{ width: '100%', padding: '6px 10px', fontSize: '0.74rem', fontFamily: 'monospace', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-body)', color: 'var(--text-main)', boxSizing: 'border-box' }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', gap: '8px', width: '100%' }}>
+              <button
+                type="button"
+                onClick={() => {
+                  navigator.clipboard.writeText(activeQrModal.url);
+                  alert("✅ 網址已複製至剪貼簿！");
+                }}
+                style={{ flex: 1, padding: '10px', fontSize: '0.82rem', fontWeight: 'bold', borderRadius: '6px', border: 'none', backgroundColor: '#2563eb', color: 'white', cursor: 'pointer' }}
+              >
+                📋 複製網址
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const a = document.createElement('a');
+                  a.href = activeQrModal.qrDataUrl;
+                  a.download = `${activeQrModal.title}_qrcode.png`;
+                  a.click();
+                }}
+                style={{ flex: 1, padding: '10px', fontSize: '0.82rem', fontWeight: 'bold', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-body)', color: 'var(--text-main)', cursor: 'pointer' }}
+              >
+                💾 下載 QR 圖檔
               </button>
             </div>
           </div>

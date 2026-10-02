@@ -236,6 +236,10 @@ export const isStaffTokenValid = (tokenParam) => {
 
 export const getStoreStaffToken = (storeCode = '') => {
   const sCode = storeCode || getActiveStoreCode();
+  if (typeof window !== 'undefined') {
+    const custom = (sCode ? localStorage.getItem(`${sCode}_staff_secret_token`) : null) || localStorage.getItem('app_staff_secret_token');
+    if (custom) return custom;
+  }
   const stores = getRegisteredStores();
   const matched = stores.find(s => s.code === sCode);
   return matched?.staffToken || 'dg_8f2a1c';
@@ -249,17 +253,19 @@ export const generateRandomStoreToken = (storeCode = 'store') => {
 export const getStoreLinks = (storeCode = '') => {
   const sCode = resolveStoreCode(storeCode || getActiveStoreCode());
   const token = getStoreStaffToken(sCode);
-  const origin = typeof window !== 'undefined' ? window.location.origin : '';
+  const origin = typeof window !== 'undefined' ? window.location.origin : 'https://dragon.twabc.com';
   return {
-    customer: `${origin}/?store=${sCode}`,
+    customer: sCode === 'dragon' ? `${origin}/` : `${origin}/?store=${sCode}`,
     login: `${origin}/?store=${token}&login=true`,
     pos: `${origin}/?store=${token}&pos=true`,
     bookkeeping: `${origin}/?store=${token}&bookkeeping=true`,
+    management: `${origin}/?store=${token}&management=true`,
     // Compatibility aliases for ManagementView
-    customerUrl: `${origin}/?store=${sCode}`,
+    customerUrl: sCode === 'dragon' ? `${origin}/` : `${origin}/?store=${sCode}`,
+    loginUrl: `${origin}/?store=${token}&login=true`,
     posUrl: `${origin}/?store=${token}&pos=true`,
     bookkeepingUrl: `${origin}/?store=${token}&bookkeeping=true`,
-    adminUrl: `${origin}/?store=${token}&admin=true`,
+    adminUrl: `${origin}/?store=${token}&management=true`,
     publicToken: token
   };
 };
