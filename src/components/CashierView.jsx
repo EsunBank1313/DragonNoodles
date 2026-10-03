@@ -367,11 +367,30 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
 
   const [posUiScale, setPosUiScale] = useState(() => localStorage.getItem('pos_ui_scale') || 'compact');
   const [showPosSettingsModal, setShowPosSettingsModal] = useState(false);
+  const [showSystemSettingsMenu, setShowSystemSettingsMenu] = useState(false);
+  const settingsMenuRef = useRef(null);
   const [isPrintBlocked, setIsPrintBlocked] = useState(false);
   
   // Shift Handover (X-Report) States
   const [showShiftHandoverModal, setShowShiftHandoverModal] = useState(false);
   const [isManagingSoldOut, setIsManagingSoldOut] = useState(false);
+
+  // Close System Settings dropdown on click outside
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (settingsMenuRef.current && !settingsMenuRef.current.contains(e.target)) {
+        setShowSystemSettingsMenu(false);
+      }
+    };
+    if (showSystemSettingsMenu) {
+      document.addEventListener('mousedown', handleClickOutside);
+      document.addEventListener('touchstart', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('touchstart', handleClickOutside);
+    };
+  }, [showSystemSettingsMenu]);
 
   // Offline Queue Resilience
   const [isOnline, setIsOnline] = useState(() => (typeof navigator !== 'undefined' ? navigator.onLine : true));
@@ -2718,8 +2737,12 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
           )}
         </div>
 
-        {/* Right: Actions Toolbar (Single line, sleek, unified heights) */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'nowrap' }}>
+        {/* Right: Actions Toolbar (Grouped into Store Operations & System Settings) */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          {/* ======================================================== */}
+          {/* GROUP 1: 開店與營運功能 (Store Operations)                */}
+          {/* ======================================================== */}
+
           {/* 1. Store Open Toggle (今日開店 / 營業中) */}
           <button
             type="button"
@@ -2744,31 +2767,7 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
             {isStoreOpenToday ? '🟢 營業中' : '🛎️ 今日開店'}
           </button>
 
-          {/* 2. Daily Closing (今日打烊收店) */}
-          <button
-            type="button"
-            onClick={handleDailyClosingAndLock}
-            style={{
-              height: '36px',
-              padding: '0 12px',
-              fontSize: '0.82rem',
-              borderRadius: '6px',
-              border: '1px solid #ef4444',
-              backgroundColor: 'rgba(239, 68, 68, 0.1)',
-              color: '#ef4444',
-              cursor: 'pointer',
-              fontWeight: '900',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '4px',
-              whiteSpace: 'nowrap'
-            }}
-            title="列印日結單 (Z-Report)，關閉線上點餐並鎖定收銀帳目"
-          >
-            🏁 今日打烊收店
-          </button>
-
-          {/* 3. Sold-out Management (沽清管理) */}
+          {/* 2. Sold-out Management (沽清/售完) */}
           <button
             type="button"
             onClick={() => setIsManagingSoldOut(!isManagingSoldOut)}
@@ -2787,145 +2786,12 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
               gap: '4px',
               whiteSpace: 'nowrap'
             }}
+            title="點擊進入沽清模式，可直接在菜單卡片上點擊將品項標記為售完"
           >
             ⚡ {isManagingSoldOut ? '結束沽清' : '沽清/售完'}
           </button>
 
-          {/* Quick Auto-Print Toggle */}
-          <button
-            type="button"
-            onClick={() => {
-              const nextVal = !isAutoPrintEnabled;
-              setIsAutoPrintEnabled(nextVal);
-              isAutoPrintEnabledRef.current = nextVal;
-              localStorage.setItem('is_auto_print_enabled', String(nextVal));
-            }}
-            style={{
-              height: '36px',
-              padding: '0 12px',
-              fontSize: '0.82rem',
-              borderRadius: '6px',
-              border: isAutoPrintEnabled ? '1px solid #16a34a' : '1px solid var(--border)',
-              backgroundColor: isAutoPrintEnabled ? 'rgba(22, 163, 74, 0.12)' : 'var(--bg-body)',
-              color: isAutoPrintEnabled ? '#15803d' : 'var(--text-muted)',
-              cursor: 'pointer',
-              fontWeight: '900',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '4px',
-              whiteSpace: 'nowrap'
-            }}
-            title="點擊切換新單自動列印（開啟時線上點餐送出後會立即自動列印單據）"
-          >
-            🖨️ {isAutoPrintEnabled ? '自動出單: 開啟' : '自動出單: 關閉'}
-          </button>
-
-          {/* Quick Sound Alert & Voice Toggle */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-            <button
-              type="button"
-              onClick={() => {
-                const nextVal = !isVoiceAnnounceEnabled;
-                setIsVoiceAnnounceEnabled(nextVal);
-                isVoiceAnnounceEnabledRef.current = nextVal;
-                localStorage.setItem('is_voice_announce_enabled', String(nextVal));
-                if (!nextVal && typeof window !== 'undefined' && 'speechSynthesis' in window) {
-                  try { window.speechSynthesis.cancel(); } catch (e) {}
-                }
-              }}
-              style={{
-                height: '36px',
-                padding: '0 12px',
-                fontSize: '0.82rem',
-                borderRadius: '6px',
-                border: isVoiceAnnounceEnabled ? '1px solid #3b82f6' : '1px solid var(--border)',
-                backgroundColor: isVoiceAnnounceEnabled ? 'rgba(59, 130, 246, 0.12)' : 'var(--bg-body)',
-                color: isVoiceAnnounceEnabled ? '#2563eb' : 'var(--text-muted)',
-                cursor: 'pointer',
-                fontWeight: '900',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '4px',
-                whiteSpace: 'nowrap'
-              }}
-              title="點擊切換新單語音與叮咚鈴聲（開啟或完全靜音）"
-            >
-              {isVoiceAnnounceEnabled ? '🔊 語音提醒: 開啟' : '🔇 語音提醒: 靜音'}
-            </button>
-            {isVoiceAnnounceEnabled && (
-              <button
-                type="button"
-                onClick={testVoiceAnnouncement}
-                style={{
-                  height: '36px',
-                  padding: '0 8px',
-                  fontSize: '0.78rem',
-                  borderRadius: '6px',
-                  border: '1px solid var(--border)',
-                  backgroundColor: 'var(--bg-body)',
-                  color: 'var(--text-muted)',
-                  cursor: 'pointer',
-                  fontWeight: 'bold',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '2px',
-                  whiteSpace: 'nowrap'
-                }}
-                title="測試當前叮咚鈴聲與語音播報效果"
-              >
-                測試
-              </button>
-            )}
-          </div>
-
-          {/* 4. POS Settings (設定) */}
-          <button
-            type="button"
-            onClick={() => setShowPosSettingsModal(true)}
-            style={{
-              height: '36px',
-              padding: '0 12px',
-              fontSize: '0.82rem',
-              borderRadius: '6px',
-              border: '1px solid var(--border)',
-              backgroundColor: 'var(--bg-body)',
-              color: 'var(--text-main)',
-              cursor: 'pointer',
-              fontWeight: 'bold',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '4px',
-              whiteSpace: 'nowrap'
-            }}
-            title="POS 功能與列印設定"
-          >
-            ⚙️ POS與列印設定
-          </button>
-
-          {/* 5. Shift Handover (換班交接) */}
-          <button
-            type="button"
-            onClick={() => setShowShiftHandoverModal(true)}
-            style={{
-              height: '36px',
-              padding: '0 12px',
-              fontSize: '0.82rem',
-              borderRadius: '6px',
-              border: '1px solid #2563eb',
-              backgroundColor: 'rgba(37, 99, 235, 0.08)',
-              color: '#2563eb',
-              cursor: 'pointer',
-              fontWeight: 'bold',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '4px',
-              whiteSpace: 'nowrap'
-            }}
-          >
-            🔄 換班交接
-          </button>
-
-          {/* 🛵 Uber Eats Quick Launcher */}
+          {/* 3. Uber Eats Quick Launcher */}
           <button
             type="button"
             onClick={() => setShowUberModal(true)}
@@ -2950,7 +2816,55 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
             🛵 Uber Eats
           </button>
 
-          {/* 6. Restock Alert (補貨提醒) */}
+          {/* 4. Shift Handover (換班交接) */}
+          <button
+            type="button"
+            onClick={() => setShowShiftHandoverModal(true)}
+            style={{
+              height: '36px',
+              padding: '0 12px',
+              fontSize: '0.82rem',
+              borderRadius: '6px',
+              border: '1px solid #2563eb',
+              backgroundColor: 'rgba(37, 99, 235, 0.08)',
+              color: '#2563eb',
+              cursor: 'pointer',
+              fontWeight: 'bold',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+              whiteSpace: 'nowrap'
+            }}
+            title="列印當班對帳單 (X-Report) 並交接現金給下一班人員"
+          >
+            🔄 換班交接
+          </button>
+
+          {/* 5. Daily Closing (今日打烊收店) */}
+          <button
+            type="button"
+            onClick={handleDailyClosingAndLock}
+            style={{
+              height: '36px',
+              padding: '0 12px',
+              fontSize: '0.82rem',
+              borderRadius: '6px',
+              border: '1px solid #ef4444',
+              backgroundColor: 'rgba(239, 68, 68, 0.1)',
+              color: '#ef4444',
+              cursor: 'pointer',
+              fontWeight: '900',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+              whiteSpace: 'nowrap'
+            }}
+            title="列印日結單 (Z-Report)，關閉線上點餐並鎖定收銀帳目"
+          >
+            🏁 今日打烊收店
+          </button>
+
+          {/* Restock Alert (補貨提醒 - 缺貨時顯示) */}
           {watchedLowStockItems.length > 0 && (
             <button
               type="button"
@@ -2976,33 +2890,247 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
             </button>
           )}
 
-          {/* 7. Logout Lock (登出鎖定) */}
-          <button 
-            onClick={async () => {
-              try {
-                const sessionKey = prefixNameForStore('SYSTEM_SETTING_ACTIVE_POS_SESSION', storeCode);
-                await supabase.from('menu_items').update({ description: JSON.stringify({ user: '', sessionId: '', lastActive: 0 }) }).eq('name', sessionKey);
-              } catch (e) {}
-              onLogout();
-            }}
-            style={{
-              height: '36px',
-              padding: '0 12px',
-              fontSize: '0.82rem',
-              borderRadius: '6px',
-              border: '1px solid var(--border)',
-              backgroundColor: 'var(--bg-body)',
-              color: 'var(--text-muted)',
-              cursor: 'pointer',
-              fontWeight: 'bold',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '4px',
-              whiteSpace: 'nowrap'
-            }}
-          >
-            🔒 登出
-          </button>
+          {/* 區隔線 (Divider) */}
+          <div style={{ width: '1px', height: '22px', backgroundColor: 'var(--border)', margin: '0 4px' }} />
+
+          {/* ======================================================== */}
+          {/* GROUP 2: 系統設定功能 (System Settings Dropdown)           */}
+          {/* ======================================================== */}
+          <div style={{ position: 'relative' }} ref={settingsMenuRef}>
+            <button
+              type="button"
+              onClick={() => setShowSystemSettingsMenu(!showSystemSettingsMenu)}
+              style={{
+                height: '36px',
+                padding: '0 12px',
+                fontSize: '0.82rem',
+                borderRadius: '6px',
+                border: showSystemSettingsMenu ? '1px solid var(--primary)' : '1px solid var(--border)',
+                backgroundColor: showSystemSettingsMenu ? 'rgba(234, 88, 12, 0.1)' : 'var(--bg-body)',
+                color: showSystemSettingsMenu ? 'var(--primary)' : 'var(--text-main)',
+                cursor: 'pointer',
+                fontWeight: 'bold',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                whiteSpace: 'nowrap'
+              }}
+              title="開啟系統設定選單（自動出單、語音播報、POS與列印進階設定、登出）"
+            >
+              <span>⚙️ 系統設定</span>
+              <span style={{ fontSize: '0.72rem', display: 'flex', alignItems: 'center', gap: '3px', opacity: 0.85 }}>
+                {isAutoPrintEnabled && <span title="自動出單已開啟">🖨️</span>}
+                {isVoiceAnnounceEnabled ? <span title="語音提醒已開啟">🔊</span> : <span title="語音已靜音">🔇</span>}
+              </span>
+              <span style={{ fontSize: '0.75rem', transform: showSystemSettingsMenu ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s ease' }}>▾</span>
+            </button>
+
+            {/* System Settings Dropdown Popover */}
+            {showSystemSettingsMenu && (
+              <div style={{
+                position: 'absolute',
+                top: 'calc(100% + 6px)',
+                right: 0,
+                width: '280px',
+                backgroundColor: 'var(--bg-card)',
+                borderRadius: '10px',
+                border: '1px solid var(--border)',
+                boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.2), 0 8px 10px -6px rgba(0, 0, 0, 0.1)',
+                padding: '12px',
+                zIndex: 100,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '10px',
+                textAlign: 'left'
+              }}>
+                <div style={{
+                  fontSize: '0.82rem',
+                  fontWeight: 'bold',
+                  color: 'var(--text-muted)',
+                  paddingBottom: '6px',
+                  borderBottom: '1px solid var(--border)',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center'
+                }}>
+                  <span>⚙️ 系統與設備設定</span>
+                  <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>點擊快速切換</span>
+                </div>
+
+                {/* 1. Quick Auto-Print Toggle */}
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '6px 8px',
+                  borderRadius: '6px',
+                  backgroundColor: isAutoPrintEnabled ? 'rgba(22, 163, 74, 0.08)' : 'var(--bg-body)',
+                  border: isAutoPrintEnabled ? '1px solid rgba(22, 163, 74, 0.2)' : '1px solid var(--border)'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span style={{ fontSize: '1rem' }}>🖨️</span>
+                    <div>
+                      <div style={{ fontSize: '0.82rem', fontWeight: 'bold', color: 'var(--text-main)' }}>自動出單</div>
+                      <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{isAutoPrintEnabled ? '新單即時出單' : '手動列印'}</div>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const nextVal = !isAutoPrintEnabled;
+                      setIsAutoPrintEnabled(nextVal);
+                      isAutoPrintEnabledRef.current = nextVal;
+                      localStorage.setItem('is_auto_print_enabled', String(nextVal));
+                    }}
+                    style={{
+                      padding: '4px 10px',
+                      fontSize: '0.78rem',
+                      borderRadius: '6px',
+                      border: isAutoPrintEnabled ? '1px solid #16a34a' : '1px solid var(--border)',
+                      backgroundColor: isAutoPrintEnabled ? '#16a34a' : 'var(--bg-card)',
+                      color: isAutoPrintEnabled ? 'white' : 'var(--text-muted)',
+                      cursor: 'pointer',
+                      fontWeight: 'bold'
+                    }}
+                  >
+                    {isAutoPrintEnabled ? '已開啟' : '已關閉'}
+                  </button>
+                </div>
+
+                {/* 2. Quick Sound Alert & Voice Toggle */}
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '6px 8px',
+                  borderRadius: '6px',
+                  backgroundColor: isVoiceAnnounceEnabled ? 'rgba(59, 130, 246, 0.08)' : 'var(--bg-body)',
+                  border: isVoiceAnnounceEnabled ? '1px solid rgba(59, 130, 246, 0.2)' : '1px solid var(--border)'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span style={{ fontSize: '1rem' }}>{isVoiceAnnounceEnabled ? '🔊' : '🔇'}</span>
+                    <div>
+                      <div style={{ fontSize: '0.82rem', fontWeight: 'bold', color: 'var(--text-main)' }}>語音提醒</div>
+                      <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{isVoiceAnnounceEnabled ? '叮咚與報單' : '完全靜音'}</div>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: '4px' }}>
+                    {isVoiceAnnounceEnabled && (
+                      <button
+                        type="button"
+                        onClick={testVoiceAnnouncement}
+                        style={{
+                          padding: '4px 8px',
+                          fontSize: '0.75rem',
+                          borderRadius: '6px',
+                          border: '1px solid var(--border)',
+                          backgroundColor: 'var(--bg-card)',
+                          color: 'var(--text-muted)',
+                          cursor: 'pointer',
+                          fontWeight: 'bold'
+                        }}
+                        title="測試語音效果"
+                      >
+                        測試
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const nextVal = !isVoiceAnnounceEnabled;
+                        setIsVoiceAnnounceEnabled(nextVal);
+                        isVoiceAnnounceEnabledRef.current = nextVal;
+                        localStorage.setItem('is_voice_announce_enabled', String(nextVal));
+                        if (!nextVal && typeof window !== 'undefined' && 'speechSynthesis' in window) {
+                          try { window.speechSynthesis.cancel(); } catch (e) {}
+                        }
+                      }}
+                      style={{
+                        padding: '4px 10px',
+                        fontSize: '0.78rem',
+                        borderRadius: '6px',
+                        border: isVoiceAnnounceEnabled ? '1px solid #3b82f6' : '1px solid var(--border)',
+                        backgroundColor: isVoiceAnnounceEnabled ? '#3b82f6' : 'var(--bg-card)',
+                        color: isVoiceAnnounceEnabled ? 'white' : 'var(--text-muted)',
+                        cursor: 'pointer',
+                        fontWeight: 'bold'
+                      }}
+                    >
+                      {isVoiceAnnounceEnabled ? '已開啟' : '靜音'}
+                    </button>
+                  </div>
+                </div>
+
+                {/* 3. Detailed POS Settings Modal Launcher */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowSystemSettingsMenu(false);
+                    setShowPosSettingsModal(true);
+                  }}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    padding: '8px 10px',
+                    borderRadius: '6px',
+                    border: '1px solid var(--border)',
+                    backgroundColor: 'var(--bg-body)',
+                    color: 'var(--text-main)',
+                    fontSize: '0.82rem',
+                    fontWeight: 'bold',
+                    cursor: 'pointer',
+                    width: '100%',
+                    textAlign: 'left'
+                  }}
+                  title="開啟完整的 POS 功能與列印進階設定"
+                >
+                  <span>⚙️</span>
+                  <div style={{ flex: 1 }}>
+                    <div>POS與列印詳細設定...</div>
+                    <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 'normal' }}>
+                      備餐切單、秤重單位、字體縮放
+                    </div>
+                  </div>
+                  <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>›</span>
+                </button>
+
+                {/* Divider */}
+                <div style={{ height: '1px', backgroundColor: 'var(--border)', margin: '2px 0' }} />
+
+                {/* 4. Logout Action */}
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setShowSystemSettingsMenu(false);
+                    try {
+                      const sessionKey = prefixNameForStore('SYSTEM_SETTING_ACTIVE_POS_SESSION', storeCode);
+                      await supabase.from('menu_items').update({ description: JSON.stringify({ user: '', sessionId: '', lastActive: 0 }) }).eq('name', sessionKey);
+                    } catch (e) {}
+                    onLogout();
+                  }}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '6px',
+                    padding: '8px 10px',
+                    borderRadius: '6px',
+                    border: '1px solid #fee2e2',
+                    backgroundColor: '#fef2f2',
+                    color: '#dc2626',
+                    fontSize: '0.82rem',
+                    fontWeight: 'bold',
+                    cursor: 'pointer',
+                    width: '100%'
+                  }}
+                  title="安全登出當前 POS 收銀系統"
+                >
+                  🔒 登出收銀系統
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </header>
 
