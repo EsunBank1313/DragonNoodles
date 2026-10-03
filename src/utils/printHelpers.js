@@ -82,7 +82,7 @@ export const printThermalReceipt = (order, storeProfile = defaultStoreProfile, r
   const tableNameStr = order.tableName || order.table_number || '';
 
   const is58mm = (receiptConfig?.paperWidth === '58mm');
-  const printWidth = is58mm ? '170px' : '260px';
+  const printWidth = is58mm ? '158px' : '260px';
   const titleSize = is58mm ? '16px' : '20px';
   const subtitleSize = is58mm ? '11px' : '13px';
   const fontSize = is58mm ? '12px' : '14px';
@@ -115,7 +115,7 @@ export const printThermalReceipt = (order, storeProfile = defaultStoreProfile, r
           @media print {
             html, body { margin: 0 !important; padding: 0 !important; width: 100% !important; height: auto !important; }
           }
-          body { font-family: monospace, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: ${fontSize}; line-height: 1.4; padding: 6px 10px; width: ${printWidth}; box-sizing: border-box; height: auto; color: #000; margin: 0; background: #fff; }
+          body { font-family: monospace, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: ${fontSize}; line-height: 1.35; padding: 6px 4px; width: ${printWidth}; max-width: ${printWidth}; box-sizing: border-box; height: auto; color: #000; margin: 0; background: #fff; word-break: break-all; overflow: hidden; }
           .center { text-align: center; }
           .title { font-size: ${titleSize}; font-weight: bold; margin-bottom: 3px; }
           .subtitle { font-size: ${subtitleSize}; font-weight: bold; margin-bottom: 3px; }
@@ -314,7 +314,7 @@ export const printDualReceipts = (order, storeProfile = defaultStoreProfile, rec
   const remarksStr = order.remarks || order.note || '';
 
   const is58mm = (receiptConfig?.paperWidth === '58mm');
-  const printWidth = is58mm ? '170px' : '260px';
+  const printWidth = is58mm ? '158px' : '260px';
   const titleSize = is58mm ? '16px' : '20px';
   const subtitleSize = is58mm ? '11px' : '13px';
   const fontSize = is58mm ? '12px' : '14px';
@@ -349,7 +349,7 @@ export const printDualReceipts = (order, storeProfile = defaultStoreProfile, rec
             html, body { margin: 0 !important; padding: 0 !important; width: 100% !important; height: auto !important; }
             .page-break { page-break-after: always; break-after: page; }
           }
-          body { font-family: monospace, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: ${fontSize}; line-height: 1.4; padding: 6px 10px; width: ${printWidth}; box-sizing: border-box; height: auto; color: #000; margin: 0; background: #fff; }
+          body { font-family: monospace, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: ${fontSize}; line-height: 1.35; padding: 6px 4px; width: ${printWidth}; max-width: ${printWidth}; box-sizing: border-box; height: auto; color: #000; margin: 0; background: #fff; word-break: break-all; overflow: hidden; }
           .center { text-align: center; }
           .title { font-size: ${titleSize}; font-weight: bold; margin-bottom: 3px; }
           .subtitle { font-size: ${subtitleSize}; font-weight: bold; margin-bottom: 3px; }

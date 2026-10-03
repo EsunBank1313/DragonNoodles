@@ -6,7 +6,8 @@ export default function PosThermalPrintArea({ printPayload }) {
   const { type, order, data, storeProfile = {}, receiptConfig = {} } = printPayload;
   const storeName = storeProfile.storeName || '龍城麵線';
   const is58mm = (receiptConfig.paperWidth === '58mm');
-  const printWidth = is58mm ? '58mm' : '80mm';
+  // 58mm: 42mm width prevents right clipping on all thermal printers; 80mm: 72mm width
+  const printWidth = is58mm ? '42mm' : '72mm';
 
   // Helper to extract cart items
   const getCartItems = (ord) => {
@@ -50,7 +51,7 @@ export default function PosThermalPrintArea({ printPayload }) {
     );
 
     return (
-      <div id="pos-thermal-print-area" style={{ width: printWidth }}>
+      <div id="pos-thermal-print-area" style={{ width: printWidth, maxWidth: printWidth, boxSizing: 'border-box', overflow: 'hidden', wordBreak: 'break-all' }}>
         {/* ================= SECTION 1: Customer Receipt ================= */}
         <div className="customer-receipt">
           <div style={{ textAlign: 'center', fontSize: '18px', fontWeight: 'bold', marginBottom: '3px' }}>
