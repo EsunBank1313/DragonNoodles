@@ -178,7 +178,14 @@ def parse_foodpanda_order_dict(val):
         customer_name = "熊貓 顧客"
 
     # 金額資訊
-    total_val = val.get("total_amount") or val.get("total") or val.get("price") or val.get("subtotal") or 0
+    payment_obj = val.get("payment") or {}
+    total_val = None
+    if isinstance(payment_obj, dict):
+        total_val = payment_obj.get("total") or payment_obj.get("itemsTotalPrice") or payment_obj.get("amount")
+
+    if not total_val:
+        total_val = val.get("total_amount") or val.get("total") or val.get("price") or val.get("subtotal") or 0
+
     if isinstance(total_val, dict):
         total_price = float(total_val.get("amount") or total_val.get("value") or 0)
     else:
@@ -195,7 +202,7 @@ def parse_foodpanda_order_dict(val):
         except Exception:
             pass
 
-    overall_note = str(val.get("special_instructions") or val.get("notes") or val.get("remark") or "").strip()
+    overall_note = str(val.get("special_instructions") or val.get("notes") or val.get("remark") or val.get("comment") or "").strip()
 
     # 提取品項
     cart_items = []
@@ -205,7 +212,7 @@ def parse_foodpanda_order_dict(val):
             continue
         name = str(it.get("name") or it.get("title") or it.get("item_name") or "餐點").strip()
         qty = int(it.get("quantity") or it.get("qty") or it.get("amount") or 1)
-        item_note = str(it.get("special_instructions") or it.get("note") or it.get("instructions") or "").strip()
+        item_note = str(it.get("special_instructions") or it.get("note") or it.get("instructions") or it.get("comment") or "").strip()
 
         # 規格 / 加料 / 選項
         specs = []
@@ -215,21 +222,45 @@ def parse_foodpanda_order_dict(val):
             specs.append("小碗")
 
         options = it.get("options") or it.get("selected_options") or it.get("modifiers") or []
+        extra_price = 0.0
         for opt in options:
             if isinstance(opt, dict):
                 opt_name = opt.get("name") or opt.get("title") or ""
                 if opt_name and opt_name not in specs:
                     specs.append(opt_name)
+                opt_p = opt.get("price") or opt.get("total") or 0
+                try:
+                    extra_price += float(opt_p)
+                except Exception:
+                    pass
             elif isinstance(opt, str) and opt and opt not in specs:
                 specs.append(opt)
+
+        raw_price = it.get("price") or it.get("unit_price") or it.get("total") or 0
+        if isinstance(raw_price, dict):
+            unit_price = float(raw_price.get("amount") or raw_price.get("value") or 0)
+        else:
+            try:
+                unit_price = float(re.sub(r"[^0-9.]", "", str(raw_price)) or 0)
+            except Exception:
+                unit_price = 0
+
+        item_unit_total = unit_price + (extra_price / qty if qty > 0 else extra_price)
 
         cart_items.append({
             "name": name,
             "quantity": qty,
             "specs": specs,
             "note": item_note,
-            "price": 0
+            "price": item_unit_total,
+            "totalPrice": item_unit_total * qty
         })
+
+    # 若總金額仍為 0，嘗試由品項加總
+    if total_price == 0 and cart_items:
+        calc_total = sum(it.get("price", 0) * it.get("quantity", 1) for it in cart_items)
+        if calc_total > 0:
+            total_price = calc_total
 
     return {
         "order_id": order_id,
@@ -284,17 +315,24 @@ async def process_new_foodpanda_order(order_data, config):
             "type": "foodpanda",
             "status": "received",
             "payment_status": "paid",
+            "payment_method": "foodpanda",
+            "cashier_name": "Foodpanda 平台",
             "created_at": datetime.now().isoformat(),
             "items": {
+                "source": "foodpanda",
                 "customerName": customer_name,
                 "is_printed": True,
+                "storeCode": "dragon",
+                "paymentMethod": "foodpanda",
                 "cart": [
                     {
                         "id": idx + 1,
                         "name": it["name"],
                         "quantity": it["quantity"],
                         "specs": it["specs"],
-                        "note": it["note"]
+                        "note": it["note"],
+                        "price": it.get("price", 0),
+                        "totalPrice": it.get("totalPrice", it.get("price", 0) * it["quantity"])
                     } for idx, it in enumerate(order_data["items"])
                 ]
             }
@@ -422,7 +460,16 @@ async def run_foodpanda_monitor():
                                         if "顧客" in ln or "客戶" in ln:
                                             cust_name = ln.replace("顧客", "").replace(":", "").strip()
                                         elif "x" in ln or "份" in ln or "碗" in ln:
-                                            items.append({"name": ln, "quantity": 1, "specs": [], "note": ""})
+                                            items.append({"name": ln, "quantity": 1, "specs": [], "note": "", "price": 0, "totalPrice": 0})
+
+                                    # 嘗試從卡片文字中擷取金額 (例如 NT$ 244 或 $244)
+                                    card_total = 0.0
+                                    price_match = re.search(r"(?:NT\$|\$)\s*(\d+(?:\.\d+)?)", card_text)
+                                    if price_match:
+                                        try:
+                                            card_total = float(price_match.group(1))
+                                        except Exception:
+                                            card_total = 0.0
 
                                     if items:
                                         dom_order = {
@@ -432,7 +479,7 @@ async def run_foodpanda_monitor():
                                             "order_number": f"P-{code}",
                                             "customer_name": cust_name,
                                             "created_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
-                                            "total_price": 0,
+                                            "total_price": card_total,
                                             "items": items,
                                             "note": ""
                                         }
