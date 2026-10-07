@@ -262,6 +262,18 @@ def parse_foodpanda_order_dict(val):
         if calc_total > 0:
             total_price = calc_total
 
+    # 預約單 / 預定取餐時間
+    is_preorder = bool(val.get("preorder"))
+    raw_pickup = val.get("transport", {}).get("pickupTime") or val.get("deliverAt") or val.get("pickup_time") or ""
+    pickup_time_str = ""
+    if raw_pickup:
+        try:
+            p_dt = datetime.fromisoformat(str(raw_pickup).replace("Z", "+00:00"))
+            p_dt_tw = p_dt.astimezone()
+            pickup_time_str = p_dt_tw.strftime("%H:%M")
+        except Exception:
+            pickup_time_str = str(raw_pickup)
+
     return {
         "order_id": order_id,
         "display_id": clean_short_code,
@@ -270,6 +282,8 @@ def parse_foodpanda_order_dict(val):
         "customer_name": customer_name,
         "created_at": created_at,
         "total_price": total_price,
+        "is_preorder": is_preorder,
+        "pickup_time": pickup_time_str,
         "items": cart_items,
         "note": overall_note
     }
@@ -309,6 +323,12 @@ async def process_new_foodpanda_order(order_data, config):
 
     # 4. 同步至 Supabase POS 雲端
     if not check_order_exists_in_db(order_number):
+        is_preorder = order_data.get("is_preorder", False)
+        pickup_time = order_data.get("pickup_time", "")
+        remarks_list = []
+        if is_preorder or pickup_time:
+            remarks_list.append(f"預約取餐: {pickup_time}" if pickup_time else "預約單")
+
         db_payload = {
             "order_number": order_number,
             "total": order_data["total_price"],
@@ -317,13 +337,16 @@ async def process_new_foodpanda_order(order_data, config):
             "payment_status": "paid",
             "payment_method": "foodpanda",
             "cashier_name": "Foodpanda 平台",
-            "created_at": datetime.now().isoformat(),
+            "remarks": " | ".join(remarks_list) if remarks_list else None,
+            "created_at": datetime.now().astimezone().isoformat(),
             "items": {
                 "source": "foodpanda",
                 "customerName": customer_name,
                 "is_printed": True,
                 "storeCode": "dragon",
                 "paymentMethod": "foodpanda",
+                "isPreorder": is_preorder,
+                "pickupTime": pickup_time,
                 "cart": [
                     {
                         "id": idx + 1,

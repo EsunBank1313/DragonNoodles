@@ -82,6 +82,17 @@ def generate_foodpanda_ticket_html(order_data, paper_width="58mm", show_price=Tr
         </div>
         """
 
+    is_preorder = order_data.get("is_preorder", False)
+    pickup_time = order_data.get("pickup_time", "")
+    preorder_html = ""
+    if is_preorder or pickup_time:
+        preorder_text = f"⏰ 預訂單 (取餐 {pickup_time})" if pickup_time else "⏰ 顧客預訂單 (非即時)"
+        preorder_html = f"""
+        <div style="background-color: #000; color: #fff; font-weight: 900; font-size: 14px; text-align: center; padding: 4px; margin: 4px 0; border-radius: 4px; letter-spacing: 1px;">
+            {preorder_text}
+        </div>
+        """
+
     html = f"""<!DOCTYPE html>
 <html>
 <head>
@@ -156,6 +167,7 @@ def generate_foodpanda_ticket_html(order_data, paper_width="58mm", show_price=Tr
         <div class="header">
             <div class="badge">🐼 FOODPANDA 熊貓外送</div>
             <div class="display-id">#{clean_display_id}</div>
+            {preorder_html}
             <div class="cust-info">顧客：{customer_name}</div>
         </div>
 
