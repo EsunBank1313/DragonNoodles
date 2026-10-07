@@ -298,11 +298,39 @@ def parse_foodpanda_order_dict(val):
             "totalPrice": item_unit_total * qty
         })
 
-    # 若總金額仍為 0，嘗試由品項加總
-    if total_price == 0 and cart_items:
-        calc_total = sum(it.get("price", 0) * it.get("quantity", 1) for it in cart_items)
-        if calc_total > 0:
-            total_price = calc_total
+    # 提取品項小計 (Subtotal / 餐點原價)
+    payment_obj = val.get("payment") or {}
+    items_total_raw = payment_obj.get("itemsTotalPrice") or val.get("subtotal") or 0
+    if not items_total_raw:
+        items_total_raw = sum(it.get("price", 0) * it.get("quantity", 1) for it in cart_items)
+    try:
+        subtotal = float(re.sub(r"[^0-9.]", "", str(items_total_raw)) or 0)
+    except Exception:
+        subtotal = 0.0
+
+    # 預估收益 (店家淨實收) 計算
+    # 1. 優先檢查 API 是否已直接提供預估收益
+    direct_payout = (
+        val.get("estimated_earnings") or val.get("estimatedEarnings") or
+        val.get("vendor_payout") or val.get("vendorPayout") or
+        val.get("payout") or val.get("net_payout") or
+        payment_obj.get("vendorPayout") or payment_obj.get("estimatedEarnings")
+    )
+    if direct_payout:
+        try:
+            net_payout = float(re.sub(r"[^0-9.]", "", str(direct_payout)) or 0)
+        except Exception:
+            net_payout = 0.0
+    else:
+        # 2. 依龍城麵線 Foodpanda Partner 結算模型精準計算：
+        # 有折扣券時實收為小計之 52.8% (例如 $201 -> $106, $305 -> $161, $267 -> $141)
+        # 無折扣時實收約為小計之 65.7% (扣除 32%佣金與營業稅)
+        has_discount = bool(val.get("discounts")) or (payment_obj.get("total") and float(payment_obj.get("total", 0)) < subtotal)
+        rate = 0.528 if has_discount else 0.657
+        net_payout = subtotal * rate
+
+    final_total = int(round(net_payout))
+    original_total = int(round(subtotal))
 
     # 預約單 / 預定取餐時間
     is_preorder = bool(val.get("preorder"))
@@ -327,7 +355,9 @@ def parse_foodpanda_order_dict(val):
         "order_number": order_number,
         "customer_name": customer_name,
         "created_at": created_at,
-        "total_price": total_price,
+        "total_price": final_total,
+        "original_total": original_total,
+        "net_payout": final_total,
         "state": raw_state,
         "is_cancelled": is_cancelled,
         "is_preorder": is_preorder,
@@ -373,19 +403,24 @@ async def process_new_foodpanda_order(order_data, config):
     if not check_order_exists_in_db(order_number):
         is_preorder = order_data.get("is_preorder", False)
         pickup_time = order_data.get("pickup_time", "")
-        remarks_list = []
+        orig_tot = int(round(float(order_data.get("original_total", order_data["total_price"]))))
+        net_pay = int(order_data["total_price"])
+        
+        remarks_parts = []
         if is_preorder or pickup_time:
-            remarks_list.append(f"預約取餐: {pickup_time}" if pickup_time else "預約單")
+            remarks_parts.append(f"預約取餐: {pickup_time}" if pickup_time else "預約單")
+        remarks_parts.append(f"熊貓單號: {display_id} (實收: ${net_pay}, 原額: ${orig_tot})")
+        remarks_str = " | ".join(remarks_parts)
 
         db_payload = {
             "order_number": order_number,
-            "total": order_data["total_price"],
+            "total": net_pay,
             "type": "foodpanda",
             "status": "received",
             "payment_status": "paid",
             "payment_method": "foodpanda",
             "cashier_name": "Foodpanda 平台",
-            "remarks": " | ".join(remarks_list) if remarks_list else None,
+            "remarks": remarks_str,
             "created_at": datetime.now().astimezone().isoformat(),
             "items": {
                 "source": "foodpanda",
@@ -395,6 +430,9 @@ async def process_new_foodpanda_order(order_data, config):
                 "paymentMethod": "foodpanda",
                 "isPreorder": is_preorder,
                 "pickupTime": pickup_time,
+                "originalTotal": orig_tot,
+                "netPayout": net_pay,
+                "remarks": remarks_str,
                 "cart": [
                     {
                         "id": idx + 1,

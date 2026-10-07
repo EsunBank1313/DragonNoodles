@@ -73,12 +73,22 @@ def generate_foodpanda_ticket_html(order_data, paper_width="58mm", show_price=Tr
         </div>
         """
 
+    original_total = order_data.get("original_total", 0)
     price_html = ""
     if show_price and total_price > 0:
+        orig_html = f"""
+        <div style="display: flex; justify-content: space-between; font-size: 11px; color: #555;">
+            <span>餐點小計：</span>
+            <span>NT$ {int(original_total)}</span>
+        </div>
+        """ if original_total > total_price else ""
         price_html = f"""
-        <div style="display: flex; justify-content: space-between; font-size: 13px; font-weight: bold; margin-top: 4px;">
-            <span>實收營收(估)：</span>
-            <span>NT$ {int(total_price)}</span>
+        <div style="border-top: 1px dashed #000; padding-top: 4px; margin-top: 4px;">
+            {orig_html}
+            <div style="display: flex; justify-content: space-between; font-size: 13px; font-weight: bold;">
+                <span>預估實收：</span>
+                <span>NT$ {int(total_price)}</span>
+            </div>
         </div>
         """
 
