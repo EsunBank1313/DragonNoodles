@@ -142,6 +142,48 @@ def check_order_exists_in_db(order_number):
     except Exception:
         return False
 
+def update_foodpanda_order_status_in_db(order_number, new_status, cancel_reason=""):
+    try:
+        url = f"{SUPABASE_URL}/rest/v1/orders?order_number=eq.{urllib.parse.quote(order_number)}"
+        req_get = urllib.request.Request(url, headers={
+            "apikey": SUPABASE_KEY,
+            "Authorization": f"Bearer {SUPABASE_KEY}"
+        })
+        existing_orders = []
+        with urllib.request.urlopen(req_get, timeout=8) as res:
+            existing_orders = json.loads(res.read().decode("utf-8"))
+        if not existing_orders:
+            return False
+
+        existing = existing_orders[0]
+        if existing.get("status") == new_status:
+            return True
+
+        current_remarks = existing.get("remarks") or ""
+        tag = f"[熊貓外送已取消: {cancel_reason}]" if cancel_reason else "[熊貓外送已取消]"
+        updated_remarks = current_remarks
+        if tag not in updated_remarks:
+            updated_remarks = f"{current_remarks} {tag}".strip()
+
+        patch_payload = {
+            "status": new_status,
+            "remarks": updated_remarks
+        }
+        req_data = json.dumps(patch_payload).encode("utf-8")
+        req_patch = urllib.request.Request(url, data=req_data, headers={
+            "apikey": SUPABASE_KEY,
+            "Authorization": f"Bearer {SUPABASE_KEY}",
+            "Content-Type": "application/json",
+            "Prefer": "return=representation"
+        }, method="PATCH")
+        with urllib.request.urlopen(req_patch, timeout=10) as res:
+            if res.status in (200, 204):
+                log(f"  ✓ [{order_number}] 雲端訂單狀態已更新為: {new_status} ({tag})")
+                return True
+    except Exception as e:
+        log(f"⚠️ 更新訂單狀態出錯: {e}")
+        return False
+
 def sync_order_to_supabase(order_payload):
     try:
         url = f"{SUPABASE_URL}/rest/v1/orders"
@@ -274,6 +316,10 @@ def parse_foodpanda_order_dict(val):
         except Exception:
             pickup_time_str = str(raw_pickup)
 
+    # 訂單狀態與取消判斷
+    raw_state = str(val.get("state") or val.get("status") or "").upper()
+    is_cancelled = "CANCEL" in raw_state or "REJECT" in raw_state or "VOID" in raw_state
+
     return {
         "order_id": order_id,
         "display_id": clean_short_code,
@@ -282,6 +328,8 @@ def parse_foodpanda_order_dict(val):
         "customer_name": customer_name,
         "created_at": created_at,
         "total_price": total_price,
+        "state": raw_state,
+        "is_cancelled": is_cancelled,
         "is_preorder": is_preorder,
         "pickup_time": pickup_time_str,
         "items": cart_items,
@@ -458,7 +506,12 @@ async def run_foodpanda_monitor():
                                 oid = parsed["order_id"]
                                 disp = parsed["display_id"]
                                 num = parsed["order_number"]
-                                if oid not in printed_set and disp not in printed_set and num not in printed_set:
+                                is_cancelled = parsed.get("is_cancelled", False)
+                                raw_state = parsed.get("state", "")
+
+                                if is_cancelled:
+                                    update_foodpanda_order_status_in_db(num, "cancelled", raw_state)
+                                elif oid not in printed_set and disp not in printed_set and num not in printed_set:
                                     if parsed["items"]:
                                         await process_new_foodpanda_order(parsed, cur_config)
                             except Exception as parse_err:
