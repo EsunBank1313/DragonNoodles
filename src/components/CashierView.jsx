@@ -1164,6 +1164,11 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
         };
 
         const sorted = mapped.sort((a, b) => {
+          // 0. 待出餐/未完成 (received) 優先排在最前面，防止新單被淹沒
+          const isPendingA = (a.status === 'received');
+          const isPendingB = (b.status === 'received');
+          if (isPendingA !== isPendingB) return isPendingA ? -1 : 1;
+
           // 1. 數字小到大 (Number from smallest to largest)
           const numA = getSerialNum(a);
           const numB = getSerialNum(b);
@@ -1239,11 +1244,13 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
       if (!isAutoPrintEnabledRef.current) return;
 
       try {
+        const todayStr = getTodayLocalDate();
+        const todayTaipeiISO = new Date(`${todayStr}T00:00:00+08:00`).toISOString();
         const { data: newOrders, error } = await supabase
           .from('orders')
           .select('*')
           .eq('status', 'received')
-          .gte('created_at', new Date(systemStartTime.current).toISOString())
+          .gte('created_at', todayTaipeiISO)
           .order('id', { ascending: false })
           .limit(50);
 
