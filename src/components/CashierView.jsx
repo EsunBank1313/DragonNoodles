@@ -3963,9 +3963,14 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                               <div style={{ color: '#ef4444', fontSize: '0.75rem', fontWeight: 'bold' }}>⚠️ 無品項明細 (可由記帳系統補登)</div>
                             ) : (
                             (order.items || []).map((it, idx) => (
-                              <div key={idx} style={{ display: 'flex', alignItems: 'baseline', gap: '6px' }}>
+                              <div key={idx} style={{ display: 'flex', alignItems: 'baseline', gap: '6px', flexWrap: 'wrap' }}>
                                 <strong>• {it.name}</strong>
                                 <span style={{ color: 'var(--primary)', fontWeight: 'bold' }}>x{it.quantity}</span>
+                                {it.forWhom && !(it.specs && (Array.isArray(it.specs) ? it.specs.some(s => String(s).includes(it.forWhom)) : String(it.specs).includes(it.forWhom))) && (
+                                  <span style={{ fontSize: '0.72rem', backgroundColor: '#e0e7ff', color: '#3730a3', padding: '1px 6px', borderRadius: '4px', fontWeight: 'bold' }}>
+                                    👤 {it.forWhom}
+                                  </span>
+                                )}
                                 {it.specs && (Array.isArray(it.specs) ? it.specs.length > 0 : String(it.specs).trim()) && (
                                   <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
                                     ({Array.isArray(it.specs) ? it.specs.join(', ') : String(it.specs)})

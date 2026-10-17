@@ -142,15 +142,19 @@ export default function ThermalPrintPortal({ printPayload, onClose }) {
 
           {cartItems.map((item, idx) => {
             const unitPrice = item.price || (item.totalPrice && item.quantity ? Math.round(item.totalPrice / item.quantity) : 0);
+            const specsArray = Array.isArray(item.specs) ? [...item.specs] : (item.specs ? [item.specs] : []);
+            if (item.forWhom && !specsArray.some(s => String(typeof s === 'object' && s ? s.value : s).includes(item.forWhom))) {
+              specsArray.unshift(`👤 點餐人: ${item.forWhom}`);
+            }
             return (
               <div key={idx} style={{ marginBottom: '4px', width: '100%', boxSizing: 'border-box' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '4px', fontSize: itemFontSize, fontWeight: 'bold' }}>
                   <span style={{ wordBreak: 'break-all', flex: 1 }}>{item.name} x{item.quantity}</span>
                   <span style={{ flexShrink: 0, paddingLeft: '4px' }}>${unitPrice}</span>
                 </div>
-                {item.specs && item.specs.length > 0 && (
+                {specsArray.length > 0 && (
                   <div style={{ fontSize: specFontSize, paddingLeft: '6px', fontWeight: 'bold', wordBreak: 'break-all' }}>
-                    {item.specs.map((s, sIdx) => {
+                    {specsArray.map((s, sIdx) => {
                       const specText = typeof s === 'object' && s ? (s.value || `${s.name}: ${s.value}`) : String(s);
                       return (
                         <div key={sIdx} style={{ margin: '1px 0' }}>
@@ -240,20 +244,26 @@ export default function ThermalPrintPortal({ printPayload, onClose }) {
               <div style={{ fontSize: '10px' }}>時間: {new Date(dateStr).toLocaleTimeString('zh-TW', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })}</div>
               <div style={{ borderTop: '2px solid #000', margin: '4px 0' }}></div>
 
-              {cartItems.map((item, idx) => (
-                <div key={idx} style={{ marginBottom: '4px', width: '100%', boxSizing: 'border-box' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '4px', fontSize: itemFontSize, fontWeight: '900' }}>
-                    <span style={{ wordBreak: 'break-all', flex: 1 }}>{item.name}</span>
-                    <span style={{ fontSize: qtyFontSize, textDecoration: 'underline', flexShrink: 0, paddingLeft: '4px' }}>x{item.quantity}</span>
-                  </div>
-                  {item.specs && item.specs.length > 0 && (
-                    <div style={{ fontSize: specFontSize, fontWeight: '900', paddingLeft: '6px', marginBottom: '2px', wordBreak: 'break-all' }}>
-                      ▶ {item.specs.map(s => typeof s === 'object' && s ? (s.value || `${s.name}: ${s.value}`) : String(s)).join(' | ')}
+              {cartItems.map((item, idx) => {
+                const specsArray = Array.isArray(item.specs) ? [...item.specs] : (item.specs ? [item.specs] : []);
+                if (item.forWhom && !specsArray.some(s => String(typeof s === 'object' && s ? s.value : s).includes(item.forWhom))) {
+                  specsArray.unshift(`👤 點餐人: ${item.forWhom}`);
+                }
+                return (
+                  <div key={idx} style={{ marginBottom: '4px', width: '100%', boxSizing: 'border-box' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '4px', fontSize: itemFontSize, fontWeight: '900' }}>
+                      <span style={{ wordBreak: 'break-all', flex: 1 }}>{item.name}</span>
+                      <span style={{ fontSize: qtyFontSize, textDecoration: 'underline', flexShrink: 0, paddingLeft: '4px' }}>x{item.quantity}</span>
                     </div>
-                  )}
-                  <div style={{ borderTop: '1px dashed #000', margin: '3px 0' }}></div>
-                </div>
-              ))}
+                    {specsArray.length > 0 && (
+                      <div style={{ fontSize: specFontSize, fontWeight: '900', paddingLeft: '6px', marginBottom: '2px', wordBreak: 'break-all' }}>
+                        ▶ {specsArray.map(s => typeof s === 'object' && s ? (s.value || `${s.name}: ${s.value}`) : String(s)).join(' | ')}
+                      </div>
+                    )}
+                    <div style={{ borderTop: '1px dashed #000', margin: '3px 0' }}></div>
+                  </div>
+                );
+              })}
 
               {remarksStr && (
                 <>

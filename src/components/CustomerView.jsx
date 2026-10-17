@@ -5,6 +5,14 @@ import ItemModal from './ItemModal';
 import CartPanel from './CartPanel';
 import OrderTracker from './OrderTracker';
 import GroupOrderShareModal from './GroupOrderShareModal';
+import { 
+  getGroupRoom, 
+  subscribeGroupRoom, 
+  isHostOfRoom, 
+  addItemToGroupRoom, 
+  updateGroupRoomStatus,
+  buildGroupOrderUrl 
+} from '../services/groupOrderService';
 import { supabase } from '../supabaseClient';
 import { getActiveStoreCode, filterItemsByStore, prefixNameForStore } from '../utils/storeContext';
 import { getStoredCustomerAuth, initCustomerAuth, loginWithCustomerProvider, logoutCustomerAuth } from '../utils/customerAuthHelper';
@@ -415,6 +423,20 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
 
   const [showCart, setShowCart] = useState(false);
   const [showGroupShareModal, setShowGroupShareModal] = useState(false);
+  
+  // 👥 Group Order Room State (多人即時協同揪團點餐)
+  const [activeGroupRoom, setActiveGroupRoom] = useState(null);
+  const [participantName, setParticipantName] = useState(() => {
+    try {
+      return localStorage.getItem('group_participant_name') || '';
+    } catch {
+      return '';
+    }
+  });
+  const [showParticipantModal, setShowParticipantModal] = useState(false);
+  const [pendingCartItemForGroup, setPendingCartItemForGroup] = useState(null);
+  const [groupToastMsg, setGroupToastMsg] = useState('');
+
   const [editingCartItem, setEditingCartItem] = useState(null);
   const [remarks, setRemarks] = useState('');
   const [upgradeCombos, setUpgradeCombos] = useState(() => {
@@ -489,6 +511,50 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
       console.warn("Auto checkout restoration error:", e);
     }
   }, [cart.length]);
+
+  // 👥 揪團房間偵測與自動加入 (由 URL ?group=GR-XXXX 或恢復上次使用之房間)
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const roomCodeFromUrl = params.get('group');
+      if (roomCodeFromUrl) {
+        getGroupRoom(roomCodeFromUrl).then(room => {
+          if (room) {
+            setActiveGroupRoom(room);
+            try { localStorage.setItem('last_active_group_room', room.roomCode); } catch (e) {}
+            // 若為團員且尚未設定暱稱，彈出輸入暱稱視窗
+            const existingName = localStorage.getItem('group_participant_name') || custName || customerAuth?.displayName || '';
+            if (!existingName && !isHostOfRoom(room)) {
+              setShowParticipantModal(true);
+            }
+          }
+        });
+      } else {
+        const lastActive = localStorage.getItem('last_active_group_room');
+        if (lastActive) {
+          getGroupRoom(lastActive).then(room => {
+            if (room && room.status === 'open') {
+              setActiveGroupRoom(room);
+            }
+          });
+        }
+      }
+    } catch (err) {
+      console.warn("Group room setup error:", err);
+    }
+  }, []);
+
+  // 👥 即時監聽揪團房間狀態與餐點推播更新 (Supabase Realtime)
+  useEffect(() => {
+    if (!activeGroupRoom?.roomCode) return;
+    const unsubscribe = subscribeGroupRoom(activeGroupRoom.roomCode, (updatedRoom) => {
+      setActiveGroupRoom(updatedRoom);
+      if (updatedRoom.status === 'submitted' && updatedRoom.orderNumber) {
+        setGroupToastMsg(`🎉 主揪已完成送單結帳！取餐編號: #${updatedRoom.orderNumber}`);
+      }
+    });
+    return () => unsubscribe();
+  }, [activeGroupRoom?.roomCode]);
 
   // OTP Verification States (Real Firebase Phone Auth)
   const [showOtpModal, setShowOtpModal] = useState(false);
@@ -1068,6 +1134,31 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
 
   // Cart operations
   const handleAddToCart = (cartItem) => {
+    // 👥 若當前處於揪團點餐房間中，自動同步新增至雲端團體購物車
+    if (activeGroupRoom && activeGroupRoom.status === 'open') {
+      const isHost = isHostOfRoom(activeGroupRoom);
+      const effectiveName = (participantName || custName || customerAuth?.displayName || (isHost ? activeGroupRoom.hostName : '')).trim();
+
+      if (!effectiveName && !isHost) {
+        setPendingCartItemForGroup(cartItem);
+        setShowParticipantModal(true);
+        return;
+      }
+
+      const finalName = effectiveName || (isHost ? activeGroupRoom.hostName : '團員');
+      const itemWithPerson = {
+        ...cartItem,
+        forWhom: cartItem.forWhom || finalName
+      };
+
+      addItemToGroupRoom(activeGroupRoom.roomCode, itemWithPerson, finalName).catch(err => {
+        console.error('Failed to sync item to group room:', err);
+      });
+
+      setGroupToastMsg(`✅ 已為【${finalName}】加入團體點餐！主揪與全體團員即時同步！`);
+      setTimeout(() => setGroupToastMsg(''), 3500);
+    }
+
     setCart(prev => {
       if (editingCartItem) {
         // Clear editing state and map cartItem to replace the match
@@ -1342,9 +1433,13 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
     try {
       const authUser = customerAuth;
       const authName = authUser?.displayName || '';
-      const finalCustomerName = tableNumber 
+      let finalCustomerName = tableNumber 
         ? `內用 ${tableNumber} 號桌${authName ? ` (${authName})` : ''}`
         : `${custName.trim() || authName || '現場顧客'}`;
+
+      if (activeGroupRoom?.roomCode) {
+        finalCustomerName = `${finalCustomerName} (👥 揪團: ${activeGroupRoom.hostName}團 #${activeGroupRoom.roomCode})`;
+      }
 
       const orderPayload = {
         order_number: serialNum,
@@ -1418,6 +1513,13 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
       setAllOrders([formatted]);
       setActiveOrderId(String(createdOrder.id));
       
+      // 👥 若此筆為揪團送單，即時更新雲端房間狀態為 submitted，通知全體團員
+      if (activeGroupRoom?.roomCode) {
+        updateGroupRoomStatus(activeGroupRoom.roomCode, 'submitted', createdOrder.order_number || String(createdOrder.id)).catch(e => {
+          console.warn('Failed to update group room status:', e);
+        });
+      }
+
       // Clear cart
       setCart([]);
       setViewState('tracking');
@@ -1425,6 +1527,20 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
       console.error("Failed to submit order to Supabase:", err);
       alert(`⚠️ 提交訂單失敗：${err.message || '請檢查網路連線或稍後再試'}`);
     }
+  };
+
+  // 👥 匯入揪團房間餐點至主揪購物車並直接進入結帳流程
+  const handleImportGroupRoomToCheckout = (roomItems) => {
+    if (!roomItems || roomItems.length === 0) return;
+    const mappedItems = roomItems.map(it => ({
+      ...it,
+      itemPrice: it.price || (it.totalPrice && it.quantity ? Math.round(it.totalPrice / it.quantity) : 0),
+      totalPrice: it.totalPrice || ((it.price || 0) * (it.quantity || 1))
+    }));
+    setCart(mappedItems);
+    setViewState('checkout');
+    setGroupToastMsg(`🛒 已匯入全團 ${mappedItems.length} 項餐點！請確認取餐資訊後送單！`);
+    setTimeout(() => setGroupToastMsg(''), 3500);
   };
 
   // Filtered menu items based on active category and search input
@@ -1651,6 +1767,95 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
       )}
       {/* Invisible Recaptcha container for Firebase Auth */}
       <div id="recaptcha-container" style={{ display: 'none' }}></div>
+
+      {/* 🔔 揪團即時動態浮動通知 Toast */}
+      {groupToastMsg && (
+        <div style={{
+          position: 'fixed',
+          top: '18px',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          backgroundColor: '#0f172a',
+          color: '#ffffff',
+          padding: '10px 20px',
+          borderRadius: '30px',
+          fontSize: '0.86rem',
+          fontWeight: 800,
+          boxShadow: '0 10px 25px rgba(0,0,0,0.3)',
+          zIndex: 2000,
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+          border: '1.5px solid #38bdf8'
+        }}>
+          <span>{groupToastMsg}</span>
+        </div>
+      )}
+
+      {/* 👥 多人即時協同揪團置頂狀態條 */}
+      {activeGroupRoom && (
+        <div style={{
+          backgroundColor: '#eff6ff',
+          borderBottom: '2px solid #3b82f6',
+          padding: '10px 16px',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          boxShadow: '0 2px 8px rgba(59, 130, 246, 0.15)',
+          position: 'sticky',
+          top: 0,
+          zIndex: 90
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: '1.25rem', backgroundColor: '#dbeafe', padding: '4px', borderRadius: '8px' }}>👥</span>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span style={{ fontWeight: 900, fontSize: '0.9rem', color: '#1e3a8a' }}>
+                  【{activeGroupRoom.hostName}】的揪團點餐
+                </span>
+                <span style={{ 
+                  fontSize: '0.72rem', 
+                  backgroundColor: '#1e293b', 
+                  color: '#38bdf8', 
+                  fontWeight: 900, 
+                  padding: '2px 7px', 
+                  borderRadius: '6px',
+                  letterSpacing: '0.5px'
+                }}>
+                  {activeGroupRoom.roomCode}
+                </span>
+                {isHostOfRoom(activeGroupRoom) && (
+                  <span style={{ fontSize: '0.7rem', backgroundColor: '#fef3c7', color: '#b45309', fontWeight: 800, padding: '1px 5px', borderRadius: '4px' }}>
+                    👑 您是主揪
+                  </span>
+                )}
+              </div>
+              <div style={{ fontSize: '0.75rem', color: '#2563eb', marginTop: '2px' }}>
+                全團點餐數: <strong>{(activeGroupRoom.items || []).length}</strong> 份
+                {participantName && <span style={{ marginLeft: '6px', color: '#475569' }}>・您是: 【{participantName}】</span>}
+              </div>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowGroupShareModal(true)}
+            style={{
+              backgroundColor: '#2563eb',
+              color: '#ffffff',
+              border: 'none',
+              borderRadius: '8px',
+              padding: '6px 12px',
+              fontSize: '0.8rem',
+              fontWeight: 800,
+              cursor: 'pointer',
+              boxShadow: '0 2px 4px rgba(37, 99, 235, 0.25)',
+              whiteSpace: 'nowrap'
+            }}
+          >
+            {isHostOfRoom(activeGroupRoom) ? '👑 主揪管理 / 送單' : '👀 查看揪團進度'}
+          </button>
+        </div>
+      )}
 
       {/* Header */}
       <header className="customer-header">
@@ -2723,8 +2928,19 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
         isOpen={showGroupShareModal}
         onClose={() => setShowGroupShareModal(false)}
         storeName={storeName || '龍城麵線'}
+        storeCode={storeCode || 'dragon'}
         cart={cart}
         order={viewState === 'tracking' ? activeOrder : null}
+        activeGroupRoom={activeGroupRoom}
+        setActiveGroupRoom={setActiveGroupRoom}
+        currentUser={customerAuth}
+        onImportToCheckout={handleImportGroupRoomToCheckout}
+        onLeaveRoom={() => {
+          try {
+            localStorage.removeItem('last_active_group_room');
+          } catch (e) {}
+          setActiveGroupRoom(null);
+        }}
         storeUrl={window.location.href}
       />
 
@@ -3270,6 +3486,115 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
                 關閉
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* 👤 參與揪團點餐輸入稱呼 Modal */}
+      {showParticipantModal && (
+        <div 
+          className="modal-backdrop" 
+          style={{ 
+            zIndex: 1200, 
+            display: 'flex', 
+            alignItems: 'center', 
+            justifyContent: 'center', 
+            padding: '16px', 
+            backgroundColor: 'rgba(15, 23, 42, 0.7)',
+            backdropFilter: 'blur(3px)'
+          }}
+        >
+          <div 
+            className="modal-content animate-fade-in" 
+            style={{ 
+              maxWidth: '380px', 
+              width: '100%', 
+              borderRadius: '20px', 
+              padding: '22px', 
+              backgroundColor: '#ffffff', 
+              color: '#1e293b', 
+              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
+              textAlign: 'center'
+            }}
+          >
+            <span style={{ fontSize: '2.5rem', display: 'block', marginBottom: '8px' }}>👥</span>
+            <h3 style={{ margin: '0 0 6px 0', fontSize: '1.18rem', fontWeight: 900, color: '#0f172a' }}>
+              歡迎加入【{activeGroupRoom?.hostName}】的揪團！
+            </h3>
+            <p style={{ margin: '0 0 16px 0', fontSize: '0.82rem', color: '#64748b', lineHeight: '1.4' }}>
+              請輸入您的稱呼，您挑選的餐點會標記您的名字，方便主揪即時核對與分帳：
+            </p>
+
+            <form onSubmit={(e) => {
+              e.preventDefault();
+              const nameInput = e.target.elements.pName.value.trim();
+              if (!nameInput) return;
+              setParticipantName(nameInput);
+              try { localStorage.setItem('group_participant_name', nameInput); } catch(err) {}
+              setShowParticipantModal(false);
+              if (pendingCartItemForGroup && activeGroupRoom) {
+                const itemWithPerson = { ...pendingCartItemForGroup, forWhom: nameInput };
+                addItemToGroupRoom(activeGroupRoom.roomCode, itemWithPerson, nameInput).catch(console.error);
+                setPendingCartItemForGroup(null);
+                setGroupToastMsg(`✅ 已為【${nameInput}】加入團體點餐！`);
+                setTimeout(() => setGroupToastMsg(''), 3000);
+              }
+            }}>
+              <input
+                name="pName"
+                type="text"
+                autoFocus
+                required
+                defaultValue={participantName || custName || customerAuth?.displayName || ''}
+                placeholder="例如: 冠正、小美、大衛"
+                style={{
+                  width: '100%',
+                  boxSizing: 'border-box',
+                  padding: '12px',
+                  borderRadius: '12px',
+                  border: '2px solid #3b82f6',
+                  fontSize: '1rem',
+                  fontWeight: 800,
+                  outline: 'none',
+                  textAlign: 'center',
+                  marginBottom: '16px'
+                }}
+              />
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button
+                  type="button"
+                  onClick={() => setShowParticipantModal(false)}
+                  style={{
+                    flex: 1,
+                    padding: '10px',
+                    borderRadius: '10px',
+                    border: '1px solid #cbd5e1',
+                    backgroundColor: '#f1f5f9',
+                    color: '#475569',
+                    fontWeight: 700,
+                    cursor: 'pointer'
+                  }}
+                >
+                  稍後再填
+                </button>
+                <button
+                  type="submit"
+                  style={{
+                    flex: 2,
+                    padding: '10px',
+                    borderRadius: '10px',
+                    border: 'none',
+                    backgroundColor: '#2563eb',
+                    color: '#ffffff',
+                    fontWeight: 900,
+                    cursor: 'pointer',
+                    boxShadow: '0 4px 10px rgba(37, 99, 235, 0.25)'
+                  }}
+                >
+                  確認進入點餐 ➔
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
