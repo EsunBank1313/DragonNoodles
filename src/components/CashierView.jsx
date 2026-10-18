@@ -1625,7 +1625,13 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
 
   // Void / Delete POS Order Handler
   const handleDeletePosOrder = async (orderId, serialNum) => {
-    if (!window.confirm(`⚠️ 確定要作廢/刪除訂單【${serialNum || orderId}】嗎？\n作廢後該筆單據將從 POS 系統移除，並可在財務記帳系統中查閱或復原。`)) {
+    const targetOrder = orders.find(o => String(o.id) === String(orderId));
+    const isCust = Boolean(targetOrder?.isOnline || targetOrder?.source === 'customer' || targetOrder?.pickupTime);
+    const alertMsg = isCust
+      ? `⚠️ 警告：訂單【${serialNum || orderId}】為【顧客手機線上點餐】！\n確定要作廢此筆顧客訂單嗎？\n作廢後該筆單據將移至【已作廢】分頁，可隨時查看或復原。`
+      : `⚠️ 確定要作廢/刪除訂單【${serialNum || orderId}】嗎？\n作廢後該筆單據將移至【已作廢】分頁，並可在財務記帳系統中查閱或復原。`;
+
+    if (!window.confirm(alertMsg)) {
       return;
     }
 
@@ -1635,7 +1641,6 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
 
     try {
       const numericId = Number(orderId);
-      const targetOrder = orders.find(o => String(o.id) === String(orderId));
       const nowStr = new Date().toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' });
       const updatedRemarks = `${targetOrder?.remarks || ''} [POS作廢 - 原因: ${trimmedReason}] [經手: ${cashierName || '店長 (Admin)'} ${nowStr}]`.trim();
 
@@ -1661,10 +1666,51 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
       localStorage.setItem('pos_order_deleted_sync', String(Date.now()));
       window.dispatchEvent(new Event('storage'));
       fetchOrders();
-      alert(`🗑️ 訂單【${serialNum || orderId}】已成功作廢！如需復原可至【記帳系統】進行還原。`);
+      alert(`🗑️ 訂單【${serialNum || orderId}】已移至【已作廢】分頁！如需復原可至【已作廢】分頁點選復原。`);
     } catch (err) {
       console.error("Failed to delete/void order in CashierView:", err);
       alert("作廢訂單失敗，請檢查網路連線！");
+    }
+  };
+
+  // Restore Deleted / Voided POS Order Handler
+  const handleRestorePosOrder = async (orderId, serialNum) => {
+    if (!window.confirm(`⚠️ 確定要復原訂單【${serialNum || orderId}】嗎？\n復原後該筆單據將重新顯示於 POS 系統中。`)) {
+      return;
+    }
+
+    try {
+      const numericId = Number(orderId);
+      const targetOrder = orders.find(o => String(o.id) === String(orderId));
+      const nowStr = new Date().toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' });
+      const updatedRemarks = `${targetOrder?.remarks || ''} [POS復原] [經手: ${cashierName || '店長 (Admin)'} ${nowStr}]`.trim();
+
+      const updatedItems = {
+        cart: targetOrder?.items || [],
+        source: targetOrder?.source || 'pos',
+        storeCode: storeCode,
+        cashier: targetOrder?.cashier || cashierName || '店長 (Admin)',
+        customerName: targetOrder?.customerName || '',
+        customerPhone: targetOrder?.customerPhone || '',
+        pickupTime: targetOrder?.pickupTime || '',
+        paymentMethod: targetOrder?.paymentMethod || 'cash',
+        remarks: updatedRemarks
+      };
+
+      const restoredStatus = (targetOrder?.source === 'customer' || targetOrder?.isOnline) ? 'received' : 'completed';
+
+      const { error } = await supabase.from('orders').update({
+        status: restoredStatus,
+        items: updatedItems
+      }).eq('id', isNaN(numericId) ? orderId : numericId);
+
+      if (error) throw error;
+
+      fetchOrders();
+      alert(`✓ 訂單【${serialNum || orderId}】已成功復原！`);
+    } catch (err) {
+      console.error("Failed to restore order in CashierView:", err);
+      alert("復原訂單失敗，請檢查網路連線！");
     }
   };
 
@@ -3701,70 +3747,97 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                   {/* Order Type Filter Tabs */}
                   {(() => {
                     const validOrders = orders.filter(o => o.status !== 'deleted');
+                    const deletedOrders = orders.filter(o => o.status === 'deleted');
                     const isUber = (o) => o.type === 'uber' || o.type === 'ubereats' || o.paymentMethod === 'ubereats' || String(o.serialNum || o.order_number || '').startsWith('U-');
                     const isPanda = (o) => o.type === 'foodpanda' || o.type === 'panda' || o.paymentMethod === 'foodpanda' || String(o.serialNum || o.order_number || '').startsWith('P-');
                     const isDelivery = (o) => isUber(o) || isPanda(o) || o.type === 'delivery';
-                    const isDine = (o) => o.type === 'dine-in' && !isDelivery(o);
-                    const isTake = (o) => o.type !== 'dine-in' && !isDelivery(o);
+                    const isCustomerOrder = (o) => !isDelivery(o) && Boolean(!o.cashier || o.isOnline || (o.customerPhone && o.customerPhone.length > 0) || o.pickupTime || o.source === 'customer');
+                    const isDine = (o) => o.type === 'dine-in' && !isDelivery(o) && !isCustomerOrder(o);
+                    const isTake = (o) => o.type !== 'dine-in' && !isDelivery(o) && !isCustomerOrder(o);
+                    const isOnline = (o) => isCustomerOrder(o);
 
                     const dineCount = validOrders.filter(isDine).length;
                     const takeCount = validOrders.filter(isTake).length;
                     const deliveryCount = validOrders.filter(isDelivery).length;
                     const uberCount = validOrders.filter(isUber).length;
                     const pandaCount = validOrders.filter(isPanda).length;
+                    const onlineOrders = validOrders.filter(isOnline);
+                    const onlineCount = onlineOrders.length;
+                    const onlinePendingCount = onlineOrders.filter(o => o.status !== 'completed' && o.status !== 'ready').length;
 
                     const tabs = [
                       { id: 'all', label: `全部 (${validOrders.length})` },
+                      { 
+                        id: 'online', 
+                        label: `📱 線上點餐 (${onlineCount}${onlinePendingCount > 0 ? ` · 待做${onlinePendingCount}` : ''})`,
+                        hasAlert: onlinePendingCount > 0
+                      },
                       { id: 'dine-in', label: `🍽️ 內用 (${dineCount})` },
                       { id: 'takeout', label: `🥡 現場外帶 (${takeCount})` },
                       { id: 'delivery', label: `🛵 外送 (${deliveryCount})` },
                       { id: 'uber', label: `🛵 Uber (${uberCount})` },
-                      { id: 'foodpanda', label: `🐼 熊貓 (${pandaCount})` }
+                      { id: 'foodpanda', label: `🐼 熊貓 (${pandaCount})` },
+                      { id: 'deleted', label: `🗑️ 已作廢 (${deletedOrders.length})` }
                     ];
 
                     return (
                       <div style={{ display: 'flex', gap: '6px', overflowX: 'auto', paddingBottom: '4px', borderBottom: '1px solid var(--border)', marginBottom: '4px' }}>
-                        {tabs.map(t => (
-                          <button
-                            key={t.id}
-                            type="button"
-                            onClick={() => setOrderHistoryFilter(t.id)}
-                            style={{
-                              padding: '5px 12px',
-                              borderRadius: '20px',
-                              border: orderHistoryFilter === t.id ? '2px solid var(--primary)' : '1px solid var(--border)',
-                              backgroundColor: orderHistoryFilter === t.id ? 'var(--primary)' : 'var(--bg-card)',
-                              color: orderHistoryFilter === t.id ? 'white' : 'var(--text-main)',
-                              fontSize: '0.8rem',
-                              fontWeight: 'bold',
-                              cursor: 'pointer',
-                              whiteSpace: 'nowrap',
-                              transition: 'all 0.15s ease'
-                            }}
-                          >
-                            {t.label}
-                          </button>
-                        ))}
+                        {tabs.map(t => {
+                          const isSelected = orderHistoryFilter === t.id;
+                          return (
+                            <button
+                              key={t.id}
+                              type="button"
+                              onClick={() => setOrderHistoryFilter(t.id)}
+                              style={{
+                                padding: '5px 12px',
+                                borderRadius: '20px',
+                                border: isSelected 
+                                  ? (t.id === 'online' ? '2px solid #7c3aed' : (t.id === 'deleted' ? '2px solid #ef4444' : '2px solid var(--primary)')) 
+                                  : (t.hasAlert ? '2px solid #8b5cf6' : '1px solid var(--border)'),
+                                backgroundColor: isSelected 
+                                  ? (t.id === 'online' ? '#7c3aed' : (t.id === 'deleted' ? '#ef4444' : 'var(--primary)')) 
+                                  : (t.hasAlert ? '#ede9fe' : 'var(--bg-card)'),
+                                color: isSelected 
+                                  ? 'white' 
+                                  : (t.hasAlert ? '#6d28d9' : (t.id === 'deleted' ? '#991b1b' : 'var(--text-main)')),
+                                fontSize: '0.8rem',
+                                fontWeight: 'bold',
+                                cursor: 'pointer',
+                                whiteSpace: 'nowrap',
+                                transition: 'all 0.15s ease'
+                              }}
+                            >
+                              {t.label}
+                            </button>
+                          );
+                        })}
                       </div>
                     );
                   })()}
 
                   {(() => {
                     const validOrders = orders.filter(o => o.status !== 'deleted');
+                    const deletedOrders = orders.filter(o => o.status === 'deleted');
                     const isUber = (o) => o.type === 'uber' || o.type === 'ubereats' || o.paymentMethod === 'ubereats' || String(o.serialNum || o.order_number || '').startsWith('U-');
                     const isPanda = (o) => o.type === 'foodpanda' || o.type === 'panda' || o.paymentMethod === 'foodpanda' || String(o.serialNum || o.order_number || '').startsWith('P-');
                     const isDelivery = (o) => isUber(o) || isPanda(o) || o.type === 'delivery';
-                    const isDine = (o) => o.type === 'dine-in' && !isDelivery(o);
-                    const isTake = (o) => o.type !== 'dine-in' && !isDelivery(o);
+                    const isCustomerOrder = (o) => !isDelivery(o) && Boolean(!o.cashier || o.isOnline || (o.customerPhone && o.customerPhone.length > 0) || o.pickupTime || o.source === 'customer');
+                    const isDine = (o) => o.type === 'dine-in' && !isDelivery(o) && !isCustomerOrder(o);
+                    const isTake = (o) => o.type !== 'dine-in' && !isDelivery(o) && !isCustomerOrder(o);
+                    const isOnline = (o) => isCustomerOrder(o);
 
-                    const filteredOrders = validOrders.filter(o => {
-                      if (orderHistoryFilter === 'dine-in') return isDine(o);
-                      if (orderHistoryFilter === 'takeout') return isTake(o);
-                      if (orderHistoryFilter === 'delivery') return isDelivery(o);
-                      if (orderHistoryFilter === 'uber') return isUber(o);
-                      if (orderHistoryFilter === 'foodpanda') return isPanda(o);
-                      return true;
-                    });
+                    const filteredOrders = orderHistoryFilter === 'deleted'
+                      ? deletedOrders
+                      : validOrders.filter(o => {
+                          if (orderHistoryFilter === 'online') return isOnline(o);
+                          if (orderHistoryFilter === 'dine-in') return isDine(o);
+                          if (orderHistoryFilter === 'takeout') return isTake(o);
+                          if (orderHistoryFilter === 'delivery') return isDelivery(o);
+                          if (orderHistoryFilter === 'uber') return isUber(o);
+                          if (orderHistoryFilter === 'foodpanda') return isPanda(o);
+                          return true;
+                        });
 
                     if (filteredOrders.length === 0) {
                       return <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem', padding: '20px', textAlign: 'center' }}>此分類下暫無訂單記錄</div>;
@@ -3779,14 +3852,52 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                           key={order.id} 
                           style={{ 
                             padding: '14px', 
-                            border: isCustomerOrder ? (isCustomerUnfinished ? '2px solid #8b5cf6' : '1px solid var(--border)') : '1px solid var(--border)', 
+                            border: order.status === 'deleted' ? '2px solid #ef4444' : (isCustomerOrder ? (isCustomerUnfinished ? '2px solid #8b5cf6' : '1px solid var(--border)') : '1px solid var(--border)'), 
                             borderRadius: '10px', 
-                            backgroundColor: isCustomerOrder ? (isCustomerUnfinished ? 'rgba(139, 92, 246, 0.05)' : 'var(--bg-card)') : 'var(--bg-card)',
+                            backgroundColor: order.status === 'deleted' ? 'rgba(239, 68, 68, 0.04)' : (isCustomerOrder ? (isCustomerUnfinished ? 'rgba(139, 92, 246, 0.05)' : 'var(--bg-card)') : 'var(--bg-card)'),
                             boxShadow: isCustomerUnfinished ? '0 4px 14px rgba(139, 92, 246, 0.15)' : 'none',
                             position: 'relative',
-                            transition: 'all 0.2s ease'
+                            transition: 'all 0.2s ease',
+                            opacity: order.status === 'deleted' ? 0.88 : 1
                           }}
                         >
+                          {/* Deleted Notice Banner */}
+                          {order.status === 'deleted' && (
+                            <div style={{
+                              backgroundColor: '#fee2e2',
+                              color: '#991b1b',
+                              border: '1px solid #f87171',
+                              borderRadius: '6px',
+                              padding: '6px 10px',
+                              fontSize: '0.8rem',
+                              fontWeight: 'bold',
+                              marginBottom: '8px',
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'center',
+                              flexWrap: 'wrap',
+                              gap: '6px'
+                            }}>
+                              <span>🗑️ 本筆訂單已作廢：{order.remarks || '已作廢'}</span>
+                              <button
+                                type="button"
+                                onClick={() => handleRestorePosOrder(order.id, order.serialNum)}
+                                style={{
+                                  padding: '3px 8px',
+                                  backgroundColor: '#10b981',
+                                  color: 'white',
+                                  border: 'none',
+                                  borderRadius: '4px',
+                                  fontSize: '0.75rem',
+                                  fontWeight: 'bold',
+                                  cursor: 'pointer'
+                                }}
+                              >
+                                ↩️ 復原此單據
+                              </button>
+                            </div>
+                          )}
+
                           {/* Order Header */}
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.85rem', fontWeight: 'bold', borderBottom: '1px solid var(--border)', paddingBottom: '6px', marginBottom: '8px' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
@@ -4128,26 +4239,49 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                                 🖨️ 列印
                               </button>
 
-                              <button
-                                type="button"
-                                onClick={() => handleDeletePosOrder(order.id, order.serialNum)}
-                                style={{
-                                  padding: '5px 10px',
-                                  fontSize: '0.75rem',
-                                  backgroundColor: 'rgba(239, 68, 68, 0.08)',
-                                  color: '#ef4444',
-                                  border: '1px solid rgba(239, 68, 68, 0.3)',
-                                  borderRadius: '4px',
-                                  cursor: 'pointer',
-                                  fontWeight: 'bold',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: '2px'
-                                }}
-                                title="作廢此筆訂單，將從 POS 系統移除 (可在記帳系統查閱與復原)"
-                              >
-                                🗑️ 作廢
-                              </button>
+                              {order.status === 'deleted' ? (
+                                <button
+                                  type="button"
+                                  onClick={() => handleRestorePosOrder(order.id, order.serialNum)}
+                                  style={{
+                                    padding: '5px 12px',
+                                    fontSize: '0.75rem',
+                                    backgroundColor: '#10b981',
+                                    color: 'white',
+                                    border: 'none',
+                                    borderRadius: '4px',
+                                    cursor: 'pointer',
+                                    fontWeight: 'bold',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '4px'
+                                  }}
+                                  title="復原此筆已作廢訂單"
+                                >
+                                  ↩️ 復原單據
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeletePosOrder(order.id, order.serialNum)}
+                                  style={{
+                                    padding: '5px 10px',
+                                    fontSize: '0.75rem',
+                                    backgroundColor: 'rgba(239, 68, 68, 0.08)',
+                                    color: '#ef4444',
+                                    border: '1px solid rgba(239, 68, 68, 0.3)',
+                                    borderRadius: '4px',
+                                    cursor: 'pointer',
+                                    fontWeight: 'bold',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '2px'
+                                  }}
+                                  title="作廢此筆訂單，將移至【已作廢】分頁 (可隨時查閱與復原)"
+                                >
+                                  🗑️ 作廢
+                                </button>
+                              )}
                             </div>
                           </div>
                         </div>
