@@ -184,6 +184,128 @@ def update_foodpanda_order_status_in_db(order_number, new_status, cancel_reason=
         log(f"⚠️ 更新訂單狀態出錯: {e}")
         return False
 
+def update_existing_foodpanda_order_in_db(order_data, config=None, raw_state=""):
+    """當已印出/已存在之熊貓訂單發生異動（改單、增減品項、調整金額、退款或取消）時，即時更新 Supabase 雲端資料庫並視需要加印更新單"""
+    order_number = order_data["order_number"]
+    display_id = order_data["display_id"]
+    try:
+        url = f"{SUPABASE_URL}/rest/v1/orders?order_number=eq.{urllib.parse.quote(order_number)}"
+        req_get = urllib.request.Request(url, headers={
+            "apikey": SUPABASE_KEY,
+            "Authorization": f"Bearer {SUPABASE_KEY}"
+        })
+        existing_orders = []
+        with urllib.request.urlopen(req_get, timeout=8) as res:
+            existing_orders = json.loads(res.read().decode("utf-8"))
+        if not existing_orders:
+            return False
+
+        existing = existing_orders[0]
+        curr_total = float(existing.get("total") or 0)
+        new_total = float(order_data.get("total_price") or 0)
+        curr_status = existing.get("status") or "received"
+        is_cancelled = order_data.get("is_cancelled", False)
+
+        curr_items_obj = existing.get("items", {})
+        curr_cart = curr_items_obj.get("cart", []) if isinstance(curr_items_obj, dict) else []
+        new_cart = order_data.get("items", [])
+
+        # 檢查是否有品項數、品項內容或金額變動
+        items_changed = False
+        if len(curr_cart) != len(new_cart):
+            items_changed = True
+        else:
+            for c_it, n_it in zip(curr_cart, new_cart):
+                if (c_it.get("name") != n_it.get("name") or 
+                    int(c_it.get("quantity", 1)) != int(n_it.get("quantity", 1)) or 
+                    abs(float(c_it.get("price", 0)) - float(n_it.get("price", 0))) >= 1.0):
+                    items_changed = True
+                    break
+
+        total_changed = abs(curr_total - new_total) >= 1.0
+        is_completed = any(k in raw_state for k in ["PICKED_UP", "DELIVERED", "COMPLETED", "FULFILLED"])
+        status_to_complete = is_completed and curr_status != "completed"
+        status_to_cancel = is_cancelled and curr_status != "cancelled"
+        status_changed = status_to_complete or status_to_cancel
+
+        if not items_changed and not total_changed and not status_changed:
+            return False
+
+        log(f"🔔 偵測到 Foodpanda 既有訂單 [{order_number}] 內容/狀態異動: 品項變動={items_changed}, 金額變動={total_changed}, 狀態更新={status_changed} ({raw_state})")
+
+        patch_payload = {}
+        remarks_parts = []
+        if existing.get("remarks"):
+            remarks_parts.append(existing["remarks"])
+
+        if status_to_cancel:
+            patch_payload["status"] = "cancelled"
+            tag = f"[熊貓外送已取消: {raw_state}]" if raw_state else "[熊貓外送已取消]"
+            if tag not in existing.get("remarks", ""):
+                remarks_parts.append(tag)
+        elif status_to_complete:
+            patch_payload["status"] = "completed"
+
+        if items_changed or total_changed:
+            patch_payload["total"] = int(round(new_total))
+            update_tag = "[熊貓單據已更新]"
+            if update_tag not in existing.get("remarks", ""):
+                remarks_parts.append(update_tag)
+
+            orig_tot = int(round(float(order_data.get("original_total", new_total))))
+            net_pay = int(round(new_total))
+
+            updated_items_obj = dict(curr_items_obj) if isinstance(curr_items_obj, dict) else {}
+            updated_items_obj["cart"] = [
+                {
+                    "id": idx + 1,
+                    "name": it["name"],
+                    "quantity": it["quantity"],
+                    "specs": it.get("specs", []),
+                    "note": it.get("note", ""),
+                    "price": it.get("price", 0),
+                    "totalPrice": it.get("totalPrice", it.get("price", 0) * it.get("quantity", 1))
+                } for idx, it in enumerate(new_cart)
+            ]
+            updated_items_obj["netPayout"] = net_pay
+            updated_items_obj["originalTotal"] = orig_tot
+            patch_payload["items"] = updated_items_obj
+
+        if remarks_parts:
+            patch_payload["remarks"] = " | ".join(remarks_parts)
+
+        if not patch_payload:
+            return False
+
+        req_data = json.dumps(patch_payload).encode("utf-8")
+        req_patch = urllib.request.Request(url, data=req_data, headers={
+            "apikey": SUPABASE_KEY,
+            "Authorization": f"Bearer {SUPABASE_KEY}",
+            "Content-Type": "application/json",
+            "Prefer": "return=representation"
+        }, method="PATCH")
+        with urllib.request.urlopen(req_patch, timeout=10) as res:
+            if res.status in (200, 204):
+                log(f"  ✓ [{order_number}] 訂單更新已成功同步至 POS 雲端系統！")
+
+                if items_changed and config:
+                    try:
+                        printer_name = config.get("printer_name") or None
+                        paper_width = config.get("paper_width", "58mm")
+                        show_price = config.get("show_price", True)
+                        html = generate_foodpanda_ticket_html(order_data, paper_width, show_price, is_update=True)
+                        log(f"  🖨️ 正在傳送【改單更新單】至出單機 ({printer_name or '系統預設印表機'})...")
+                        printed = print_ticket_via_chrome(html, printer_name)
+                        if not printed:
+                            print_ticket_via_powershell(html, printer_name)
+                    except Exception as pr_err:
+                        log(f"  ⚠️ 加印改單單據失敗: {pr_err}")
+
+                return True
+    except Exception as e:
+        log(f"⚠️ 更新既有訂單異動出錯: {e}")
+        return False
+
 def sync_order_to_supabase(order_payload):
     try:
         url = f"{SUPABASE_URL}/rest/v1/orders"
@@ -346,7 +468,7 @@ def parse_foodpanda_order_dict(val):
 
     # 訂單狀態與取消判斷
     raw_state = str(val.get("state") or val.get("status") or "").upper()
-    is_cancelled = "CANCEL" in raw_state or "REJECT" in raw_state or "VOID" in raw_state
+    is_cancelled = any(k in raw_state for k in ["CANCEL", "REJECT", "VOID", "REFUND", "ABORT"])
 
     return {
         "order_id": order_id,
@@ -412,11 +534,19 @@ async def process_new_foodpanda_order(order_data, config):
         remarks_parts.append(f"熊貓單號: {display_id} (實收: ${net_pay}, 原額: ${orig_tot})")
         remarks_str = " | ".join(remarks_parts)
 
+        raw_state = str(order_data.get("state") or "").upper()
+        if order_data.get("is_cancelled"):
+            order_status = "cancelled"
+        elif any(k in raw_state for k in ["PICKED_UP", "DELIVERED", "COMPLETED", "FULFILLED"]):
+            order_status = "completed"
+        else:
+            order_status = "received"
+
         db_payload = {
             "order_number": order_number,
             "total": net_pay,
             "type": "foodpanda",
-            "status": "received",
+            "status": order_status,
             "payment_status": "paid",
             "payment_method": "foodpanda",
             "cashier_name": "Foodpanda 平台",
@@ -552,6 +682,12 @@ async def run_foodpanda_monitor():
                                 elif oid not in printed_set and disp not in printed_set and num not in printed_set:
                                     if parsed["items"]:
                                         await process_new_foodpanda_order(parsed, cur_config)
+                                else:
+                                    # 已列印單據，持續監控是否有修改餐點、增減品項或金額調整
+                                    if parsed.get("items"):
+                                        updated = update_existing_foodpanda_order_in_db(parsed, cur_config, raw_state)
+                                        if updated and cur_config.get("sound_alert", True):
+                                            play_alert_sound()
                             except Exception as parse_err:
                                 log(f"解析訂單資料異常: {parse_err}")
 

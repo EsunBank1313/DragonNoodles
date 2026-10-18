@@ -4663,40 +4663,6 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
             />
           </div>
 
-          {/* Hidden File Input for foodpanda CSV */}
-          <input 
-            type="file" 
-            ref={pandaFileInputRef} 
-            accept=".csv,text/csv" 
-            style={{ display: 'none' }} 
-            onChange={handlePandaFileSelect} 
-          />
-
-          {/* foodpanda CSV Upload Button */}
-          <button 
-            type="button"
-            onClick={() => pandaFileInputRef.current?.click()}
-            title="上傳由 foodpanda 商家後台匯出之訂單明細 CSV 檔案，將店家實收金額匯入對帳系統"
-            style={{
-              padding: '6px 12px',
-              fontSize: '0.78rem',
-              borderRadius: '6px',
-              border: 'none',
-              backgroundColor: '#D70F64',
-              color: 'white',
-              cursor: 'pointer',
-              fontWeight: 'bold',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              boxShadow: '0 2px 6px rgba(215, 15, 100, 0.25)',
-              transition: 'opacity 0.2s'
-            }}
-            onMouseOver={(e) => e.currentTarget.style.opacity = '0.9'}
-            onMouseOut={(e) => e.currentTarget.style.opacity = '1'}
-          >
-            <span>🐼 匯入熊貓報表 (CSV)</span>
-          </button>
 
           {/* LINE 密鑰設定按鈕 (暫時隱藏) */}
           {/* <button 
@@ -5297,26 +5263,6 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                       </label>
                     ) : (
                       <>
-                        <button
-                          type="button"
-                          onClick={() => pandaFileInputRef.current?.click()}
-                          title="上傳 foodpanda 商家後台匯出之 CSV 訂單明細並匯入帳本"
-                          style={{
-                            padding: '6px 12px',
-                            fontSize: '0.75rem',
-                            borderRadius: '6px',
-                            border: '1px solid #D70F64',
-                            color: '#D70F64',
-                            backgroundColor: 'rgba(215, 15, 100, 0.08)',
-                            cursor: 'pointer',
-                            fontWeight: 'bold',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '4px'
-                          }}
-                        >
-                          🐼 匯入熊貓報表
-                        </button>
                         <button
                           type="button"
                           onClick={handleExportCSV}

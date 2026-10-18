@@ -17,7 +17,7 @@ CHROME_PATH = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
 if not os.path.exists(CHROME_PATH):
     CHROME_PATH = r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe"
 
-def generate_foodpanda_ticket_html(order_data, paper_width="58mm", show_price=True):
+def generate_foodpanda_ticket_html(order_data, paper_width="58mm", show_price=True, is_update=False):
     """
     生成專門貼在餐點袋上的 Foodpanda 熊貓熱感應外送備餐單據 HTML
     """
@@ -103,6 +103,9 @@ def generate_foodpanda_ticket_html(order_data, paper_width="58mm", show_price=Tr
         </div>
         """
 
+    badge_text = "⚠️ 熊貓外送 - 改單更新 ⚠️" if is_update else "🐼 FOODPANDA 熊貓外送"
+    badge_style = "background-color: #000; color: #fff;" if not is_update else "background-color: #000; color: #fff; border: 2px solid #000;"
+
     html = f"""<!DOCTYPE html>
 <html>
 <head>
@@ -138,8 +141,7 @@ def generate_foodpanda_ticket_html(order_data, paper_width="58mm", show_price=Tr
         }}
         .badge {{
             display: inline-block;
-            background-color: #000;
-            color: #fff;
+            {badge_style}
             font-weight: 900;
             font-size: 13px;
             padding: 2px 8px;
@@ -175,7 +177,7 @@ def generate_foodpanda_ticket_html(order_data, paper_width="58mm", show_price=Tr
 <body>
     <div class="ticket-wrapper">
         <div class="header">
-            <div class="badge">🐼 FOODPANDA 熊貓外送</div>
+            <div class="badge">{badge_text}</div>
             <div class="display-id">#{clean_display_id}</div>
             {preorder_html}
             <div class="cust-info">顧客：{customer_name}</div>
