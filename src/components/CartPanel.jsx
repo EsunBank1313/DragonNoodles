@@ -194,6 +194,28 @@ export default function CartPanel({
 
         {cart.length > 0 && (
           <div className="cart-summary-section">
+            {/* Lalamove 外送門檻與免運進度提示 */}
+            <div style={{
+              marginBottom: '10px',
+              padding: '8px 10px',
+              borderRadius: '8px',
+              backgroundColor: subtotal >= 500 ? '#f0fdf4' : (subtotal >= 300 ? '#eff6ff' : '#fffbeb'),
+              border: `1px solid ${subtotal >= 500 ? '#bbf7d0' : (subtotal >= 300 ? '#bfdbfe' : '#fde68a')}`,
+              fontSize: '0.78rem',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px'
+            }}>
+              <span style={{ fontSize: '1.1rem' }}>🛵</span>
+              <span style={{ color: subtotal >= 500 ? '#15803d' : (subtotal >= 300 ? '#1d4ed8' : '#b45309'), fontWeight: 'bold' }}>
+                {subtotal >= 500 
+                  ? '已達滿 $500，結帳可選【Lalamove 外送免運費】！' 
+                  : (subtotal >= 300 
+                      ? `已達滿 $300 外送門檻 (運費 $50)，再點 NT$ ${500 - subtotal} 即享【免運費】！` 
+                      : `Lalamove 外送滿 $300 起送，還差 NT$ ${300 - subtotal} (滿 $500 免運)`)}
+              </span>
+            </div>
+
             <div className="summary-row">
               <span>小計</span>
               <span>NT$ {subtotal}</span>

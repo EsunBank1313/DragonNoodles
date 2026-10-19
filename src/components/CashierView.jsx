@@ -484,6 +484,7 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
 
     const isUber = order.type === 'uber' || order.type === 'ubereats' || order.paymentMethod === 'ubereats' || String(order.serialNum || order.order_number || '').startsWith('U-');
     const isPanda = order.type === 'foodpanda' || order.type === 'panda' || order.paymentMethod === 'foodpanda' || String(order.serialNum || order.order_number || '').startsWith('P-');
+    const isDelivery = order.type === 'delivery' || String(order.serialNum || order.order_number || '').startsWith('D-');
     const isDineIn = order.type === 'dine-in' || order.table_number || order.tableName;
 
     let basePhrase = '';
@@ -491,6 +492,8 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
       basePhrase = '收到新 Uber Eats 外送訂單！請查看。';
     } else if (isPanda) {
       basePhrase = '收到新熊貓外送訂單！請查看。';
+    } else if (isDelivery) {
+      basePhrase = '收到新 Lalamove 外送訂單！請查看。';
     } else if (isDineIn) {
       const tableStr = order.table_number || order.tableName ? `${order.table_number || order.tableName}號桌` : '';
       basePhrase = `收到新線上掃碼內用訂單${tableStr ? `，${tableStr}` : ''}！請查看。`;
@@ -3963,18 +3966,18 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                                     </span>
                                   );
                                 }
-                                if (order.type === 'delivery') {
+                                if (order.type === 'delivery' || String(order.serialNum || order.order_number || '').startsWith('D-')) {
                                   return (
                                     <span style={{
                                       padding: '2px 8px',
                                       borderRadius: '6px',
                                       fontSize: '0.75rem',
                                       fontWeight: 'bold',
-                                      backgroundColor: 'rgba(2, 132, 199, 0.15)',
-                                      color: '#0284c7',
-                                      border: '1px solid #0284c7'
+                                      backgroundColor: '#0284c7',
+                                      color: '#ffffff',
+                                      boxShadow: '0 1px 3px rgba(2, 132, 199, 0.3)'
                                     }}>
-                                      🛵 外送
+                                      🛵 Lalamove 外送
                                     </span>
                                   );
                                 }
@@ -4041,32 +4044,95 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                           </div>
 
                           {/* Customer Details for Online Orders */}
-                          {isCustomerOrder && (
-                            <div style={{
-                              backgroundColor: 'rgba(139, 92, 246, 0.08)',
-                              borderRadius: '6px',
-                              padding: '6px 10px',
-                              fontSize: '0.78rem',
-                              color: '#5b21b6',
-                              fontWeight: 'bold',
-                              marginBottom: '8px',
-                              display: 'flex',
-                              flexWrap: 'wrap',
-                              gap: '12px',
-                              alignItems: 'center'
-                            }}>
-                              <span style={{ backgroundColor: '#7c3aed', color: '#fff', padding: '1px 7px', borderRadius: '4px', fontSize: '0.72rem' }}>📱 線上點餐</span>
-                              {order.customerName && <span>👤 姓名: {order.customerName}</span>}
-                              {order.customerPhone && <span>📞 電話: {order.customerPhone}</span>}
-                              {order.pickupTime && (
-                                <span style={{ backgroundColor: '#fef3c7', color: '#b45309', border: '1px solid #fcd34d', fontWeight: 'bold', padding: '1px 8px', borderRadius: '4px' }}>
-                                  ⏰ 預定取餐: {order.pickupTime}
-                                </span>
-                              )}
-                              <span>💰 付款: {order.paymentMethod === 'online' ? '線上已付款' : (order.paymentMethod === 'cash' ? '現場現金' : order.paymentMethod)}</span>
-                              {order.remarks && <span style={{ color: '#b91c1c' }}>📝 備註: {order.remarks}</span>}
-                            </div>
-                          )}
+                          {isCustomerOrder && (() => {
+                            const isDeliveryOrder = order.type === 'delivery' || String(order.serialNum || order.order_number || '').startsWith('D-');
+                            return (
+                              <div style={{
+                                backgroundColor: isDeliveryOrder ? '#f0f9ff' : 'rgba(139, 92, 246, 0.08)',
+                                borderRadius: '6px',
+                                padding: '8px 10px',
+                                fontSize: '0.78rem',
+                                color: isDeliveryOrder ? '#0369a1' : '#5b21b6',
+                                fontWeight: 'bold',
+                                marginBottom: '8px',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: '6px'
+                              }}>
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', alignItems: 'center' }}>
+                                  <span style={{ backgroundColor: isDeliveryOrder ? '#0284c7' : '#7c3aed', color: '#fff', padding: '1px 7px', borderRadius: '4px', fontSize: '0.72rem' }}>
+                                    {isDeliveryOrder ? '🛵 Lalamove 外送' : '📱 線上點餐'}
+                                  </span>
+                                  {order.customerName && <span>👤 姓名: {order.customerName}</span>}
+                                  {order.customerPhone && <span>📞 電話: {order.customerPhone}</span>}
+                                  {order.pickupTime && (
+                                    <span style={{ backgroundColor: '#fef3c7', color: '#b45309', border: '1px solid #fcd34d', fontWeight: 'bold', padding: '1px 8px', borderRadius: '4px' }}>
+                                      ⏰ {order.pickupTime}
+                                    </span>
+                                  )}
+                                  <span>
+                                    💰 付款: {
+                                      order.paymentMethod === 'linepay' ? '🟢 LINE Pay 已付' :
+                                      order.paymentMethod === 'twqr_transfer' ? `🏦 TWQR/轉帳 (末5碼: ${order.transferLast5 || '無'})` :
+                                      order.paymentMethod === 'online' ? '💳 線上已刷卡' :
+                                      (order.paymentMethod === 'cash' || order.paymentMethod === 'counter' ? (isDeliveryOrder ? '💵 貨到付款 (司機代收)' : '現場現金') : order.paymentMethod)
+                                    }
+                                  </span>
+                                  {order.remarks && <span style={{ color: '#b91c1c' }}>📝 備註: {order.remarks}</span>}
+                                </div>
+
+                                {/* 外送專用送達地址與一鍵複製叫車資訊 */}
+                                {isDeliveryOrder && order.deliveryAddress && (
+                                  <div style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                    backgroundColor: '#ffffff',
+                                    padding: '6px 10px',
+                                    borderRadius: '6px',
+                                    border: '1px solid #bae6fd',
+                                    gap: '8px',
+                                    marginTop: '2px'
+                                  }}>
+                                    <div style={{ wordBreak: 'break-all', flex: 1 }}>
+                                      <span>📍 送達地址: </span>
+                                      <strong style={{ color: '#0f172a', fontSize: '0.85rem' }}>{order.deliveryAddress}</strong>
+                                      {order.deliveryFee !== undefined && (
+                                        <span style={{ marginLeft: '8px', fontSize: '0.75rem', color: '#0284c7' }}>
+                                          (運費: {order.deliveryFee > 0 ? `NT$ ${order.deliveryFee}` : '免運費'})
+                                        </span>
+                                      )}
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const text = `${order.deliveryAddress} (${order.customerName || '顧客'} / ${order.customerPhone || ''})`;
+                                        if (navigator.clipboard) {
+                                          navigator.clipboard.writeText(text);
+                                          alert(`已複製送達地址與聯絡電話至剪貼簿！\n可直接貼入 Lalamove 叫車：\n${text}`);
+                                        }
+                                      }}
+                                      style={{
+                                        backgroundColor: '#0284c7',
+                                        color: 'white',
+                                        border: 'none',
+                                        borderRadius: '4px',
+                                        padding: '3px 8px',
+                                        fontSize: '0.72rem',
+                                        cursor: 'pointer',
+                                        whiteSpace: 'nowrap',
+                                        fontWeight: 'bold',
+                                        boxShadow: '0 1px 3px rgba(2, 132, 199, 0.3)'
+                                      }}
+                                      title="一鍵複製地址與電話，方便在 Lalamove App 叫車"
+                                    >
+                                      📋 複製叫車資訊
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })()}
 
                           {/* Items Breakdown */}
                           <div style={{ fontSize: '0.82rem', color: 'var(--text-main)', lineHeight: '1.5' }}>

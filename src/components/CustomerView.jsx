@@ -62,7 +62,7 @@ export const formatSupabaseOrder = (dbOrder) => {
     } else if (finalType === 'foodpanda') {
       customerName = '🐼 外送 (foodpanda)';
     } else if (finalType === 'delivery') {
-      customerName = '🛵 外送';
+      customerName = '🛵 Lalamove 外送';
     } else {
       customerName = finalType === 'dine-in' ? (tableName ? `內用 ${tableName} 號桌` : '內用點餐') : '現場外帶';
     }
@@ -99,6 +99,10 @@ export const formatSupabaseOrder = (dbOrder) => {
     remarks: itemsData.remarks || '',
     items: cartItems,
     total: Number(dbOrder.total),
+    deliveryAddress: itemsData.deliveryAddress || dbOrder.delivery_address || '',
+    deliveryFee: Number(itemsData.deliveryFee || dbOrder.delivery_fee || 0),
+    deliveryType: itemsData.deliveryType || (finalType === 'delivery' ? 'lalamove' : ''),
+    transferLast5: itemsData.transferLast5 || '',
     cashier: itemsData.cashier || '',
     source: itemsData.source || (itemsData.cashier ? 'pos' : 'customer'),
     lineUser: itemsData.lineUser || null,
@@ -376,7 +380,12 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
     return '儘速取餐 (約10-15分鐘)';
   };
 
-  const [paymentMethod, setPaymentMethod] = useState('counter');
+  const [paymentMethod, setPaymentMethod] = useState('linepay');
+  const [fulfillmentType, setFulfillmentType] = useState('takeout'); // 'takeout' | 'delivery'
+  const [deliveryAddress, setDeliveryAddress] = useState('');
+  const [deliveryFloorNote, setDeliveryFloorNote] = useState('');
+  const [transferLast5, setTransferLast5] = useState('');
+  const [copiedBankNotice, setCopiedBankNotice] = useState(false);
 
   const [allOrders, setAllOrders] = useState([]);
   const [activeOrderId, setActiveOrderId] = useState(null);
@@ -614,8 +623,10 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
     enableOnlineOrdering: true
   });
   const [paymentMethodsConfig, setPaymentMethodsConfig] = useState({
-    counter: { enabled: true, name: '店內結帳 (到店付款)', desc: '取餐時於櫃檯付款，支援現金與TWQR共同支付' },
-    online: { enabled: true, name: '線上刷卡', desc: '下單即完成付款' }
+    linepay: { enabled: true, name: 'LINE Pay 行動支付', desc: '手機一鍵跳轉 LINE Pay 快速結帳' },
+    twqr_transfer: { enabled: true, name: 'TWQR / 網銀轉帳', desc: '複製玉山銀行帳號轉帳，各大銀行皆可' },
+    counter: { enabled: true, name: '店內結帳 (到店付款)', desc: '取餐時於櫃檯付款，支援現金與現場支付' },
+    online: { enabled: false, name: '線上刷卡', desc: '下單即完成付款' }
   });
   const [blacklist, setBlacklist] = useState([]);
 
@@ -709,12 +720,7 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
         if (paymentItem && paymentItem.description) {
           try {
             const parsed = JSON.parse(paymentItem.description);
-            setPaymentMethodsConfig(parsed);
-            if (parsed.counter && !parsed.counter.enabled && parsed.online && parsed.online.enabled) {
-              setPaymentMethod('online');
-            } else {
-              setPaymentMethod('counter');
-            }
+            setPaymentMethodsConfig(prev => ({ ...prev, ...parsed }));
           } catch (e) {
             console.error("Failed to parse payment methods:", e);
           }
@@ -861,12 +867,7 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
           if (paymentItem && paymentItem.description) {
             try {
               const parsed = JSON.parse(paymentItem.description);
-              setPaymentMethodsConfig(parsed);
-              if (parsed.counter && !parsed.counter.enabled && parsed.online && parsed.online.enabled) {
-                setPaymentMethod('online');
-              } else {
-                setPaymentMethod('counter');
-              }
+              setPaymentMethodsConfig(prev => ({ ...prev, ...parsed }));
             } catch (e) {
               console.error("Failed to parse payment methods:", e);
             }
@@ -1365,7 +1366,7 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
       return;
     }
 
-    // Validate customer name
+    // Validate customer name & delivery
     if (!tableNumber) {
       const currentName = custName.trim() || customerAuth?.displayName || lineUser?.displayName || '';
       if (!currentName) {
@@ -1375,12 +1376,34 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
       if (!custName.trim() && currentName) {
         setCustName(currentName);
       }
+
+      if (fulfillmentType === 'delivery') {
+        const subtotal = cart.reduce((sum, item) => sum + item.totalPrice, 0);
+        if (subtotal < 300) {
+          alert(`未達外送門檻：Lalamove 外送需滿 NT$ 300 元，目前小計 NT$ ${subtotal}，還差 NT$ ${300 - subtotal} 元。請再選購餐點！`);
+          return;
+        }
+        if (!custPhone || !custPhone.trim()) {
+          alert('請輸入外送連絡手機號碼，以便司機抵達時與您聯繫！');
+          return;
+        }
+        if (!deliveryAddress || !deliveryAddress.trim()) {
+          alert('請輸入完整外送送達地址！');
+          return;
+        }
+      }
+
       if (custPhone && !isValidTaiwanMobile(custPhone)) {
         alert('請輸入正確的台灣手機號碼格式 (例如: 0912345678)');
         return;
       }
       if (custPhone && blacklist.some(b => b.phone === custPhone)) {
         alert("⚠️ 您的號碼已被系統列入黑名單，無法進行線上點餐。如有疑問請聯絡店家！");
+        return;
+      }
+
+      if (paymentMethod === 'twqr_transfer' && (!transferLast5 || transferLast5.trim().length !== 5)) {
+        alert('請填寫轉帳帳號末 5 碼（共 5 碼數字），以便店家為您核對款項！');
         return;
       }
     }
@@ -1395,12 +1418,14 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
       return;
     }
 
+    const isDelivery = !tableNumber && fulfillmentType === 'delivery';
     const subtotal = cart.reduce((sum, item) => sum + item.totalPrice, 0);
-    const total = subtotal;
+    const deliveryFee = isDelivery ? (subtotal >= 500 ? 0 : 50) : 0;
+    const total = subtotal + deliveryFee;
 
     // Generate easy-to-read daily sequential serial number (max number + 1 logic to prevent duplicates)
-    const orderType = tableNumber ? 'dine-in' : 'takeout';
-    const prefix = tableNumber ? 'I' : 'O';
+    const orderType = tableNumber ? 'dine-in' : (isDelivery ? 'delivery' : 'takeout');
+    const prefix = tableNumber ? 'I' : (isDelivery ? 'D' : 'O');
     
     const now = new Date();
     const taipeiDateStr = now.toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' });
@@ -1435,24 +1460,38 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
       const authName = authUser?.displayName || '';
       let finalCustomerName = tableNumber 
         ? `內用 ${tableNumber} 號桌${authName ? ` (${authName})` : ''}`
-        : `${custName.trim() || authName || '現場顧客'}`;
+        : `${custName.trim() || authName || (isDelivery ? '外送顧客' : '現場顧客')}`;
 
       if (activeGroupRoom?.roomCode) {
         finalCustomerName = `${finalCustomerName} (👥 揪團: ${activeGroupRoom.hostName}團 #${activeGroupRoom.roomCode})`;
       }
 
+      const fullDeliveryAddress = isDelivery 
+        ? `${deliveryAddress.trim()}${deliveryFloorNote.trim() ? ` (${deliveryFloorNote.trim()})` : ''}`
+        : '';
+
+      const pickupTimeDisplay = tableNumber 
+        ? '' 
+        : (isDelivery ? `🛵 Lalamove 外送 (${getFinalPickupTimeDisplay()})` : getFinalPickupTimeDisplay());
+
       const orderPayload = {
         order_number: serialNum,
         items: {
           source: 'customer',
-          channel: '線上點餐',
-          orderChannel: '線上點餐',
+          channel: isDelivery ? 'Lalamove外送' : '線上點餐',
+          orderChannel: isDelivery ? 'Lalamove外送' : '線上點餐',
           storeCode: storeCode,
           store_code: storeCode,
           cart: cart,
+          subtotal: subtotal,
+          deliveryFee: deliveryFee,
+          fulfillmentType: isDelivery ? 'delivery' : (tableNumber ? 'dine-in' : 'takeout'),
+          deliveryType: isDelivery ? 'lalamove' : '',
+          deliveryAddress: fullDeliveryAddress,
+          transferLast5: paymentMethod === 'twqr_transfer' ? transferLast5.trim() : '',
           customerName: finalCustomerName,
           customerPhone: tableNumber ? '' : custPhone,
-          pickupTime: tableNumber ? '' : getFinalPickupTimeDisplay(),
+          pickupTime: pickupTimeDisplay,
           paymentMethod,
           remarks,
           customerAuth: authUser ? {
@@ -1476,10 +1515,10 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
           } : null
         },
         total,
-        type: tableNumber ? 'dine-in' : 'takeout',
+        type: orderType,
         table_number: tableNumber || null,
         status: 'received',
-        payment_status: paymentMethod === 'online' ? 'paid' : 'unpaid'
+        payment_status: paymentMethod === 'online' || paymentMethod === 'linepay' ? 'paid' : (paymentMethod === 'twqr_transfer' ? 'pending_verify' : 'unpaid')
       };
 
       let dbOrders = null;
@@ -2376,7 +2415,167 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
               </div>
             ) : (
               <div className="option-group" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                <h4 className="checkout-section-title">👤 外帶聯絡資訊</h4>
+                <h4 className="checkout-section-title">🛵 取餐 / 外送方式</h4>
+
+                {/* 取餐與外送選擇區塊 */}
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: '1fr 1fr',
+                  gap: '10px',
+                  marginBottom: '4px'
+                }}>
+                  <button
+                    type="button"
+                    onClick={() => setFulfillmentType('takeout')}
+                    style={{
+                      padding: '12px 10px',
+                      borderRadius: '12px',
+                      border: fulfillmentType === 'takeout' ? '2.5px solid var(--primary, #ea580c)' : '1px solid var(--border, #e2e8f0)',
+                      backgroundColor: fulfillmentType === 'takeout' ? '#fff7ed' : '#ffffff',
+                      color: fulfillmentType === 'takeout' ? '#ea580c' : 'var(--text-main, #1e293b)',
+                      fontWeight: 'bold',
+                      fontSize: '0.92rem',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      gap: '4px',
+                      boxShadow: fulfillmentType === 'takeout' ? '0 2px 8px rgba(234, 88, 12, 0.15)' : 'none',
+                      transition: 'all 0.2s ease'
+                    }}
+                  >
+                    <span style={{ fontSize: '1.4rem' }}>🥡</span>
+                    <span>外帶自取</span>
+                    <span style={{ fontSize: '0.72rem', color: fulfillmentType === 'takeout' ? '#c2410c' : '#64748b', fontWeight: 'normal' }}>到店自取免運費</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const sub = cart.reduce((sum, item) => sum + item.totalPrice, 0);
+                      if (sub < 300) {
+                        alert(`🛵 Lalamove 外送滿 NT$ 300 起送！目前餐點小計 NT$ ${sub}，還差 NT$ ${300 - sub} 元即可享受專車外送。請再選購餐點！`);
+                        return;
+                      }
+                      setFulfillmentType('delivery');
+                    }}
+                    style={{
+                      padding: '12px 10px',
+                      borderRadius: '12px',
+                      border: fulfillmentType === 'delivery' ? '2.5px solid #0284c7' : '1px solid var(--border, #e2e8f0)',
+                      backgroundColor: fulfillmentType === 'delivery' ? '#f0f9ff' : (cart.reduce((sum, item) => sum + item.totalPrice, 0) < 300 ? '#f8fafc' : '#ffffff'),
+                      color: fulfillmentType === 'delivery' ? '#0284c7' : (cart.reduce((sum, item) => sum + item.totalPrice, 0) < 300 ? '#94a3b8' : 'var(--text-main, #1e293b)'),
+                      fontWeight: 'bold',
+                      fontSize: '0.92rem',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      gap: '4px',
+                      position: 'relative',
+                      boxShadow: fulfillmentType === 'delivery' ? '0 2px 8px rgba(2, 132, 199, 0.18)' : 'none',
+                      transition: 'all 0.2s ease'
+                    }}
+                  >
+                    <span style={{
+                      position: 'absolute',
+                      top: '-8px',
+                      right: '-4px',
+                      backgroundColor: cart.reduce((sum, item) => sum + item.totalPrice, 0) >= 500 ? '#10b981' : '#f97316',
+                      color: 'white',
+                      fontSize: '0.65rem',
+                      padding: '1px 6px',
+                      borderRadius: '10px',
+                      fontWeight: '900'
+                    }}>
+                      {cart.reduce((sum, item) => sum + item.totalPrice, 0) >= 500 ? '滿$500免運' : '滿$300起送'}
+                    </span>
+                    <span style={{ fontSize: '1.4rem' }}>🛵</span>
+                    <span>Lalamove 外送</span>
+                    <span style={{ fontSize: '0.72rem', color: fulfillmentType === 'delivery' ? '#0369a1' : '#64748b', fontWeight: 'normal' }}>
+                      {cart.reduce((sum, item) => sum + item.totalPrice, 0) >= 500 ? '🎉 享免運費 ($0)' : (cart.reduce((sum, item) => sum + item.totalPrice, 0) >= 300 ? '運費 NT$ 50' : `差 $${300 - cart.reduce((sum, item) => sum + item.totalPrice, 0)} 起送`)}
+                    </span>
+                  </button>
+                </div>
+
+                {/* Lalamove 外送地址與備註區塊 */}
+                {fulfillmentType === 'delivery' && (
+                  <div style={{
+                    backgroundColor: '#f0f9ff',
+                    border: '1.5px solid #bae6fd',
+                    borderRadius: '12px',
+                    padding: '12px 14px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '10px'
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '4px' }}>
+                      <div style={{ fontWeight: 'bold', color: '#0369a1', fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span>🛵</span>
+                        <span>Lalamove 專車直送設定</span>
+                      </div>
+                      <div style={{
+                        fontSize: '0.75rem',
+                        padding: '2px 8px',
+                        borderRadius: '12px',
+                        fontWeight: 'bold',
+                        backgroundColor: cart.reduce((sum, item) => sum + item.totalPrice, 0) >= 500 ? '#dcfce7' : '#ffedd5',
+                        color: cart.reduce((sum, item) => sum + item.totalPrice, 0) >= 500 ? '#15803d' : '#c2410c'
+                      }}>
+                        {cart.reduce((sum, item) => sum + item.totalPrice, 0) >= 500 ? '✨ 已達滿$500免運費' : `運費 NT$ 50 (差 $${500 - cart.reduce((sum, item) => sum + item.totalPrice, 0)} 免運)`}
+                      </div>
+                    </div>
+
+                    {cart.reduce((sum, item) => sum + item.totalPrice, 0) < 500 && (
+                      <div style={{ fontSize: '0.78rem', color: '#0284c7', backgroundColor: '#e0f2fe', padding: '6px 10px', borderRadius: '6px' }}>
+                        💡 <strong>省運費小秘技：</strong>再加點 <strong>NT$ {500 - cart.reduce((sum, item) => sum + item.totalPrice, 0)}</strong>，整單享 Lalamove 免運費直送！
+                      </div>
+                    )}
+
+                    <div className="form-group" style={{ marginBottom: 0 }}>
+                      <label htmlFor="delivery-address" style={{ fontWeight: 'bold', fontSize: '0.85rem' }}>
+                        📍 外送送達地址 <span style={{ color: 'var(--accent)' }}>*</span>
+                      </label>
+                      <input
+                        type="text"
+                        id="delivery-address"
+                        placeholder="例: 新北市蘆洲區民權路XX號"
+                        required={fulfillmentType === 'delivery'}
+                        value={deliveryAddress}
+                        onChange={(e) => setDeliveryAddress(e.target.value)}
+                        style={{
+                          width: '100%',
+                          padding: '8px 10px',
+                          fontSize: '0.88rem',
+                          borderRadius: '8px',
+                          border: '1.5px solid #38bdf8',
+                          backgroundColor: '#ffffff'
+                        }}
+                      />
+                    </div>
+
+                    <div className="form-group" style={{ marginBottom: 0 }}>
+                      <label htmlFor="delivery-floor" style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>
+                        🏢 樓層 / 門牌備註 (選填)
+                      </label>
+                      <input
+                        type="text"
+                        id="delivery-floor"
+                        placeholder="例: 3樓 (無電梯)、請放一樓管理室、按電鈴等"
+                        value={deliveryFloorNote}
+                        onChange={(e) => setDeliveryFloorNote(e.target.value)}
+                        style={{
+                          width: '100%',
+                          padding: '7px 10px',
+                          fontSize: '0.85rem',
+                          borderRadius: '8px',
+                          border: '1px solid #cbd5e1',
+                          backgroundColor: '#ffffff'
+                        }}
+                      />
+                    </div>
+                  </div>
+                )}
 
                 {/* 顧客身分認證狀態卡片 */}
                 {customerAuth ? (() => {
@@ -2453,11 +2652,18 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
                 </div>
 
                 <div className="form-group">
-                  <label htmlFor="cust-phone">手機號碼 (選填，方便到店備用連絡)</label>
+                  <label htmlFor="cust-phone">
+                    {fulfillmentType === 'delivery' ? (
+                      <span>連絡手機號碼 (外送司機通訊用) <span style={{ color: 'var(--accent)' }}>*</span></span>
+                    ) : (
+                      '手機號碼 (選填，方便到店備用連絡)'
+                    )}
+                  </label>
                   <input 
                     type="tel" 
                     id="cust-phone" 
-                    placeholder="例: 0912345678 (選填)" 
+                    placeholder={fulfillmentType === 'delivery' ? '例: 0912345678 (外送必填)' : '例: 0912345678 (選填)'} 
+                    required={fulfillmentType === 'delivery'}
                     value={custPhone}
                     onChange={(e) => setCustPhone(e.target.value)}
                   />
@@ -2776,29 +2982,212 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
             {/* Payment options */}
             <div className="option-group">
               <h4 className="checkout-section-title">💳 付款方式</h4>
-              <div className="payment-options">
+              <div className="payment-options" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {/* 1. LINE Pay */}
+                <div 
+                  className={`payment-option-card ${paymentMethod === 'linepay' ? 'selected' : ''}`}
+                  onClick={() => setPaymentMethod('linepay')}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '12px',
+                    padding: '12px 14px',
+                    borderRadius: '10px',
+                    border: paymentMethod === 'linepay' ? '2px solid #06c755' : '1px solid var(--border)',
+                    backgroundColor: paymentMethod === 'linepay' ? '#f0fdf4' : 'var(--bg-card)',
+                    cursor: 'pointer'
+                  }}
+                >
+                  <span style={{ fontSize: '1.6rem', color: '#06c755' }}>🟢</span>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <strong style={{ color: paymentMethod === 'linepay' ? '#047857' : 'inherit' }}>LINE Pay 行動支付</strong>
+                      <span style={{ fontSize: '0.68rem', backgroundColor: '#06c755', color: '#fff', padding: '1px 6px', borderRadius: '4px', fontWeight: 'bold' }}>推薦</span>
+                    </div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                      手機直接喚起 LINE Pay App 快速付款，支援 LINE POINTS 折抵
+                    </div>
+                  </div>
+                </div>
+
+                {/* LINE Pay 說明 */}
+                {paymentMethod === 'linepay' && (
+                  <div style={{
+                    padding: '10px 14px',
+                    backgroundColor: '#f0fdf4',
+                    border: '1px solid #bbf7d0',
+                    borderRadius: '10px',
+                    fontSize: '0.82rem',
+                    color: '#166534',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '4px'
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 'bold' }}>
+                      <span>📱</span>
+                      <span>LINE Pay 快速結帳</span>
+                    </div>
+                    <div style={{ fontSize: '0.76rem', color: '#15803d', lineHeight: '1.4' }}>
+                      下單後將提示跳轉至 LINE Pay 進行支付。支援綁定之一卡通 MONEY、台新、玉山、中信等各家銀行信用卡！
+                    </div>
+                  </div>
+                )}
+
+                {/* 2. TWQR / 網銀轉帳 */}
+                <div 
+                  className={`payment-option-card ${paymentMethod === 'twqr_transfer' ? 'selected' : ''}`}
+                  onClick={() => setPaymentMethod('twqr_transfer')}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '12px',
+                    padding: '12px 14px',
+                    borderRadius: '10px',
+                    border: paymentMethod === 'twqr_transfer' ? '2px solid #0284c7' : '1px solid var(--border)',
+                    backgroundColor: paymentMethod === 'twqr_transfer' ? '#f0f9ff' : 'var(--bg-card)',
+                    cursor: 'pointer'
+                  }}
+                >
+                  <span style={{ fontSize: '1.6rem' }}>🏦</span>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <strong style={{ color: paymentMethod === 'twqr_transfer' ? '#0369a1' : 'inherit' }}>TWQR / 網銀轉帳</strong>
+                      <span style={{ fontSize: '0.68rem', backgroundColor: '#0284c7', color: '#fff', padding: '1px 6px', borderRadius: '4px', fontWeight: 'bold' }}>免手續費</span>
+                    </div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                      提供玉山銀行帳號複製轉帳，各大銀行網銀/台灣Pay皆可轉
+                    </div>
+                  </div>
+                </div>
+
+                {/* TWQR & 銀行匯款資訊 (當選中時展開) */}
+                {paymentMethod === 'twqr_transfer' && (
+                  <div style={{
+                    padding: '12px 14px',
+                    backgroundColor: '#f0f9ff',
+                    border: '1px solid #bae6fd',
+                    borderRadius: '10px',
+                    fontSize: '0.82rem',
+                    color: '#0369a1',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '8px'
+                  }}>
+                    <div style={{ fontWeight: 'bold', fontSize: '0.88rem' }}>
+                      🏦 店家匯款帳號資訊
+                    </div>
+                    <div style={{
+                      backgroundColor: '#ffffff',
+                      padding: '10px 12px',
+                      borderRadius: '8px',
+                      border: '1px solid #e0f2fe',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '4px'
+                    }}>
+                      <div>銀行名稱：<strong>玉山銀行 (代碼 808)</strong></div>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                        <div>銀行帳號：<strong style={{ letterSpacing: '1px', fontSize: '0.95rem', color: '#0f172a' }}>1234-567-890123</strong></div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (navigator.clipboard) {
+                              navigator.clipboard.writeText('8081234567890123');
+                              setCopiedBankNotice(true);
+                              setTimeout(() => setCopiedBankNotice(false), 2500);
+                            }
+                          }}
+                          style={{
+                            backgroundColor: copiedBankNotice ? '#10b981' : '#0284c7',
+                            color: '#fff',
+                            border: 'none',
+                            borderRadius: '6px',
+                            padding: '4px 10px',
+                            fontSize: '0.75rem',
+                            fontWeight: 'bold',
+                            cursor: 'pointer',
+                            whiteSpace: 'nowrap'
+                          }}
+                        >
+                          {copiedBankNotice ? '✓ 已複製帳號' : '📋 複製帳號'}
+                        </button>
+                      </div>
+                      <div>戶名：<strong>龍城麵線</strong></div>
+                      <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '2px' }}>
+                        💡 亦可截圖/長按儲存 TWQR 碼，透過台灣Pay/網銀 App 相簿掃描條碼繳費
+                      </div>
+                    </div>
+
+                    {/* 轉帳末5碼輸入框 */}
+                    <div style={{ marginTop: '2px' }}>
+                      <label style={{ display: 'block', fontWeight: 'bold', fontSize: '0.82rem', marginBottom: '4px', color: '#0f172a' }}>
+                        轉帳扣款帳號末 5 碼 (必填，以利店家對帳) <span style={{ color: 'var(--accent)' }}>*</span>
+                      </label>
+                      <input
+                        type="text"
+                        maxLength="5"
+                        placeholder="例: 12345 (請輸入您扣款帳號末5碼)"
+                        value={transferLast5}
+                        onChange={(e) => setTransferLast5(e.target.value.replace(/[^0-9]/g, ''))}
+                        style={{
+                          width: '100%',
+                          padding: '8px 10px',
+                          fontSize: '0.9rem',
+                          borderRadius: '6px',
+                          border: '1.5px solid #38bdf8',
+                          backgroundColor: '#ffffff'
+                        }}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* 3. 到店付款 / 司機代收 */}
                 {paymentMethodsConfig.counter?.enabled !== false && (
                   <div 
                     className={`payment-option-card ${paymentMethod === 'counter' ? 'selected' : ''}`}
                     onClick={() => setPaymentMethod('counter')}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '12px',
+                      padding: '12px 14px',
+                      borderRadius: '10px',
+                      border: paymentMethod === 'counter' ? '2px solid var(--primary, #ea580c)' : '1px solid var(--border)',
+                      backgroundColor: paymentMethod === 'counter' ? '#fff7ed' : 'var(--bg-card)',
+                      cursor: 'pointer'
+                    }}
                   >
-                    <span className="payment-icon">💵</span>
-                    <div>
-                      <strong>{paymentMethodsConfig.counter?.name || '店內結帳 (到店付款)'}</strong>
+                    <span style={{ fontSize: '1.6rem' }}>💵</span>
+                    <div style={{ flex: 1 }}>
+                      <strong style={{ color: paymentMethod === 'counter' ? '#c2410c' : 'inherit' }}>
+                        {fulfillmentType === 'delivery' ? '貨到付款 / 司機代收 (現金)' : '店內結帳 (到店付款)'}
+                      </strong>
                       <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                        {paymentMethodsConfig.counter?.desc || '取餐時於櫃檯付款，支援現金與TWQR共同支付'}
+                        {fulfillmentType === 'delivery' ? '餐點送達時以現金交付 Lalamove 司機' : '取餐時於櫃檯付款，支援現金與現場共同支付'}
                       </div>
                     </div>
                   </div>
                 )}
 
-                {paymentMethodsConfig.online?.enabled !== false && (
+                {/* 4. 線上刷卡 */}
+                {paymentMethodsConfig.online?.enabled && (
                   <div 
                     className={`payment-option-card ${paymentMethod === 'online' ? 'selected' : ''}`}
                     onClick={() => setPaymentMethod('online')}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '12px',
+                      padding: '12px 14px',
+                      borderRadius: '10px',
+                      border: paymentMethod === 'online' ? '2px solid var(--primary, #ea580c)' : '1px solid var(--border)',
+                      backgroundColor: paymentMethod === 'online' ? '#fff7ed' : 'var(--bg-card)',
+                      cursor: 'pointer'
+                    }}
                   >
-                    <span className="payment-icon">💳</span>
-                    <div>
+                    <span style={{ fontSize: '1.6rem' }}>💳</span>
+                    <div style={{ flex: 1 }}>
                       <strong>{paymentMethodsConfig.online?.name || '線上刷卡'}</strong>
                       <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
                         {paymentMethodsConfig.online?.desc || '下單即完成付款'}
@@ -2822,9 +3211,23 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
 
             {/* Summary */}
             <div className="cart-summary-section" style={{ borderRadius: 'var(--radius-sm)', padding: '16px', marginTop: '10px' }}>
-              <div className="summary-row total" style={{ marginTop: 0, paddingTop: 0, border: 'none' }}>
-                <span>訂單總金額</span>
+              <div className="summary-row" style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.88rem', color: 'var(--text-muted)' }}>
+                <span>餐點小計</span>
                 <span>NT$ {cart.reduce((sum, item) => sum + item.totalPrice, 0)}</span>
+              </div>
+              {!tableNumber && fulfillmentType === 'delivery' && (
+                <div className="summary-row" style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.88rem', color: '#0369a1', margin: '4px 0' }}>
+                  <span>🛵 Lalamove 外送運費</span>
+                  <span style={{ fontWeight: 'bold' }}>
+                    {cart.reduce((sum, item) => sum + item.totalPrice, 0) >= 500 ? 'NT$ 0 (滿 $500 免運)' : 'NT$ 50'}
+                  </span>
+                </div>
+              )}
+              <div className="summary-row total" style={{ marginTop: '6px', paddingTop: '8px', borderTop: '1px dashed var(--border)' }}>
+                <span>訂單總金額</span>
+                <span>
+                  NT$ {cart.reduce((sum, item) => sum + item.totalPrice, 0) + (!tableNumber && fulfillmentType === 'delivery' ? (cart.reduce((sum, item) => sum + item.totalPrice, 0) >= 500 ? 0 : 50) : 0)}
+                </span>
               </div>
               {customerAuth ? (
                 <button 
@@ -3030,7 +3433,17 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
               <div><strong>訂購姓名：</strong>{custName.trim() || customerAuth?.displayName || lineUser?.displayName || '未填寫'}</div>
               {!tableNumber && <div><strong>聯絡電話：</strong>{custPhone || '未填寫'}</div>}
               {tableNumber && <div><strong>內用桌號：</strong>{tableNumber} 號桌</div>}
-              <div><strong>取餐方式：</strong>{tableNumber ? `內用 (${tableNumber} 號桌)` : `外帶自取 (${getFinalPickupTimeDisplay()})`}</div>
+              <div><strong>取送方式：</strong>{tableNumber ? `內用 (${tableNumber} 號桌)` : (fulfillmentType === 'delivery' ? `🛵 Lalamove 外送 (${getFinalPickupTimeDisplay()})` : `外帶自取 (${getFinalPickupTimeDisplay()})`)}</div>
+              {!tableNumber && fulfillmentType === 'delivery' && (
+                <div><strong>外送地址：</strong><span style={{ color: '#0369a1', fontWeight: 'bold' }}>{deliveryAddress} {deliveryFloorNote ? `(${deliveryFloorNote})` : ''}</span></div>
+              )}
+              <div>
+                <strong>付款方式：</strong>
+                {paymentMethod === 'linepay' && <span style={{ color: '#047857', fontWeight: 'bold' }}>🟢 LINE Pay 行動支付</span>}
+                {paymentMethod === 'twqr_transfer' && <span style={{ color: '#0369a1', fontWeight: 'bold' }}>🏦 TWQR / 網銀轉帳 (末5碼: {transferLast5 || '未填'})</span>}
+                {paymentMethod === 'counter' && <span style={{ color: '#c2410c', fontWeight: 'bold' }}>{fulfillmentType === 'delivery' ? '💵 貨到付款 (司機代收現金)' : '💵 到店付款'}</span>}
+                {paymentMethod === 'online' && <span style={{ fontWeight: 'bold' }}>💳 線上刷卡</span>}
+              </div>
               <div style={{ borderTop: '1px solid var(--border)', paddingTop: '10px', marginTop: '8px' }}>
                 <strong>點購商品明細：</strong>
                 <div style={{ maxHeight: '180px', overflowY: 'auto', paddingLeft: '4px', marginTop: '6px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -3061,9 +3474,21 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
                   <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '4px', whiteSpace: 'pre-wrap' }}>{remarks}</div>
                 </div>
               )}
-              <div style={{ fontSize: '1.15rem', fontWeight: 'bold', color: 'var(--primary)', borderTop: '1px solid var(--border)', paddingTop: '10px', marginTop: '8px', display: 'flex', justifyContent: 'space-between' }}>
-                <span>實付總額:</span>
-                <span>NT$ {cart.reduce((sum, item) => sum + item.totalPrice, 0)}</span>
+              <div style={{ borderTop: '1px solid var(--border)', paddingTop: '10px', marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.88rem', color: 'var(--text-muted)' }}>
+                  <span>餐點小計:</span>
+                  <span>NT$ {cart.reduce((sum, item) => sum + item.totalPrice, 0)}</span>
+                </div>
+                {!tableNumber && fulfillmentType === 'delivery' && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.88rem', color: '#0369a1' }}>
+                    <span>🛵 Lalamove 外送運費:</span>
+                    <span>{cart.reduce((sum, item) => sum + item.totalPrice, 0) >= 500 ? 'NT$ 0 (滿 $500 免運)' : 'NT$ 50'}</span>
+                  </div>
+                )}
+                <div style={{ fontSize: '1.15rem', fontWeight: 'bold', color: 'var(--primary)', marginTop: '4px', paddingTop: '4px', borderTop: '1px dashed var(--border)', display: 'flex', justifyContent: 'space-between' }}>
+                  <span>實付總額:</span>
+                  <span>NT$ {cart.reduce((sum, item) => sum + item.totalPrice, 0) + (!tableNumber && fulfillmentType === 'delivery' ? (cart.reduce((sum, item) => sum + item.totalPrice, 0) >= 500 ? 0 : 50) : 0)}</span>
+                </div>
               </div>
             </div>
             <div style={{ display: 'flex', gap: '10px' }}>
