@@ -214,7 +214,9 @@ export default function OrderTracker({ order, onBackToMenu, onShareGroupOrder })
         alignItems: 'center',
         gap: '6px'
       }}>
-        <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)', fontWeight: 600 }}>您的取餐號碼 (流水號)</span>
+        <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)', fontWeight: 600 }}>
+          {(order.type === 'delivery' || order.deliveryType === 'lalamove' || String(order.serialNum || '').startsWith('D-')) ? '您的外送訂單編號' : '您的取餐號碼 (流水號)'}
+        </span>
         <span style={{ fontSize: '3rem', fontWeight: 900, color: isReady ? '#059669' : 'var(--primary)', letterSpacing: '1px', lineHeight: 1 }}>
           {order.serialNum || 'A-001'}
         </span>
@@ -233,7 +235,7 @@ export default function OrderTracker({ order, onBackToMenu, onShareGroupOrder })
             gap: '6px'
           }}>
             <span>⏰</span>
-            <span>{order.type === 'dine-in' ? '預定到店時間' : '預定取餐時間'}: <strong>{order.pickupTime}</strong></span>
+            <span>{order.type === 'dine-in' ? '預定到店時間' : ((order.type === 'delivery' || order.deliveryType === 'lalamove' || String(order.serialNum || '').startsWith('D-')) ? '預定外送時間' : '預定取餐時間')}: <strong>{order.pickupTime}</strong></span>
           </div>
         ) : (
           <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: '8px' }}>
@@ -275,6 +277,37 @@ export default function OrderTracker({ order, onBackToMenu, onShareGroupOrder })
         </button>
       )}
 
+      {/* 🛵 Lalamove 外送配送資訊 */}
+      {(order.type === 'delivery' || order.deliveryType === 'lalamove' || String(order.serialNum || '').startsWith('D-')) && (
+        <div style={{
+          margin: '14px 0',
+          padding: '12px 14px',
+          backgroundColor: '#f0f9ff',
+          borderRadius: '10px',
+          border: '1.5px solid #bae6fd',
+          textAlign: 'left'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+            <span style={{ fontSize: '0.9rem', color: '#0369a1', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span>🛵</span>
+              <span>Lalamove 專車直送</span>
+            </span>
+            <span style={{ fontSize: '0.75rem', backgroundColor: '#e0f2fe', color: '#0284c7', padding: '2px 8px', borderRadius: '10px', fontWeight: 'bold' }}>
+              外送訂單
+            </span>
+          </div>
+          <div style={{ fontSize: '0.88rem', color: '#0f172a', fontWeight: 'bold' }}>
+            📍 外送地址: <span style={{ color: '#0369a1' }}>{order.deliveryAddress || '未填寫地址'}</span>
+          </div>
+          <div style={{ fontSize: '0.82rem', color: 'var(--text-main)', marginTop: '4px' }}>
+            👤 收件姓名: {order.customerName || '顧客'} {order.customerPhone ? `| 📞 ${order.customerPhone}` : ''}
+          </div>
+          <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '6px' }}>
+            💡 店家備餐完成後將呼叫 Lalamove 專車配送，抵達前司機將致電聯繫，請留意手機來電！
+          </div>
+        </div>
+      )}
+
       {order.type === 'takeout' && (
         <div style={{ margin: '14px 0', padding: '10px', backgroundColor: 'var(--bg-body)', borderRadius: '8px', border: '1px solid var(--border)' }}>
           <div style={{ fontSize: '0.85rem', color: 'var(--text-main)', fontWeight: 'bold' }}>
@@ -285,6 +318,148 @@ export default function OrderTracker({ order, onBackToMenu, onShareGroupOrder })
           </div>
         </div>
       )}
+
+      {/* 💳 付款狀態與線上支付引導 */}
+      <div style={{
+        margin: '14px 0',
+        padding: '14px',
+        borderRadius: '12px',
+        backgroundColor: order.paymentMethod === 'linepay' ? '#f0fdf4' : (order.paymentMethod === 'twqr_transfer' ? '#f0f9ff' : '#f8fafc'),
+        border: order.paymentMethod === 'linepay' ? '1.5px solid #86efac' : (order.paymentMethod === 'twqr_transfer' ? '1.5px solid #bae6fd' : '1px solid var(--border)'),
+        textAlign: 'left'
+      }}>
+        {/* 1. LINE Pay */}
+        {order.paymentMethod === 'linepay' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', textAlign: 'center' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+              <span style={{ fontSize: '1.2rem' }}>🟢</span>
+              <strong style={{ color: '#047857', fontSize: '0.98rem' }}>LINE Pay 行動支付</strong>
+              <span style={{ fontSize: '0.7rem', backgroundColor: '#06c755', color: '#fff', padding: '2px 6px', borderRadius: '4px', fontWeight: 'bold' }}>推薦</span>
+            </div>
+            
+            <a
+              href="https://qrcodepay.line.me/qr/payment/CVkxJf36wSgi%252B7dOr34Dv3AIepqDyYQEs6TiqM2ok%252B%252BjdqiG8UuEY3to%252F0bauscW"
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '8px',
+                backgroundColor: '#06c755',
+                color: '#ffffff',
+                padding: '12px 16px',
+                borderRadius: '10px',
+                fontSize: '1rem',
+                fontWeight: 'bold',
+                textDecoration: 'none',
+                boxShadow: '0 3px 10px rgba(6, 199, 85, 0.35)',
+                cursor: 'pointer'
+              }}
+            >
+              <span>📱 點此開啟 LINE Pay 一鍵付款</span>
+              <span>➔</span>
+            </a>
+
+            <div style={{ fontSize: '0.78rem', color: '#15803d', lineHeight: '1.4' }}>
+              手機點擊上方綠色按鈕將自動跳轉至 LINE Pay 快速付款。<br/>
+              若您使用電腦或平板點餐，可使用手機直接掃描下方條碼：
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'center', marginTop: '4px' }}>
+              <img
+                src="/images/linepay_card.jpg"
+                alt="LINE Pay 龍城麵線"
+                style={{
+                  maxWidth: '180px',
+                  borderRadius: '10px',
+                  border: '1px solid #bbf7d0',
+                  boxShadow: '0 2px 8px rgba(0,0,0,0.06)'
+                }}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* 2. TWQR / 網銀轉帳 */}
+        {order.paymentMethod === 'twqr_transfer' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span style={{ fontSize: '1.2rem' }}>🏦</span>
+                <strong style={{ color: '#0369a1', fontSize: '0.95rem' }}>TWQR / 第一銀行 網銀轉帳</strong>
+              </div>
+              <span style={{ fontSize: '0.7rem', backgroundColor: '#0284c7', color: '#fff', padding: '2px 6px', borderRadius: '4px', fontWeight: 'bold' }}>跨機構共通</span>
+            </div>
+
+            <div style={{
+              backgroundColor: '#ffffff',
+              padding: '10px 12px',
+              borderRadius: '8px',
+              border: '1px solid #e0f2fe',
+              fontSize: '0.85rem',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '4px'
+            }}>
+              <div>銀行：<strong>第一商業銀行 (代碼 007)</strong></div>
+              <div>戶名：<strong>個人賣家_龍城麵線</strong></div>
+              {order.transferLast5 ? (
+                <div style={{ color: '#0284c7', fontWeight: 'bold', marginTop: '2px' }}>
+                  ✓ 您提交的轉帳末5碼：<span>{order.transferLast5}</span> (店家核對中)
+                </div>
+              ) : (
+                <div style={{ color: '#b45309', fontSize: '0.78rem', marginTop: '2px' }}>
+                  ⚠️ 若已轉帳，請於備註或取餐時告知扣款帳號末 5 碼以利店家對帳
+                </div>
+              )}
+            </div>
+
+            <div style={{ fontSize: '0.78rem', color: '#0369a1', lineHeight: '1.4' }}>
+              📱 <strong>手機免掃碼小撇步：</strong>長按下方 TWQR 圖片存入相簿 ➔ 開啟 台灣Pay / 街口 / 全支付 / 第一銀行或各大網銀 App 點選「掃描相簿相片」即可免第二支手機完成付款！
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'center', marginTop: '4px' }}>
+              <img
+                src="/images/twqr_card.jpg"
+                alt="TWQR 第一銀行 龍城麵線"
+                style={{
+                  maxWidth: '220px',
+                  borderRadius: '10px',
+                  border: '1px solid #bae6fd',
+                  boxShadow: '0 2px 8px rgba(0,0,0,0.06)'
+                }}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* 3. 到店付款 / 貨到付款 */}
+        {(order.paymentMethod === 'counter' || order.paymentMethod === 'cash') && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.88rem' }}>
+            <span style={{ fontSize: '1.2rem' }}>💵</span>
+            <div>
+              <strong>付款方式：</strong>
+              <span>
+                {(order.type === 'delivery' || order.deliveryType === 'lalamove' || String(order.serialNum || '').startsWith('D-'))
+                  ? '貨到付款 (請於餐點送達時以現金交付 Lalamove 司機)'
+                  : '店內付款 (取餐時於櫃檯結帳，支援現金與現場共同支付)'}
+              </span>
+            </div>
+          </div>
+        )}
+
+        {/* 4. 線上刷卡 */}
+        {order.paymentMethod === 'online' && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.88rem', color: '#059669' }}>
+            <span style={{ fontSize: '1.2rem' }}>💳</span>
+            <div>
+              <strong>線上刷卡：</strong>
+              <span>已授權付款完成</span>
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* Receipt Summary */}
       <div className="tracker-receipt" style={{ marginTop: '14px' }}>
@@ -307,6 +482,12 @@ export default function OrderTracker({ order, onBackToMenu, onShareGroupOrder })
             </span>
           </div>
         ))}
+        {Number(order.deliveryFee) > 0 && (
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.88rem', color: '#0369a1', marginTop: '8px', paddingTop: '6px', borderTop: '1px dashed var(--border)' }}>
+            <span>🛵 Lalamove 外送運費</span>
+            <span style={{ fontWeight: 'bold' }}>NT$ {order.deliveryFee}</span>
+          </div>
+        )}
         <div className="summary-row total" style={{ paddingBottom: 0, borderBottom: 'none', display: 'flex', justifyContent: 'space-between', marginTop: '10px' }}>
           <span style={{ fontWeight: 'bold' }}>實付總計</span>
           <span style={{ fontWeight: '900', color: 'var(--primary)', fontSize: '1.1rem' }}>NT$ {order.total}</span>

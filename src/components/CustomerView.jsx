@@ -3013,7 +3013,7 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
                 {/* LINE Pay 說明 */}
                 {paymentMethod === 'linepay' && (
                   <div style={{
-                    padding: '10px 14px',
+                    padding: '12px 14px',
                     backgroundColor: '#f0fdf4',
                     border: '1px solid #bbf7d0',
                     borderRadius: '10px',
@@ -3021,14 +3021,21 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
                     color: '#166534',
                     display: 'flex',
                     flexDirection: 'column',
-                    gap: '4px'
+                    gap: '8px'
                   }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 'bold' }}>
                       <span>📱</span>
                       <span>LINE Pay 快速結帳</span>
                     </div>
                     <div style={{ fontSize: '0.76rem', color: '#15803d', lineHeight: '1.4' }}>
-                      下單後將提示跳轉至 LINE Pay 進行支付。支援綁定之一卡通 MONEY、台新、玉山、中信等各家銀行信用卡！
+                      下單後將提供一鍵開啟 LINE Pay 進行支付，支援綁定之一卡通 MONEY、各大銀行信用卡及 LINE POINTS 點數折抵！
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', backgroundColor: '#ffffff', padding: '8px 10px', borderRadius: '8px', border: '1px solid #bbf7d0' }}>
+                      <img src="/images/linepay_card.jpg" alt="LINE Pay" style={{ width: '48px', height: '48px', objectFit: 'cover', borderRadius: '6px' }} />
+                      <div style={{ fontSize: '0.75rem', color: '#15803d' }}>
+                        <div><strong>龍城麵線 官方 LINE Pay</strong></div>
+                        <div style={{ color: '#64748b', fontSize: '0.7rem' }}>手機一鍵喚起 App，無須掃描條碼</div>
+                      </div>
                     </div>
                   </div>
                 )}
@@ -3051,11 +3058,11 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
                   <span style={{ fontSize: '1.6rem' }}>🏦</span>
                   <div style={{ flex: 1 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <strong style={{ color: paymentMethod === 'twqr_transfer' ? '#0369a1' : 'inherit' }}>TWQR / 網銀轉帳</strong>
-                      <span style={{ fontSize: '0.68rem', backgroundColor: '#0284c7', color: '#fff', padding: '1px 6px', borderRadius: '4px', fontWeight: 'bold' }}>免手續費</span>
+                      <strong style={{ color: paymentMethod === 'twqr_transfer' ? '#0369a1' : 'inherit' }}>TWQR / 第一銀行 網銀轉帳</strong>
+                      <span style={{ fontSize: '0.68rem', backgroundColor: '#0284c7', color: '#fff', padding: '1px 6px', borderRadius: '4px', fontWeight: 'bold' }}>跨機構共通</span>
                     </div>
                     <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '2px' }}>
-                      提供玉山銀行帳號複製轉帳，各大銀行網銀/台灣Pay皆可轉
+                      支援台灣Pay、街口、全支付、全盈+PAY、icash Pay 及各大網銀
                     </div>
                   </div>
                 </div>
@@ -3074,7 +3081,7 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
                     gap: '8px'
                   }}>
                     <div style={{ fontWeight: 'bold', fontSize: '0.88rem' }}>
-                      🏦 店家匯款帳號資訊
+                      🏦 第一銀行 TWQR 付款資訊
                     </div>
                     <div style={{
                       backgroundColor: '#ffffff',
@@ -3085,43 +3092,24 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
                       flexDirection: 'column',
                       gap: '4px'
                     }}>
-                      <div>銀行名稱：<strong>玉山銀行 (代碼 808)</strong></div>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
-                        <div>銀行帳號：<strong style={{ letterSpacing: '1px', fontSize: '0.95rem', color: '#0f172a' }}>1234-567-890123</strong></div>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (navigator.clipboard) {
-                              navigator.clipboard.writeText('8081234567890123');
-                              setCopiedBankNotice(true);
-                              setTimeout(() => setCopiedBankNotice(false), 2500);
-                            }
-                          }}
-                          style={{
-                            backgroundColor: copiedBankNotice ? '#10b981' : '#0284c7',
-                            color: '#fff',
-                            border: 'none',
-                            borderRadius: '6px',
-                            padding: '4px 10px',
-                            fontSize: '0.75rem',
-                            fontWeight: 'bold',
-                            cursor: 'pointer',
-                            whiteSpace: 'nowrap'
-                          }}
-                        >
-                          {copiedBankNotice ? '✓ 已複製帳號' : '📋 複製帳號'}
-                        </button>
+                      <div>銀行名稱：<strong>第一商業銀行 (代碼 007)</strong></div>
+                      <div>戶名：<strong>個人賣家_龍城麵線</strong></div>
+                      <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '2px', lineHeight: '1.4' }}>
+                        💡 <strong>手機免掃碼小撇步：</strong>可長按儲存下方 TWQR 碼圖片至相簿，開啟台灣Pay、街口、全支付或各大網銀 App，點選「掃描相簿相片」即可免第二支手機完成付款！
                       </div>
-                      <div>戶名：<strong>龍城麵線</strong></div>
-                      <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '2px' }}>
-                        💡 亦可截圖/長按儲存 TWQR 碼，透過台灣Pay/網銀 App 相簿掃描條碼繳費
+                      <div style={{ display: 'flex', justifyContent: 'center', marginTop: '6px' }}>
+                        <img 
+                          src="/images/twqr_card.jpg" 
+                          alt="TWQR 第一銀行 龍城麵線" 
+                          style={{ maxWidth: '200px', borderRadius: '8px', border: '1px solid #bae6fd' }} 
+                        />
                       </div>
                     </div>
 
                     {/* 轉帳末5碼輸入框 */}
                     <div style={{ marginTop: '2px' }}>
                       <label style={{ display: 'block', fontWeight: 'bold', fontSize: '0.82rem', marginBottom: '4px', color: '#0f172a' }}>
-                        轉帳扣款帳號末 5 碼 (必填，以利店家對帳) <span style={{ color: 'var(--accent)' }}>*</span>
+                        轉帳/付款扣款帳號末 5 碼 (選填/已付款請填，以利店家對帳)
                       </label>
                       <input
                         type="text"
