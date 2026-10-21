@@ -548,8 +548,8 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
     }
   };
 
-  // 現場人員按下確定鍵，停止語音並關閉確認彈窗
-  const handleAcknowledgeOrderAlert = () => {
+  // 現場人員按下確定鍵，停止語音、保證出單並關閉確認彈窗
+  const handleAcknowledgeOrderAlert = (shouldPrint = true) => {
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       try {
         window.speechSynthesis.cancel();
@@ -557,6 +557,10 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
     }
     if (newOrderAlertTimeoutRef.current) {
       clearTimeout(newOrderAlertTimeoutRef.current);
+    }
+    const currentAlert = newOrderAlert;
+    if (currentAlert && shouldPrint) {
+      printReceipt(currentAlert);
     }
     setNewOrderAlert(null);
   };
@@ -2738,7 +2742,7 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
               </button>
               <button
                 type="button"
-                onClick={handleAcknowledgeOrderAlert}
+                onClick={() => handleAcknowledgeOrderAlert(true)}
                 style={{
                   flex: 1,
                   padding: '14px 20px',
@@ -2757,7 +2761,7 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                   transition: 'background-color 0.15s ease'
                 }}
               >
-                ✅ 我知道了，確認接單 (確定)
+                🖨️ ✅ 我知道了，確認接單並出單 (確定)
               </button>
             </div>
           </div>
@@ -4307,7 +4311,20 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                               <button
                                 type="button"
                                 onClick={() => printReceipt(order)}
-                                style={{ padding: '5px 10px', fontSize: '0.75rem', backgroundColor: 'transparent', color: 'var(--text-main)', border: '1px solid var(--border)', borderRadius: '4px', cursor: 'pointer' }}
+                                style={{
+                                  padding: '6px 12px',
+                                  fontSize: '0.8rem',
+                                  backgroundColor: isCustomerOrder ? '#fff7ed' : 'transparent',
+                                  color: isCustomerOrder ? '#ea580c' : 'var(--text-main)',
+                                  border: isCustomerOrder ? '1.5px solid #ea580c' : '1px solid var(--border)',
+                                  borderRadius: '6px',
+                                  cursor: 'pointer',
+                                  fontWeight: 'bold',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '4px'
+                                }}
+                                title="列印或補印出單"
                               >
                                 🖨️ 列印
                               </button>

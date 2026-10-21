@@ -56,10 +56,10 @@ export default function ThermalPrintPortal({ printPayload, onClose }) {
 
     window.addEventListener('afterprint', handleAfterPrint);
 
-    // Fallback: clear payload after print dialogue closes or timeout
+    // Fallback: clear payload after print dialogue closes or timeout (15s safe buffer for spooling)
     const fallbackTimer = setTimeout(() => {
       if (onClose) onClose();
-    }, 4000);
+    }, 15000);
 
     return () => {
       clearTimeout(timer);
