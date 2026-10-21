@@ -302,9 +302,59 @@ const MenuItemImage = ({ item }) => {
     </div>
   );
 };
-export default function CustomerView({ storeCode: propStoreCode, tableNumber, onBackToDemo, onSwitchToLogin }) {
+export default function CustomerView({ storeCode: propStoreCode, tableNumber: propTableNumber, onBackToDemo, onSwitchToLogin }) {
   const storeCode = propStoreCode || getActiveStoreCode();
   const handleSwitchToLogin = onSwitchToLogin || onBackToDemo || (() => { window.location.href = '/?login=true'; });
+  const [tableNumber, setTableNumber] = useState(propTableNumber || null);
+
+  useEffect(() => {
+    if (propTableNumber !== undefined) {
+      setTableNumber(propTableNumber || null);
+    }
+  }, [propTableNumber]);
+
+  const handleSwitchToTakeout = () => {
+    setTableNumber(null);
+    setFulfillmentType('takeout');
+    try {
+      const params = new URLSearchParams(window.location.search);
+      if (params.has('table')) {
+        params.delete('table');
+        const newSearch = params.toString() ? `?${params.toString()}` : '';
+        window.history.replaceState({}, '', window.location.pathname + newSearch);
+      }
+    } catch (e) {}
+  };
+
+  const handleSwitchToDineIn = () => {
+    const currentVal = tableNumber || '';
+    const tb = prompt('請輸入您的內用桌號 (例: 1, 2, 3)：', currentVal);
+    if (tb !== null) {
+      const trimmed = tb.trim();
+      if (trimmed) {
+        setTableNumber(trimmed);
+        setFulfillmentType('takeout');
+        try {
+          const params = new URLSearchParams(window.location.search);
+          params.set('table', trimmed);
+          window.history.replaceState({}, '', window.location.pathname + `?${params.toString()}`);
+        } catch (e) {}
+      }
+    }
+  };
+
+  const handleSwitchToDelivery = () => {
+    setTableNumber(null);
+    setFulfillmentType('delivery');
+    try {
+      const params = new URLSearchParams(window.location.search);
+      if (params.has('table')) {
+        params.delete('table');
+        const newSearch = params.toString() ? `?${params.toString()}` : '';
+        window.history.replaceState({}, '', window.location.pathname + newSearch);
+      }
+    } catch (e) {}
+  };
   const [viewState, setViewState] = useState('menu'); // 'menu', 'checkout', 'tracking'
   const [productCategories, setProductCategories] = useState(() => {
     if (storeCode === 'luzhou' || storeCode === 'luzhou7') {
@@ -2211,9 +2261,7 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
                 {/* 1. 自取 */}
                 <button
                   type="button"
-                  onClick={() => {
-                    setFulfillmentType('takeout');
-                  }}
+                  onClick={handleSwitchToTakeout}
                   style={{
                     padding: '8px 4px',
                     borderRadius: '9px',
@@ -2233,18 +2281,7 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
                 {/* 2. 內用 */}
                 <button
                   type="button"
-                  onClick={() => {
-                    if (!tableNumber) {
-                      const tb = prompt('請輸入您的內用桌號 (例: 1, 2, 3)：', tableNumber || '');
-                      if (tb && tb.trim()) {
-                        const params = new URLSearchParams(window.location.search);
-                        params.set('table', tb.trim());
-                        window.location.search = params.toString();
-                      }
-                    } else {
-                      setFulfillmentType('takeout');
-                    }
-                  }}
+                  onClick={handleSwitchToDineIn}
                   style={{
                     padding: '8px 4px',
                     borderRadius: '9px',
@@ -2264,9 +2301,7 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
                 {/* 3. 外送 */}
                 <button
                   type="button"
-                  onClick={() => {
-                    setFulfillmentType('delivery');
-                  }}
+                  onClick={handleSwitchToDelivery}
                   style={{
                     padding: '8px 4px',
                     borderRadius: '9px',
@@ -2717,7 +2752,7 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '6px' }}>
                       <button
                         type="button"
-                        onClick={() => setFulfillmentType('takeout')}
+                        onClick={handleSwitchToTakeout}
                         style={{
                           padding: '8px 4px',
                           borderRadius: '8px',
@@ -2733,14 +2768,7 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
                       </button>
                       <button
                         type="button"
-                        onClick={() => {
-                          const tb = prompt('請輸入您的內用桌號：', tableNumber || '');
-                          if (tb && tb.trim()) {
-                            const params = new URLSearchParams(window.location.search);
-                            params.set('table', tb.trim());
-                            window.location.search = params.toString();
-                          }
-                        }}
+                        onClick={handleSwitchToDineIn}
                         style={{
                           padding: '8px 4px',
                           borderRadius: '8px',
@@ -2752,11 +2780,11 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
                           cursor: 'pointer'
                         }}
                       >
-                        🪑 內用點餐
+                        🪑 {tableNumber ? `內用 (${tableNumber}桌)` : '內用點餐'}
                       </button>
                       <button
                         type="button"
-                        onClick={() => setFulfillmentType('delivery')}
+                        onClick={handleSwitchToDelivery}
                         style={{
                           padding: '8px 4px',
                           borderRadius: '8px',
@@ -2772,6 +2800,32 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
                       </button>
                     </div>
                   </div>
+
+                  {/* 若選擇內用，顯示桌號編輯框 */}
+                  {tableNumber && (
+                    <div style={{ backgroundColor: '#fff7ed', padding: '10px 14px', borderRadius: '10px', border: '1px solid #fed7aa', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <span style={{ fontSize: '0.85rem', color: '#ea580c', fontWeight: 'bold' }}>
+                        🪑 內用桌號：
+                      </span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <input
+                          type="text"
+                          value={tableNumber}
+                          onChange={(e) => {
+                            const val = e.target.value.trim();
+                            setTableNumber(val || null);
+                            const params = new URLSearchParams(window.location.search);
+                            if (val) params.set('table', val);
+                            else params.delete('table');
+                            window.history.replaceState({}, '', window.location.pathname + (params.toString() ? `?${params.toString()}` : ''));
+                          }}
+                          placeholder="桌號"
+                          style={{ width: '70px', padding: '4px 8px', borderRadius: '6px', border: '1.5px solid #ea580c', textAlign: 'center', fontWeight: 'bold', fontSize: '0.9rem', backgroundColor: '#fff' }}
+                        />
+                        <span style={{ fontSize: '0.85rem', color: '#ea580c', fontWeight: 'bold' }}>桌</span>
+                      </div>
+                    </div>
+                  )}
 
                   {/* 若選擇外送，輸入地址 */}
                   {(!tableNumber && fulfillmentType === 'delivery') && (
