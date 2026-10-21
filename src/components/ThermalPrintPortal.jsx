@@ -6,10 +6,11 @@ export default function ThermalPrintPortal({ printPayload, onClose }) {
 
   const { type, order, data, storeProfile = {}, receiptConfig = {} } = printPayload;
   const storeName = storeProfile.storeName || '龍城麵線';
-  const is58mm = (receiptConfig.paperWidth === '58mm');
+  const savedPaperWidth = typeof localStorage !== 'undefined' ? (localStorage.getItem('pos_paper_width') || receiptConfig?.paperWidth || '58mm') : (receiptConfig?.paperWidth || '58mm');
+  const is58mm = (savedPaperWidth === '58mm');
   
-  // 58mm: 42mm width (prevents right clipping on all thermal printers); 80mm: 68mm width
-  const printWidth = is58mm ? '42mm' : '68mm';
+  // 58mm: 41mm width with 1mm padding prevents right clipping on all thermal printers; 80mm: 68mm width
+  const printWidth = is58mm ? '41mm' : '68mm';
   
   // Enlarged bold typography for clear readability
   const baseFontSize = is58mm ? '12px' : '15px';
@@ -148,9 +149,9 @@ export default function ThermalPrintPortal({ printPayload, onClose }) {
             }
             return (
               <div key={idx} style={{ marginBottom: '4px', width: '100%', boxSizing: 'border-box' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '4px', fontSize: itemFontSize, fontWeight: 'bold' }}>
-                  <span style={{ wordBreak: 'break-all', flex: 1 }}>{item.name} x{item.quantity}</span>
-                  <span style={{ flexShrink: 0, paddingLeft: '4px' }}>${unitPrice}</span>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '4px', fontSize: itemFontSize, fontWeight: 'bold', width: '100%', boxSizing: 'border-box' }}>
+                  <span style={{ minWidth: 0, flex: 1, wordBreak: 'break-word', paddingRight: '2px' }}>{item.name} x{item.quantity}</span>
+                  <span style={{ flexShrink: 0, minWidth: '36px', textAlign: 'right', whiteSpace: 'nowrap' }}>${unitPrice}</span>
                 </div>
                 {specsArray.length > 0 && (
                   <div style={{ fontSize: specFontSize, paddingLeft: '6px', fontWeight: 'bold', wordBreak: 'break-all' }}>
@@ -169,31 +170,31 @@ export default function ThermalPrintPortal({ printPayload, onClose }) {
           })}
 
           <div style={{ borderTop: '1px dashed #000', margin: '4px 0' }}></div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: is58mm ? '14px' : '16px', fontWeight: 'bold' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: is58mm ? '14px' : '16px', fontWeight: 'bold', width: '100%', boxSizing: 'border-box' }}>
             <span>應收總計:</span>
-            <span>${totalNum}</span>
+            <span style={{ flexShrink: 0, textAlign: 'right', whiteSpace: 'nowrap' }}>${totalNum}</span>
           </div>
           {isUber && (
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: baseFontSize, fontWeight: 'bold' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: baseFontSize, fontWeight: 'bold', width: '100%', boxSizing: 'border-box' }}>
               <span>付款方式:</span>
-              <span>🛵 平台結清</span>
+              <span style={{ flexShrink: 0, textAlign: 'right', whiteSpace: 'nowrap' }}>🛵 平台結清</span>
             </div>
           )}
           {isPanda && (
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: baseFontSize, fontWeight: 'bold' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: baseFontSize, fontWeight: 'bold', width: '100%', boxSizing: 'border-box' }}>
               <span>付款方式:</span>
-              <span>🐼 平台結清</span>
+              <span style={{ flexShrink: 0, textAlign: 'right', whiteSpace: 'nowrap' }}>🐼 平台結清</span>
             </div>
           )}
           {!isUber && !isPanda && receiptConfig.printReceivedAndChange !== false && order.cashReceived !== undefined && order.cashReceived !== null && (
             <>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: baseFontSize, fontWeight: 'bold' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: baseFontSize, fontWeight: 'bold', width: '100%', boxSizing: 'border-box' }}>
                 <span>實收金額:</span>
-                <span>${order.cashReceived}</span>
+                <span style={{ flexShrink: 0, textAlign: 'right', whiteSpace: 'nowrap' }}>${order.cashReceived}</span>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: baseFontSize, fontWeight: 'bold' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: baseFontSize, fontWeight: 'bold', width: '100%', boxSizing: 'border-box' }}>
                 <span>找零:</span>
-                <span>${order.changeAmount}</span>
+                <span style={{ flexShrink: 0, textAlign: 'right', whiteSpace: 'nowrap' }}>${order.changeAmount}</span>
               </div>
             </>
           )}

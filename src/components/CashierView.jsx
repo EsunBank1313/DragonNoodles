@@ -312,7 +312,13 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
     return getStoreDisplayName(storeCode);
   });
   const [adminPin, setAdminPin] = useState('8888');
-  const [receiptConfig, setReceiptConfig] = useState(defaultReceiptConfig);
+  const [posPaperWidth, setPosPaperWidth] = useState(() => {
+    return localStorage.getItem('pos_paper_width') || '58mm';
+  });
+  const [receiptConfig, setReceiptConfig] = useState(() => ({
+    ...defaultReceiptConfig,
+    paperWidth: (typeof localStorage !== 'undefined' && localStorage.getItem('pos_paper_width')) || '58mm'
+  }));
   const [upgradeCombos, setUpgradeCombos] = useState(defaultUpgradeCombos);
   
   const [isAutoPrintEnabled, setIsAutoPrintEnabled] = useState(() => {
@@ -588,6 +594,7 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
       },
       receiptConfig: {
         ...receiptConfig,
+        paperWidth: posPaperWidth,
         printKitchenTicket: printKitchenTicket
       },
       timestamp: Date.now()
@@ -6044,6 +6051,57 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                       style={{ transform: 'scale(1.2)', cursor: 'pointer' }}
                     />
                   </label>
+
+                  <div style={{ borderTop: '1px dashed var(--border)', paddingTop: '10px', marginTop: '4px' }}>
+                    <div style={{ fontSize: '0.82rem', fontWeight: 'bold', marginBottom: '6px', color: 'var(--text-main)' }}>
+                      📄 出單機紙張寬度：
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPosPaperWidth('58mm');
+                          localStorage.setItem('pos_paper_width', '58mm');
+                          setReceiptConfig(prev => ({ ...prev, paperWidth: '58mm' }));
+                        }}
+                        style={{
+                          padding: '8px 6px',
+                          borderRadius: '8px',
+                          border: posPaperWidth === '58mm' ? '2px solid #0284c7' : '1px solid var(--border)',
+                          backgroundColor: posPaperWidth === '58mm' ? '#f0f9ff' : 'var(--bg-card)',
+                          color: posPaperWidth === '58mm' ? '#0369a1' : 'var(--text-main)',
+                          fontWeight: posPaperWidth === '58mm' ? 'bold' : 'normal',
+                          fontSize: '0.78rem',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        ✓ 58mm (目前門市規格)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPosPaperWidth('80mm');
+                          localStorage.setItem('pos_paper_width', '80mm');
+                          setReceiptConfig(prev => ({ ...prev, paperWidth: '80mm' }));
+                        }}
+                        style={{
+                          padding: '8px 6px',
+                          borderRadius: '8px',
+                          border: posPaperWidth === '80mm' ? '2px solid #0284c7' : '1px solid var(--border)',
+                          backgroundColor: posPaperWidth === '80mm' ? '#f0f9ff' : 'var(--bg-card)',
+                          color: posPaperWidth === '80mm' ? '#0369a1' : 'var(--text-main)',
+                          fontWeight: posPaperWidth === '80mm' ? 'bold' : 'normal',
+                          fontSize: '0.78rem',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        80mm (標準大票)
+                      </button>
+                    </div>
+                    <div style={{ fontSize: '0.72rem', color: '#0369a1', marginTop: '4px' }}>
+                      💡 提示：門市熱感應機為 58mm，請保持選用 58mm 可確保右側金額不被切邊。
+                    </div>
+                  </div>
 
                   <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', borderTop: '1px dashed var(--border)', paddingTop: '6px' }}>
                     💡 提示：開啟「同時列印廚房單」時，出單機會自動切刀分成【收據】與【廚房備餐單】兩聯。

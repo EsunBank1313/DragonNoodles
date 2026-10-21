@@ -11,7 +11,7 @@ export const defaultStoreProfile = {
 };
 
 export const defaultReceiptConfig = {
-  paperWidth: '80mm',      // '80mm' (標準大票) 或 '58mm' (便攜小票)
+  paperWidth: '58mm',      // 預設為 '58mm' (標準便攜小票/出單機，防止右邊界截斷；亦可於設定切換為 '80mm')
   printKitchenTicket: true, // 同時列印廚房備餐切單 (雙聯出單)
   printReceivedAndChange: true,
   printType: true,

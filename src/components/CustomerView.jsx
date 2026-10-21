@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { menuCategories, menuItems as defaultMenuItems, luzhouFallbackMenuItems, defaultUpgradeCombos, isComboApplicableToItem } from '../data/menuData';
 import ItemModal from './ItemModal';
 
@@ -389,6 +389,15 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
 
   const [allOrders, setAllOrders] = useState([]);
   const [activeOrderId, setActiveOrderId] = useState(null);
+  const [showStoreDetailsModal, setShowStoreDetailsModal] = useState(false);
+  const [showFulfillmentModal, setShowFulfillmentModal] = useState(false);
+
+  const featuredQuickItems = useMemo(() => {
+    if (!menuItems || menuItems.length === 0) return [];
+    const available = menuItems.filter(i => i.customizations?.is_available !== false);
+    const withImages = available.filter(i => i.image);
+    return (withImages.length >= 3 ? withImages : available).slice(0, 4);
+  }, [menuItems]);
 
   // Customer Order History Modal State
   const [showOrderHistoryModal, setShowOrderHistoryModal] = useState(false);
@@ -2128,31 +2137,316 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
 
       {viewState === 'menu' && (
         <>
-          {/* Hero / Announcement Banner */}
-          {showHeroBanner !== false && (
-            <div className="hero-banner">
-              <div className="hero-tag">{heroTag || '🔥 熱門推薦'}</div>
-              <h2 className="hero-title">{heroTitle || (storeName ? `${storeName} 招牌熱門推薦` : '招牌綜合麵線配特製辣泡菜')}</h2>
-              <p className="hero-desc">{heroDesc || '在地飄香的好味道！獨家配方柴魚高湯，搭配豐富滿載的配料與手作開胃辣泡菜，讓您一吃就愛上！'}</p>
+          {/* =========================================================================
+             1. 品牌封面與門市資訊區塊 (朝柴 / QuickClick 風格)
+             ========================================================================= */}
+          <div className="store-header-hero" style={{ position: 'relative', width: '100%', backgroundColor: '#ffffff', marginBottom: '8px' }}>
+            {/* 封面照片 Banner */}
+            <div style={{ position: 'relative', width: '100%', height: '145px', overflow: 'hidden', backgroundColor: '#fed7aa' }}>
+              <img 
+                src="/images/mee_sua_combo_set.jpg" 
+                alt={storeName} 
+                style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
+              />
+              <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to bottom, rgba(0,0,0,0.2) 0%, transparent 60%, rgba(0,0,0,0.6) 100%)' }} />
+              {/* 圓形門市 Logo 徽章 (右下懸浮) */}
+              <div style={{
+                position: 'absolute',
+                bottom: '-16px',
+                right: '16px',
+                width: '60px',
+                height: '60px',
+                borderRadius: '50%',
+                backgroundColor: '#ea580c',
+                color: '#ffffff',
+                border: '3px solid #ffffff',
+                boxShadow: '0 4px 10px rgba(0,0,0,0.2)',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontWeight: '900',
+                fontSize: '0.92rem',
+                letterSpacing: '1px',
+                zIndex: 10
+              }}>
+                <span>龍城</span>
+                <span style={{ fontSize: '0.52rem', opacity: 0.9 }}>麵線</span>
+              </div>
             </div>
-          )}
 
-          {/* Category tabs */}
-          <div className="category-tabs">
-            {productCategories.map(cat => (
-              <button 
-                key={cat.id} 
-                className={`category-tab ${activeCategory === cat.id ? 'active' : ''}`}
-                onClick={() => setActiveCategory(cat.id)}
+            {/* 門市名稱與評價/詳情列 */}
+            <div style={{ padding: '12px 16px 8px 16px' }}>
+              <h1 style={{ fontSize: '1.35rem', fontWeight: '900', color: '#0f172a', margin: '0 0 6px 0', letterSpacing: '0.5px' }}>
+                {storeName}
+              </h1>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.82rem', color: '#64748b', flexWrap: 'wrap' }}>
+                <span style={{ color: '#ea580c', fontWeight: 'bold' }}>📍 門市現場點餐</span>
+                <span>•</span>
+                <span style={{ color: '#eab308', fontWeight: 'bold' }}>⭐ 4.9 (120+)</span>
+                <span>•</span>
+                <button 
+                  type="button" 
+                  onClick={() => setShowStoreDetailsModal(true)}
+                  style={{ background: 'none', border: 'none', color: '#0284c7', padding: 0, fontSize: '0.82rem', fontWeight: 'bold', cursor: 'pointer', textDecoration: 'underline' }}
+                >
+                  店家詳情
+                </button>
+              </div>
+            </div>
+
+            {/* =========================================================================
+               2. 履約模式切換 (自取 / 內用 / 外送) - 分段按鈕與時間卡片
+               ========================================================================= */}
+            <div style={{ padding: '0 16px 12px 16px' }}>
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: '1fr 1fr 1fr',
+                backgroundColor: '#f1f5f9',
+                padding: '4px',
+                borderRadius: '12px',
+                gap: '4px'
+              }}>
+                {/* 1. 自取 */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFulfillmentType('takeout');
+                  }}
+                  style={{
+                    padding: '8px 4px',
+                    borderRadius: '9px',
+                    border: 'none',
+                    backgroundColor: (!tableNumber && fulfillmentType === 'takeout') ? '#ffffff' : 'transparent',
+                    color: (!tableNumber && fulfillmentType === 'takeout') ? '#ea580c' : '#64748b',
+                    fontWeight: (!tableNumber && fulfillmentType === 'takeout') ? 'bold' : 'normal',
+                    fontSize: '0.88rem',
+                    cursor: 'pointer',
+                    boxShadow: (!tableNumber && fulfillmentType === 'takeout') ? '0 2px 6px rgba(0,0,0,0.08)' : 'none',
+                    transition: 'all 0.15s ease'
+                  }}
+                >
+                  自取
+                </button>
+
+                {/* 2. 內用 */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!tableNumber) {
+                      const tb = prompt('請輸入您的內用桌號 (例: 1, 2, 3)：', tableNumber || '');
+                      if (tb && tb.trim()) {
+                        const params = new URLSearchParams(window.location.search);
+                        params.set('table', tb.trim());
+                        window.location.search = params.toString();
+                      }
+                    } else {
+                      setFulfillmentType('takeout');
+                    }
+                  }}
+                  style={{
+                    padding: '8px 4px',
+                    borderRadius: '9px',
+                    border: 'none',
+                    backgroundColor: tableNumber ? '#ffffff' : 'transparent',
+                    color: tableNumber ? '#ea580c' : '#64748b',
+                    fontWeight: tableNumber ? 'bold' : 'normal',
+                    fontSize: '0.88rem',
+                    cursor: 'pointer',
+                    boxShadow: tableNumber ? '0 2px 6px rgba(0,0,0,0.08)' : 'none',
+                    transition: 'all 0.15s ease'
+                  }}
+                >
+                  {tableNumber ? `內用 (${tableNumber}桌)` : '內用'}
+                </button>
+
+                {/* 3. 外送 */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFulfillmentType('delivery');
+                  }}
+                  style={{
+                    padding: '8px 4px',
+                    borderRadius: '9px',
+                    border: 'none',
+                    backgroundColor: (!tableNumber && fulfillmentType === 'delivery') ? '#ffffff' : 'transparent',
+                    color: (!tableNumber && fulfillmentType === 'delivery') ? '#0284c7' : '#64748b',
+                    fontWeight: (!tableNumber && fulfillmentType === 'delivery') ? 'bold' : 'normal',
+                    fontSize: '0.88rem',
+                    cursor: 'pointer',
+                    boxShadow: (!tableNumber && fulfillmentType === 'delivery') ? '0 2px 6px rgba(0,0,0,0.08)' : 'none',
+                    transition: 'all 0.15s ease'
+                  }}
+                >
+                  外送
+                </button>
+              </div>
+
+              {/* 履約模式即時動態卡片 (朝柴樣式) */}
+              <div 
+                onClick={() => setShowFulfillmentModal(true)}
+                style={{
+                  marginTop: '10px',
+                  padding: '11px 14px',
+                  borderRadius: '12px',
+                  border: (!tableNumber && fulfillmentType === 'delivery') ? '1.5px solid #bae6fd' : '1px solid #e2e8f0',
+                  backgroundColor: (!tableNumber && fulfillmentType === 'delivery') ? '#f0f9ff' : '#ffffff',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  cursor: 'pointer',
+                  boxShadow: '0 2px 5px rgba(0,0,0,0.03)'
+                }}
               >
-                <span>{cat.icon || '🍜'}</span>
-                <span>{cat.name}</span>
-              </button>
-            ))}
+                <div style={{ flex: 1, overflow: 'hidden' }}>
+                  {(!tableNumber && fulfillmentType === 'delivery') ? (
+                    <div>
+                      <div style={{ fontWeight: 'bold', fontSize: '0.88rem', color: '#0369a1', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span style={{ backgroundColor: '#0284c7', color: '#fff', fontSize: '0.65rem', padding: '1px 5px', borderRadius: '4px', fontWeight: 'bold' }}>Lalamove</span>
+                        <span>外送：今天 儘快送達 (約 25-35 分鐘)</span>
+                      </div>
+                      <div style={{ fontSize: '0.72rem', color: '#0284c7', marginTop: '2px' }}>
+                        外送費規則 (滿 $300 起送 / 滿 $500 免運費)
+                      </div>
+                    </div>
+                  ) : tableNumber ? (
+                    <div>
+                      <div style={{ fontWeight: 'bold', fontSize: '0.88rem', color: '#0f172a' }}>
+                        內用：{tableNumber} 號桌 ({getFinalPickupTimeDisplay() || '即刻出餐'})
+                      </div>
+                      <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '2px' }}>
+                        送單後廚房將立即備料烹調
+                      </div>
+                    </div>
+                  ) : (
+                    <div>
+                      <div style={{ fontWeight: 'bold', fontSize: '0.88rem', color: '#0f172a' }}>
+                        自取：儘快 ({getFinalPickupTimeDisplay() || '約 10~15 分鐘備妥'})
+                      </div>
+                      <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '2px' }}>
+                        現點現做，到店直接取餐免排隊
+                      </div>
+                    </div>
+                  )}
+                </div>
+                <span style={{ fontSize: '0.82rem', fontWeight: 'bold', color: '#ea580c', flexShrink: 0, paddingLeft: '8px' }}>
+                  更改 &gt;
+                </span>
+              </div>
+            </div>
+
+            {/* =========================================================================
+               3. 曾經訂購 (Recently Ordered Carousel)
+               ========================================================================= */}
+            {featuredQuickItems.length > 0 && (
+              <div style={{ padding: '0 16px 14px 16px' }}>
+                <div style={{ fontSize: '0.92rem', fontWeight: 'bold', color: '#0f172a', marginBottom: '8px' }}>
+                  曾經訂購
+                </div>
+                <div style={{
+                  display: 'flex',
+                  gap: '10px',
+                  overflowX: 'auto',
+                  scrollbarWidth: 'none',
+                  paddingBottom: '4px'
+                }}>
+                  {featuredQuickItems.map((fItem, fIdx) => (
+                    <div
+                      key={fIdx}
+                      onClick={() => setSelectedItem(fItem)}
+                      style={{
+                        flexShrink: 0,
+                        width: '185px',
+                        backgroundColor: '#ffffff',
+                        borderRadius: '10px',
+                        border: '1px solid #e2e8f0',
+                        padding: '10px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: '8px',
+                        cursor: 'pointer',
+                        boxShadow: '0 1px 3px rgba(0,0,0,0.03)'
+                      }}
+                    >
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: 'bold', fontSize: '0.85rem', color: '#0f172a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {fItem.name}
+                        </div>
+                        <div style={{ fontSize: '0.7rem', color: '#64748b', marginTop: '4px' }}>
+                          人氣必點 • NT${fItem.price}
+                        </div>
+                      </div>
+                      <div style={{ width: '48px', height: '48px', borderRadius: '6px', overflow: 'hidden', flexShrink: 0, backgroundColor: '#f8fafc' }}>
+                        {fItem.image ? (
+                          <img src={fItem.image} alt={fItem.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        ) : (
+                          <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.4rem' }}>
+                            🍜
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
-          {/* Search bar */}
-          <div className="search-container">
+          {/* =========================================================================
+             4. 現代化置頂分類選單 (朝柴標籤風格 - 粗括號 + 底部亮橘指示線)
+             解決原先分類不易辨識的問題！
+             ========================================================================= */}
+          <div style={{
+            position: 'sticky',
+            top: 0,
+            zIndex: 90,
+            backgroundColor: '#ffffff',
+            borderBottom: '1.5px solid #e2e8f0',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.04)'
+          }}>
+            <div style={{
+              display: 'flex',
+              overflowX: 'auto',
+              scrollbarWidth: 'none',
+              padding: '0 8px'
+            }}>
+              {productCategories.map(cat => {
+                const isActive = (activeCategory === cat.id);
+                return (
+                  <button
+                    key={cat.id}
+                    type="button"
+                    onClick={() => {
+                      setActiveCategory(cat.id);
+                    }}
+                    style={{
+                      flexShrink: 0,
+                      padding: '12px 14px',
+                      background: 'none',
+                      border: 'none',
+                      borderBottom: isActive ? '3.5px solid #ea580c' : '3.5px solid transparent',
+                      color: isActive ? '#ea580c' : '#475569',
+                      fontWeight: isActive ? '800' : '600',
+                      fontSize: '0.92rem',
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      transition: 'all 0.15s ease'
+                    }}
+                  >
+                    <span>【{cat.name}】</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* 搜尋欄位 */}
+          <div className="search-container" style={{ padding: '12px 16px 8px 16px' }}>
             <div className="search-input-wrapper">
               <span className="search-icon">🔍</span>
               <input 
@@ -2161,85 +2455,436 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
                 className="search-bar-input"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
+                style={{
+                  borderRadius: '10px',
+                  backgroundColor: '#ffffff',
+                  border: '1px solid #cbd5e1',
+                  fontSize: '0.88rem'
+                }}
               />
             </div>
           </div>
 
-          {/* Menu Items List */}
-          <div className="menu-list">
-            <h3 className="category-header">
-              {productCategories.find(c => c.id === activeCategory)?.name}
-            </h3>
+          {/* =========================================================================
+             5. 餐點列表 (朝柴 / Uber Eats 風格橫式大卡片 + 圓形 + 按鈕)
+             ========================================================================= */}
+          <div className="menu-list" style={{ padding: '8px 16px 100px 16px' }}>
+            {/* 分類標題指示器 */}
+            <div style={{ margin: '8px 0 12px 0' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <h3 style={{ fontSize: '1.15rem', fontWeight: '900', color: '#0f172a', margin: 0 }}>
+                  【{productCategories.find(c => c.id === activeCategory)?.name || '人氣美味'}】
+                </h3>
+                <span style={{ fontSize: '0.72rem', backgroundColor: '#fff7ed', color: '#ea580c', padding: '2px 8px', borderRadius: '12px', fontWeight: 'bold' }}>
+                  {filteredItems.length} 項美味
+                </span>
+              </div>
+              <div style={{ width: '42px', height: '3.5px', backgroundColor: '#ea580c', borderRadius: '2px', marginTop: '6px' }} />
+            </div>
 
             {filteredItems.length === 0 ? (
-              <p style={{ textAlign: 'center', color: 'var(--text-muted)', margin: '40px 0' }}>
-                找不到相關的餐點，換個關鍵字試試看吧！
-              </p>
+              <div style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '50px 20px', backgroundColor: '#fff', borderRadius: '14px', border: '1px dashed #cbd5e1' }}>
+                <span style={{ fontSize: '2.5rem' }}>🍜</span>
+                <p style={{ marginTop: '10px', fontSize: '0.9rem' }}>找不到符合條件的餐點，請點選上方其他分類！</p>
+              </div>
             ) : (
-              filteredItems.map(item => {
-                const isAvailable = item.customizations?.is_available !== false;
-                return (
-                  <div 
-                    className={`menu-item-card ${!isAvailable ? 'sold-out' : ''}`}
-                    key={item.id}
-                    onClick={isAvailable ? () => setSelectedItem(item) : undefined}
-                    style={!isAvailable ? { opacity: 0.65, filter: 'grayscale(70%)', cursor: 'not-allowed', position: 'relative' } : {}}
-                  >
-                    <MenuItemImage item={item} />
-                    {!isAvailable && (
-                      <div style={{
-                        position: 'absolute',
-                        top: '12px',
-                        right: '12px',
-                        backgroundColor: 'var(--accent)',
-                        color: 'white',
-                        padding: '4px 8px',
-                        borderRadius: 'var(--radius-sm)',
-                        fontSize: '0.7rem',
-                        fontWeight: 'bold',
-                        zIndex: 2,
-                        boxShadow: 'var(--shadow-sm)'
-                      }}>
-                        今日完售
-                      </div>
-                    )}
-                    <div className="item-info">
-                      <div className="item-name-row" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <div className="item-name">{item.name}</div>
-                        {(upgradeCombos || []).some(pkg => isComboApplicableToItem(pkg, item)) && (
-                          <span style={{
-                            backgroundColor: 'rgba(255, 107, 53, 0.12)',
-                            color: 'var(--primary)',
-                            fontSize: '0.68rem',
-                            fontWeight: 'bold',
-                            padding: '2px 6px',
-                            borderRadius: '4px',
-                            whiteSpace: 'nowrap',
-                            marginLeft: '6px'
-                          }}>
-                            🍱 可升級
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                {filteredItems.map(item => {
+                  const isAvailable = item.customizations?.is_available !== false;
+                  return (
+                    <div 
+                      key={item.id}
+                      onClick={isAvailable ? () => setSelectedItem(item) : undefined}
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'stretch',
+                        gap: '12px',
+                        backgroundColor: '#ffffff',
+                        padding: '12px 14px',
+                        borderRadius: '14px',
+                        border: '1px solid #f1f5f9',
+                        boxShadow: '0 2px 6px rgba(0,0,0,0.03)',
+                        cursor: isAvailable ? 'pointer' : 'not-allowed',
+                        opacity: isAvailable ? 1 : 0.6,
+                        position: 'relative',
+                        transition: 'transform 0.1s ease, box-shadow 0.1s ease'
+                      }}
+                    >
+                      {/* 左側資訊欄 */}
+                      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                        <div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                            <span style={{ fontSize: '1rem', fontWeight: '700', color: '#0f172a', lineHeight: '1.3' }}>
+                              {item.name}
+                            </span>
+                            {(upgradeCombos || []).some(pkg => isComboApplicableToItem(pkg, item)) && (
+                              <span style={{
+                                backgroundColor: 'rgba(234, 88, 12, 0.1)',
+                                color: '#ea580c',
+                                fontSize: '0.65rem',
+                                fontWeight: 'bold',
+                                padding: '1px 6px',
+                                borderRadius: '4px'
+                              }}>
+                                🍱 可升級
+                              </span>
+                            )}
+                          </div>
+                          {item.description && (
+                            <p style={{
+                              fontSize: '0.78rem',
+                              color: '#64748b',
+                              lineHeight: '1.4',
+                              margin: '4px 0 0 0',
+                              display: '-webkit-box',
+                              WebkitLineClamp: 2,
+                              WebkitBoxOrient: 'vertical',
+                              overflow: 'hidden'
+                            }}>
+                              {item.description}
+                            </p>
+                          )}
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'baseline', gap: '4px', marginTop: '8px' }}>
+                          <span style={{ fontSize: '1.1rem', fontWeight: '800', color: '#ea580c' }}>
+                            ${item.price}
                           </span>
+                          <span style={{ fontSize: '0.72rem', color: '#94a3b8' }}>起</span>
+                        </div>
+                      </div>
+
+                      {/* 右側照片與加號按鈕 (朝柴風格) */}
+                      <div style={{ position: 'relative', width: '90px', height: '90px', flexShrink: 0 }}>
+                        <div style={{ width: '100%', height: '100%', borderRadius: '10px', overflow: 'hidden', backgroundColor: '#f8fafc' }}>
+                          {item.image ? (
+                            <img 
+                              src={item.image} 
+                              alt={item.name} 
+                              style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
+                              loading="lazy"
+                            />
+                          ) : (
+                            <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '2rem' }}>
+                              {getItemIcon(item.name)}
+                            </div>
+                          )}
+                        </div>
+                        {isAvailable ? (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedItem(item);
+                            }}
+                            style={{
+                              position: 'absolute',
+                              bottom: '-4px',
+                              right: '-4px',
+                              width: '28px',
+                              height: '28px',
+                              borderRadius: '50%',
+                              backgroundColor: '#ea580c',
+                              color: '#ffffff',
+                              border: '2px solid #ffffff',
+                              fontSize: '1.1rem',
+                              fontWeight: 'bold',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              cursor: 'pointer',
+                              boxShadow: '0 2px 6px rgba(234, 88, 12, 0.4)'
+                            }}
+                          >
+                            ＋
+                          </button>
+                        ) : (
+                          <div style={{
+                            position: 'absolute',
+                            inset: 0,
+                            backgroundColor: 'rgba(0,0,0,0.5)',
+                            color: '#fff',
+                            borderRadius: '10px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontSize: '0.72rem',
+                            fontWeight: 'bold'
+                          }}>
+                            完售
+                          </div>
                         )}
                       </div>
-                      <p className="item-description">{item.description}</p>
-                      <div className="item-price-row">
-                        <span className="item-price">NT$ {item.price} <span style={{fontSize: '0.75rem', fontWeight: 'normal', color: 'var(--text-muted)'}}>起</span></span>
-                        <button 
-                          className="item-add-btn" 
-                          disabled={!isAvailable}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            if (isAvailable) setSelectedItem(item);
-                          }}
-                          style={!isAvailable ? { backgroundColor: 'var(--border)', color: 'var(--text-muted)', cursor: 'not-allowed' } : {}}
-                        >+</button>
-                      </div>
                     </div>
-                  </div>
-                );
-              })
+                  );
+                })}
+              </div>
             )}
           </div>
+
+          {/* =========================================================================
+             店家詳情彈窗 (Store Details Modal)
+             ========================================================================= */}
+          {showStoreDetailsModal && (
+            <div className="modal-backdrop" style={{ zIndex: 1200 }} onClick={() => setShowStoreDetailsModal(false)}>
+              <div className="modal-content" style={{ maxWidth: '420px', padding: '20px', borderRadius: '16px' }} onClick={(e) => e.stopPropagation()}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', borderBottom: '1px solid #e2e8f0', paddingBottom: '10px' }}>
+                  <h3 style={{ fontSize: '1.15rem', fontWeight: 'bold', margin: 0, color: '#0f172a' }}>
+                    🏪 店家詳細資訊
+                  </h3>
+                  <button 
+                    type="button" 
+                    onClick={() => setShowStoreDetailsModal(false)}
+                    style={{ background: 'none', border: 'none', fontSize: '1.4rem', cursor: 'pointer', color: '#64748b' }}
+                  >
+                    &times;
+                  </button>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', fontSize: '0.88rem', color: '#334155' }}>
+                  <div>
+                    <strong>店名：</strong><span>{storeName}</span>
+                  </div>
+                  {storeAddress && (
+                    <div>
+                      <strong>地址：</strong><span>{storeAddress}</span>
+                    </div>
+                  )}
+                  {storePhone && (
+                    <div>
+                      <strong>電話：</strong><a href={`tel:${storePhone}`} style={{ color: '#0284c7', textDecoration: 'underline' }}>{storePhone}</a>
+                    </div>
+                  )}
+                  <div>
+                    <strong>營業時間：</strong><span>每日 06:00 ～ 22:00 (以門市現場公告為準)</span>
+                  </div>
+                  <div>
+                    <strong>🛵 外送規則：</strong>
+                    <span style={{ color: '#0369a1' }}>滿 $300 起送（運費 $50），滿 $500 享 Lalamove 免運費直送！</span>
+                  </div>
+                  <div>
+                    <strong>💳 支援付款：</strong>
+                    <span>現金、LINE Pay 一鍵付款、TWQR（台灣Pay/街口/全支付/各大網銀）</span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowStoreDetailsModal(false)}
+                  style={{
+                    width: '100%',
+                    marginTop: '16px',
+                    padding: '10px',
+                    borderRadius: '8px',
+                    backgroundColor: '#ea580c',
+                    color: '#ffffff',
+                    border: 'none',
+                    fontWeight: 'bold',
+                    fontSize: '0.92rem',
+                    cursor: 'pointer'
+                  }}
+                >
+                  確認關閉
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* =========================================================================
+             取餐與外送時間設定彈窗 (Fulfillment Modal)
+             ========================================================================= */}
+          {showFulfillmentModal && (
+            <div className="modal-backdrop" style={{ zIndex: 1200 }} onClick={() => setShowFulfillmentModal(false)}>
+              <div className="modal-content" style={{ maxWidth: '420px', padding: '20px', borderRadius: '16px' }} onClick={(e) => e.stopPropagation()}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', borderBottom: '1px solid #e2e8f0', paddingBottom: '10px' }}>
+                  <h3 style={{ fontSize: '1.15rem', fontWeight: 'bold', margin: 0, color: '#0f172a' }}>
+                    ⚙️ 取送餐方式與時間設定
+                  </h3>
+                  <button 
+                    type="button" 
+                    onClick={() => setShowFulfillmentModal(false)}
+                    style={{ background: 'none', border: 'none', fontSize: '1.4rem', cursor: 'pointer', color: '#64748b' }}
+                  >
+                    &times;
+                  </button>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                  {/* 模式切換 */}
+                  <div>
+                    <label style={{ fontSize: '0.85rem', fontWeight: 'bold', display: 'block', marginBottom: '6px' }}>
+                      取餐模式：
+                    </label>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '6px' }}>
+                      <button
+                        type="button"
+                        onClick={() => setFulfillmentType('takeout')}
+                        style={{
+                          padding: '8px 4px',
+                          borderRadius: '8px',
+                          border: (!tableNumber && fulfillmentType === 'takeout') ? '2px solid #ea580c' : '1px solid #cbd5e1',
+                          backgroundColor: (!tableNumber && fulfillmentType === 'takeout') ? '#fff7ed' : '#ffffff',
+                          color: (!tableNumber && fulfillmentType === 'takeout') ? '#ea580c' : '#334155',
+                          fontWeight: (!tableNumber && fulfillmentType === 'takeout') ? 'bold' : 'normal',
+                          fontSize: '0.85rem',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        🥡 外帶自取
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const tb = prompt('請輸入您的內用桌號：', tableNumber || '');
+                          if (tb && tb.trim()) {
+                            const params = new URLSearchParams(window.location.search);
+                            params.set('table', tb.trim());
+                            window.location.search = params.toString();
+                          }
+                        }}
+                        style={{
+                          padding: '8px 4px',
+                          borderRadius: '8px',
+                          border: tableNumber ? '2px solid #ea580c' : '1px solid #cbd5e1',
+                          backgroundColor: tableNumber ? '#fff7ed' : '#ffffff',
+                          color: tableNumber ? '#ea580c' : '#334155',
+                          fontWeight: tableNumber ? 'bold' : 'normal',
+                          fontSize: '0.85rem',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        🪑 內用點餐
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setFulfillmentType('delivery')}
+                        style={{
+                          padding: '8px 4px',
+                          borderRadius: '8px',
+                          border: (!tableNumber && fulfillmentType === 'delivery') ? '2px solid #0284c7' : '1px solid #cbd5e1',
+                          backgroundColor: (!tableNumber && fulfillmentType === 'delivery') ? '#f0f9ff' : '#ffffff',
+                          color: (!tableNumber && fulfillmentType === 'delivery') ? '#0284c7' : '#334155',
+                          fontWeight: (!tableNumber && fulfillmentType === 'delivery') ? 'bold' : 'normal',
+                          fontSize: '0.85rem',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        🛵 Lalamove外送
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* 若選擇外送，輸入地址 */}
+                  {(!tableNumber && fulfillmentType === 'delivery') && (
+                    <div style={{ backgroundColor: '#f0f9ff', padding: '10px 12px', borderRadius: '10px', border: '1px solid #bae6fd' }}>
+                      <label style={{ fontSize: '0.82rem', fontWeight: 'bold', color: '#0369a1', display: 'block', marginBottom: '4px' }}>
+                        📍 外送送達地址：
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="例: 新北市蘆洲區民權路XX號"
+                        value={deliveryAddress}
+                        onChange={(e) => setDeliveryAddress(e.target.value)}
+                        style={{
+                          width: '100%',
+                          padding: '8px 10px',
+                          borderRadius: '6px',
+                          border: '1px solid #38bdf8',
+                          fontSize: '0.88rem'
+                        }}
+                      />
+                    </div>
+                  )}
+
+                  {/* 取餐時間三模式切換 */}
+                  <div>
+                    <label style={{ fontSize: '0.85rem', fontWeight: 'bold', display: 'block', marginBottom: '6px' }}>
+                      預定時間：
+                    </label>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px' }}>
+                      <button
+                        type="button"
+                        onClick={() => setPickupMode('asap')}
+                        style={{
+                          padding: '8px 4px',
+                          borderRadius: '8px',
+                          border: pickupMode === 'asap' ? '2px solid #ea580c' : '1px solid #cbd5e1',
+                          backgroundColor: pickupMode === 'asap' ? '#fff7ed' : '#ffffff',
+                          color: pickupMode === 'asap' ? '#ea580c' : '#334155',
+                          fontWeight: pickupMode === 'asap' ? 'bold' : 'normal',
+                          fontSize: '0.82rem',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        ⚡ 儘快
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPickupMode('today_later')}
+                        style={{
+                          padding: '8px 4px',
+                          borderRadius: '8px',
+                          border: pickupMode === 'today_later' ? '2px solid #ea580c' : '1px solid #cbd5e1',
+                          backgroundColor: pickupMode === 'today_later' ? '#fff7ed' : '#ffffff',
+                          color: pickupMode === 'today_later' ? '#ea580c' : '#334155',
+                          fontWeight: pickupMode === 'today_later' ? 'bold' : 'normal',
+                          fontSize: '0.82rem',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        ⏰ 今日稍後
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPickupMode('future_date')}
+                        style={{
+                          padding: '8px 4px',
+                          borderRadius: '8px',
+                          border: pickupMode === 'future_date' ? '2px solid #ea580c' : '1px solid #cbd5e1',
+                          backgroundColor: pickupMode === 'future_date' ? '#fff7ed' : '#ffffff',
+                          color: pickupMode === 'future_date' ? '#ea580c' : '#334155',
+                          fontWeight: pickupMode === 'future_date' ? 'bold' : 'normal',
+                          fontSize: '0.82rem',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        📅 預約日期
+                      </button>
+                    </div>
+
+                    {pickupMode === 'today_later' && (
+                      <div style={{ marginTop: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ fontSize: '0.8rem', color: '#64748b' }}>指定時間：</span>
+                        <input
+                          type="time"
+                          value={specificTime}
+                          onChange={(e) => setSpecificTime(e.target.value)}
+                          style={{ flex: 1, padding: '6px 8px', borderRadius: '6px', border: '1px solid #cbd5e1' }}
+                        />
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setShowFulfillmentModal(false)}
+                  style={{
+                    width: '100%',
+                    marginTop: '16px',
+                    padding: '10px',
+                    borderRadius: '8px',
+                    backgroundColor: '#ea580c',
+                    color: '#ffffff',
+                    border: 'none',
+                    fontWeight: 'bold',
+                    fontSize: '0.92rem',
+                    cursor: 'pointer'
+                  }}
+                >
+                  確認儲存設定
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Footer */}
           <div style={{

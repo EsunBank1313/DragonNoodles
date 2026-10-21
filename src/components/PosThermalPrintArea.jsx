@@ -5,9 +5,10 @@ export default function PosThermalPrintArea({ printPayload }) {
 
   const { type, order, data, storeProfile = {}, receiptConfig = {} } = printPayload;
   const storeName = storeProfile.storeName || '龍城麵線';
-  const is58mm = (receiptConfig.paperWidth === '58mm');
-  // 58mm: 42mm width prevents right clipping on all thermal printers; 80mm: 72mm width
-  const printWidth = is58mm ? '42mm' : '72mm';
+  const savedPaperWidth = typeof localStorage !== 'undefined' ? (localStorage.getItem('pos_paper_width') || receiptConfig?.paperWidth || '58mm') : (receiptConfig?.paperWidth || '58mm');
+  const is58mm = (savedPaperWidth === '58mm');
+  // 58mm: 41mm width prevents right clipping on all thermal printers; 80mm: 70mm width
+  const printWidth = is58mm ? '41mm' : '70mm';
 
   // Helper to extract cart items
   const getCartItems = (ord) => {
@@ -97,13 +98,13 @@ export default function PosThermalPrintArea({ printPayload }) {
           {cartItems.map((item, idx) => {
             const unitPrice = item.price || (item.totalPrice && item.quantity ? Math.round(item.totalPrice / item.quantity) : 0);
             return (
-              <div key={idx} style={{ marginBottom: '3px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', fontWeight: 'bold' }}>
-                  <span>{item.name} x{item.quantity}</span>
-                  <span>${unitPrice}</span>
+              <div key={idx} style={{ marginBottom: '3px', width: '100%', boxSizing: 'border-box' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '4px', fontSize: '13px', fontWeight: 'bold', width: '100%', boxSizing: 'border-box' }}>
+                  <span style={{ minWidth: 0, flex: 1, wordBreak: 'break-word', paddingRight: '2px' }}>{item.name} x{item.quantity}</span>
+                  <span style={{ flexShrink: 0, minWidth: '36px', textAlign: 'right', whiteSpace: 'nowrap' }}>${unitPrice}</span>
                 </div>
                 {item.specs && item.specs.length > 0 && (
-                  <div style={{ fontSize: '11px', paddingLeft: '8px', fontWeight: 'bold' }}>
+                  <div style={{ fontSize: '11px', paddingLeft: '8px', fontWeight: 'bold', wordBreak: 'break-all' }}>
                     └ {item.specs.map(s => typeof s === 'object' && s ? (s.value || `${s.name}: ${s.value}`) : String(s)).join(', ')}
                   </div>
                 )}
@@ -112,19 +113,31 @@ export default function PosThermalPrintArea({ printPayload }) {
           })}
           
           <div style={{ borderTop: '1px dashed #000', margin: '5px 0' }}></div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '15px', fontWeight: 'bold' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '15px', fontWeight: 'bold', width: '100%', boxSizing: 'border-box' }}>
             <span>應收總計:</span>
-            <span>${totalNum}</span>
+            <span style={{ flexShrink: 0, textAlign: 'right', whiteSpace: 'nowrap' }}>${totalNum}</span>
           </div>
-          {receiptConfig.printReceivedAndChange !== false && order.cashReceived !== undefined && order.cashReceived !== null && (
+          {isUber && (
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12px', fontWeight: 'bold', width: '100%', boxSizing: 'border-box' }}>
+              <span>付款方式:</span>
+              <span style={{ flexShrink: 0, textAlign: 'right', whiteSpace: 'nowrap' }}>🛵 平台結清</span>
+            </div>
+          )}
+          {isPanda && (
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12px', fontWeight: 'bold', width: '100%', boxSizing: 'border-box' }}>
+              <span>付款方式:</span>
+              <span style={{ flexShrink: 0, textAlign: 'right', whiteSpace: 'nowrap' }}>🐼 平台結清</span>
+            </div>
+          )}
+          {!isUber && !isPanda && receiptConfig.printReceivedAndChange !== false && order.cashReceived !== undefined && order.cashReceived !== null && (
             <>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', fontWeight: 'bold' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px', fontWeight: 'bold', width: '100%', boxSizing: 'border-box' }}>
                 <span>實收金額:</span>
-                <span>${order.cashReceived}</span>
+                <span style={{ flexShrink: 0, textAlign: 'right', whiteSpace: 'nowrap' }}>${order.cashReceived}</span>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', fontWeight: 'bold' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px', fontWeight: 'bold', width: '100%', boxSizing: 'border-box' }}>
                 <span>找零:</span>
-                <span>${order.changeAmount}</span>
+                <span style={{ flexShrink: 0, textAlign: 'right', whiteSpace: 'nowrap' }}>${order.changeAmount}</span>
               </div>
             </>
           )}
