@@ -392,13 +392,6 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
   const [showStoreDetailsModal, setShowStoreDetailsModal] = useState(false);
   const [showFulfillmentModal, setShowFulfillmentModal] = useState(false);
 
-  const featuredQuickItems = useMemo(() => {
-    if (!menuItems || menuItems.length === 0) return [];
-    const available = menuItems.filter(i => i.customizations?.is_available !== false);
-    const withImages = available.filter(i => i.image);
-    return (withImages.length >= 3 ? withImages : available).slice(0, 4);
-  }, [menuItems]);
-
   // Customer Order History Modal State
   const [showOrderHistoryModal, setShowOrderHistoryModal] = useState(false);
   const [historyOrders, setHistoryOrders] = useState([]);
@@ -606,6 +599,14 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber, on
     if (storeCode === 'luzhou' || storeCode === 'luzhou7') return luzhouFallbackMenuItems;
     return storeCode === 'dragon' ? defaultMenuItems : [];
   });
+
+  const featuredQuickItems = useMemo(() => {
+    if (!menuItems || menuItems.length === 0) return [];
+    const available = menuItems.filter(i => i.customizations?.is_available !== false);
+    const withImages = available.filter(i => i.image);
+    return (withImages.length >= 3 ? withImages : available).slice(0, 4);
+  }, [menuItems]);
+
   const [storeName, setStoreName] = useState('龍城麵線');
   const [storeSlogan, setStoreSlogan] = useState('');
   const [showHeroBanner, setShowHeroBanner] = useState(true);
