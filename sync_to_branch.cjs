@@ -15,6 +15,7 @@ const filesToSync = [
   'src/components/ManagementView.jsx',
   'src/components/ItemModal.jsx',
   'src/components/CustomerView.jsx',
+  'src/components/ThermalPrintPortal.jsx',
   'src/components/UnifiedLoginScreen.jsx',
   'src/components/ModuleCenterModal.jsx',
   'src/components/SetupWizardModal.jsx',
