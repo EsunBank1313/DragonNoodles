@@ -85,14 +85,15 @@ export default function ThermalPrintPortal({ printPayload, onClose }) {
     const remarksStr = order.remarks || order.note || '';
     const shouldPrintKitchen = receiptConfig.printKitchenTicket !== false;
 
-    const isPosOrder = !isUber && !isPanda && (
+    const isTestOrder = order.is_test || order.isTest || order.type === 'test' || order.items?.is_test === true || String(orderNumStr).startsWith('TEST-') || String(orderNumStr).startsWith('TEST');
+    const isPosOrder = !isTestOrder && !isUber && !isPanda && (
       order.source === 'pos' ||
       order.items?.source === 'pos' ||
       !!order.cashier ||
       !!order.items?.cashier ||
       String(order.customerName || order.custName || order.items?.customerName || '').includes('(POS)')
     );
-    const isOnlineOrder = !isUber && !isPanda && !isPosOrder && (
+    const isOnlineOrder = !isTestOrder && !isUber && !isPanda && !isPosOrder && (
       order.source === 'customer' ||
       order.items?.source === 'customer' ||
       order.isOnline === true ||
@@ -118,6 +119,11 @@ export default function ThermalPrintPortal({ printPayload, onClose }) {
             <div style={{ textAlign: 'center', fontSize: '10px' }}>{storeProfile.storeAddress}</div>
           )}
           <div style={{ textAlign: 'center', fontSize: subFontSize, fontWeight: 'bold', marginTop: '2px' }}>=== 交易收據明細 ===</div>
+          {isTestOrder && (
+            <div style={{ textAlign: 'center', fontSize: '13px', fontWeight: '900', margin: '3px 0', padding: '3px 0', border: '2px solid #000', backgroundColor: '#000', color: '#fff' }}>
+              【 🧪 測試訂單 (免出餐) 】
+            </div>
+          )}
           {isPosOrder && (
             <div style={{ textAlign: 'center', fontSize: '12px', fontWeight: '900', margin: '3px 0', padding: '2px 0', border: '1px solid #000' }}>
               【 💻 POS機點餐 】
@@ -220,9 +226,19 @@ export default function ThermalPrintPortal({ printPayload, onClose }) {
 
             <div className="kitchen-ticket-section" style={{ paddingTop: '4px', width: '100%', boxSizing: 'border-box' }}>
               <div style={{ textAlign: 'center', fontSize: is58mm ? '15px' : '18px', fontWeight: '900' }}>=== 廚房備餐單 ===</div>
+              {isTestOrder && (
+                <div style={{ textAlign: 'center', fontSize: '13px', fontWeight: '900', margin: '3px 0', padding: '3px 0', border: '2px solid #000', backgroundColor: '#000', color: '#fff' }}>
+                  【 🧪 測試備餐單 (免出餐) 】
+                </div>
+              )}
               <div style={{ textAlign: 'center', fontSize: is58mm ? '14px' : '18px', fontWeight: '900', padding: '2px 4px', border: '2px solid #000', margin: '3px 0', wordBreak: 'break-all', boxSizing: 'border-box' }}>
-                {isUber ? '🛵 Uber Eats 外送' : (isPanda ? '🐼 熊貓外送' : ((isPosOrder ? '【POS機點餐】' : (isOnlineOrder ? '【線上點餐】' : '')) + typeStr + (tableNameStr ? ' ' + tableNameStr + '桌' : '')))}
+                {isTestOrder ? '🧪 線上測試點餐 (免出餐)' : (isUber ? '🛵 Uber Eats 外送' : (isPanda ? '🐼 熊貓外送' : ((isPosOrder ? '【POS機點餐】' : (isOnlineOrder ? '【線上點餐】' : '')) + typeStr + (tableNameStr ? ' ' + tableNameStr + '桌' : ''))))}
               </div>
+              {isTestOrder && (
+                <div style={{ textAlign: 'center', fontSize: '12px', fontWeight: '900', margin: '2px 0', letterSpacing: '1px' }}>
+                  ★ 系統測試單據・請勿製作餐點 ★
+                </div>
+              )}
               {isPosOrder && (
                 <div style={{ textAlign: 'center', fontSize: '12px', fontWeight: '900', margin: '2px 0', letterSpacing: '1px' }}>
                   ★ 門市現場 POS 收銀送單 ★

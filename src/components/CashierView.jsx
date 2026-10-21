@@ -608,7 +608,10 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
   // Daily Closing Report Printout Handler
   const handlePrintDailyClosing = () => {
     const todayStr = getTodayLocalDate();
-    const todayOrders = orders.filter(o => o.status === 'completed' || o.status === 'received');
+    const isTestOrder = (o) => (
+      o.type === 'test' || o.is_test === true || o.isTest === true || o.items?.is_test === true || String(o.serialNum || o.order_number || '').startsWith('TEST-') || String(o.serialNum || o.order_number || '').startsWith('TEST')
+    );
+    const todayOrders = orders.filter(o => (o.status === 'completed' || o.status === 'received') && !isTestOrder(o));
     const totalRev = todayOrders.reduce((sum, o) => sum + (Number(o.total) || 0), 0);
 
     const isUberOrder = (o) => (
@@ -768,7 +771,10 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
   const getShiftHandoverData = () => {
     const loginTimeStr = localStorage.getItem(`pos_login_time`);
     const loginTime = loginTimeStr ? Number(loginTimeStr) : (Date.now() - 4 * 3600 * 1000);
-    const todayOrders = orders.filter(o => o.status === 'completed' || o.status === 'received');
+    const isTestOrder = (o) => (
+      o.type === 'test' || o.is_test === true || o.isTest === true || o.items?.is_test === true || String(o.serialNum || o.order_number || '').startsWith('TEST-') || String(o.serialNum || o.order_number || '').startsWith('TEST')
+    );
+    const todayOrders = orders.filter(o => (o.status === 'completed' || o.status === 'received') && !isTestOrder(o));
     
     // Filter orders created after login time
     const shiftOrders = todayOrders.filter(o => {
@@ -3762,12 +3768,13 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                   {(() => {
                     const validOrders = orders.filter(o => o.status !== 'deleted');
                     const deletedOrders = orders.filter(o => o.status === 'deleted');
-                    const isUber = (o) => o.type === 'uber' || o.type === 'ubereats' || o.paymentMethod === 'ubereats' || String(o.serialNum || o.order_number || '').startsWith('U-');
-                    const isPanda = (o) => o.type === 'foodpanda' || o.type === 'panda' || o.paymentMethod === 'foodpanda' || String(o.serialNum || o.order_number || '').startsWith('P-');
-                    const isDelivery = (o) => isUber(o) || isPanda(o) || o.type === 'delivery';
-                    const isCustomerOrder = (o) => !isDelivery(o) && Boolean(!o.cashier || o.isOnline || (o.customerPhone && o.customerPhone.length > 0) || o.pickupTime || o.source === 'customer');
-                    const isDine = (o) => o.type === 'dine-in' && !isDelivery(o) && !isCustomerOrder(o);
-                    const isTake = (o) => o.type !== 'dine-in' && !isDelivery(o) && !isCustomerOrder(o);
+                    const isTest = (o) => o.type === 'test' || o.is_test === true || o.isTest === true || o.items?.is_test === true || String(o.serialNum || o.order_number || '').startsWith('TEST-') || String(o.serialNum || o.order_number || '').startsWith('TEST');
+                    const isUber = (o) => !isTest(o) && (o.type === 'uber' || o.type === 'ubereats' || o.paymentMethod === 'ubereats' || String(o.serialNum || o.order_number || '').startsWith('U-'));
+                    const isPanda = (o) => !isTest(o) && (o.type === 'foodpanda' || o.type === 'panda' || o.paymentMethod === 'foodpanda' || String(o.serialNum || o.order_number || '').startsWith('P-'));
+                    const isDelivery = (o) => !isTest(o) && (isUber(o) || isPanda(o) || o.type === 'delivery');
+                    const isCustomerOrder = (o) => !isTest(o) && !isDelivery(o) && Boolean(!o.cashier || o.isOnline || (o.customerPhone && o.customerPhone.length > 0) || o.pickupTime || o.source === 'customer');
+                    const isDine = (o) => !isTest(o) && o.type === 'dine-in' && !isDelivery(o) && !isCustomerOrder(o);
+                    const isTake = (o) => !isTest(o) && o.type !== 'dine-in' && !isDelivery(o) && !isCustomerOrder(o);
                     const isOnline = (o) => isCustomerOrder(o);
 
                     const dineCount = validOrders.filter(isDine).length;
@@ -3778,6 +3785,8 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                     const onlineOrders = validOrders.filter(isOnline);
                     const onlineCount = onlineOrders.length;
                     const onlinePendingCount = onlineOrders.filter(o => o.status !== 'completed' && o.status !== 'ready').length;
+                    const testOrders = validOrders.filter(isTest);
+                    const testCount = testOrders.length;
 
                     const tabs = [
                       { id: 'all', label: `全部 (${validOrders.length})` },
@@ -3791,6 +3800,7 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                       { id: 'delivery', label: `🛵 外送 (${deliveryCount})` },
                       { id: 'uber', label: `🛵 Uber (${uberCount})` },
                       { id: 'foodpanda', label: `🐼 熊貓 (${pandaCount})` },
+                      ...(testCount > 0 ? [{ id: 'test', label: `🧪 測試單 (${testCount})` }] : []),
                       { id: 'deleted', label: `🗑️ 已作廢 (${deletedOrders.length})` }
                     ];
 
@@ -3807,14 +3817,14 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                                 padding: '5px 12px',
                                 borderRadius: '20px',
                                 border: isSelected 
-                                  ? (t.id === 'online' ? '2px solid #7c3aed' : (t.id === 'deleted' ? '2px solid #ef4444' : '2px solid var(--primary)')) 
-                                  : (t.hasAlert ? '2px solid #8b5cf6' : '1px solid var(--border)'),
+                                  ? (t.id === 'online' ? '2px solid #7c3aed' : (t.id === 'test' ? '2px solid #9333ea' : (t.id === 'deleted' ? '2px solid #ef4444' : '2px solid var(--primary)'))) 
+                                  : (t.hasAlert ? '2px solid #8b5cf6' : (t.id === 'test' ? '1px solid #d8b4fe' : '1px solid var(--border)')),
                                 backgroundColor: isSelected 
-                                  ? (t.id === 'online' ? '#7c3aed' : (t.id === 'deleted' ? '#ef4444' : 'var(--primary)')) 
-                                  : (t.hasAlert ? '#ede9fe' : 'var(--bg-card)'),
+                                  ? (t.id === 'online' ? '#7c3aed' : (t.id === 'test' ? '#9333ea' : (t.id === 'deleted' ? '#ef4444' : 'var(--primary)'))) 
+                                  : (t.hasAlert ? '#ede9fe' : (t.id === 'test' ? '#faf5ff' : 'var(--bg-card)')),
                                 color: isSelected 
                                   ? 'white' 
-                                  : (t.hasAlert ? '#6d28d9' : (t.id === 'deleted' ? '#991b1b' : 'var(--text-main)')),
+                                  : (t.hasAlert ? '#6d28d9' : (t.id === 'test' ? '#7e22ce' : (t.id === 'deleted' ? '#991b1b' : 'var(--text-main)'))),
                                 fontSize: '0.8rem',
                                 fontWeight: 'bold',
                                 cursor: 'pointer',
@@ -3833,17 +3843,19 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                   {(() => {
                     const validOrders = orders.filter(o => o.status !== 'deleted');
                     const deletedOrders = orders.filter(o => o.status === 'deleted');
-                    const isUber = (o) => o.type === 'uber' || o.type === 'ubereats' || o.paymentMethod === 'ubereats' || String(o.serialNum || o.order_number || '').startsWith('U-');
-                    const isPanda = (o) => o.type === 'foodpanda' || o.type === 'panda' || o.paymentMethod === 'foodpanda' || String(o.serialNum || o.order_number || '').startsWith('P-');
-                    const isDelivery = (o) => isUber(o) || isPanda(o) || o.type === 'delivery';
-                    const isCustomerOrder = (o) => !isDelivery(o) && Boolean(!o.cashier || o.isOnline || (o.customerPhone && o.customerPhone.length > 0) || o.pickupTime || o.source === 'customer');
-                    const isDine = (o) => o.type === 'dine-in' && !isDelivery(o) && !isCustomerOrder(o);
-                    const isTake = (o) => o.type !== 'dine-in' && !isDelivery(o) && !isCustomerOrder(o);
+                    const isTest = (o) => o.type === 'test' || o.is_test === true || o.isTest === true || o.items?.is_test === true || String(o.serialNum || o.order_number || '').startsWith('TEST-') || String(o.serialNum || o.order_number || '').startsWith('TEST');
+                    const isUber = (o) => !isTest(o) && (o.type === 'uber' || o.type === 'ubereats' || o.paymentMethod === 'ubereats' || String(o.serialNum || o.order_number || '').startsWith('U-'));
+                    const isPanda = (o) => !isTest(o) && (o.type === 'foodpanda' || o.type === 'panda' || o.paymentMethod === 'foodpanda' || String(o.serialNum || o.order_number || '').startsWith('P-'));
+                    const isDelivery = (o) => !isTest(o) && (isUber(o) || isPanda(o) || o.type === 'delivery');
+                    const isCustomerOrder = (o) => !isTest(o) && !isDelivery(o) && Boolean(!o.cashier || o.isOnline || (o.customerPhone && o.customerPhone.length > 0) || o.pickupTime || o.source === 'customer');
+                    const isDine = (o) => !isTest(o) && o.type === 'dine-in' && !isDelivery(o) && !isCustomerOrder(o);
+                    const isTake = (o) => !isTest(o) && o.type !== 'dine-in' && !isDelivery(o) && !isCustomerOrder(o);
                     const isOnline = (o) => isCustomerOrder(o);
 
                     const filteredOrders = orderHistoryFilter === 'deleted'
                       ? deletedOrders
                       : validOrders.filter(o => {
+                          if (orderHistoryFilter === 'test') return isTest(o);
                           if (orderHistoryFilter === 'online') return isOnline(o);
                           if (orderHistoryFilter === 'dine-in') return isDine(o);
                           if (orderHistoryFilter === 'takeout') return isTake(o);
@@ -3858,7 +3870,8 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                     }
 
                     return filteredOrders.map(order => {
-                      const isCustomerOrder = Boolean(!order.cashier || order.isOnline || (order.customerPhone && order.customerPhone.length > 0) || order.pickupTime || order.source === 'customer');
+                      const isTestOrder = isTest(order);
+                      const isCustomerOrder = !isTestOrder && Boolean(!order.cashier || order.isOnline || (order.customerPhone && order.customerPhone.length > 0) || order.pickupTime || order.source === 'customer');
                       const isCustomerUnfinished = isCustomerOrder && order.status !== 'completed' && order.status !== 'deleted' && order.status !== 'cancelled' && order.status !== 'rejected';
 
                       return (
@@ -3866,10 +3879,10 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                           key={order.id} 
                           style={{ 
                             padding: '14px', 
-                            border: order.status === 'deleted' ? '2px solid #ef4444' : (isCustomerOrder ? (isCustomerUnfinished ? '2px solid #8b5cf6' : '1px solid var(--border)') : '1px solid var(--border)'), 
+                            border: order.status === 'deleted' ? '2px solid #ef4444' : (isTestOrder ? '2px solid #c084fc' : (isCustomerOrder ? (isCustomerUnfinished ? '2px solid #8b5cf6' : '1px solid var(--border)') : '1px solid var(--border)')), 
                             borderRadius: '10px', 
-                            backgroundColor: order.status === 'deleted' ? 'rgba(239, 68, 68, 0.04)' : (isCustomerOrder ? (isCustomerUnfinished ? 'rgba(139, 92, 246, 0.05)' : 'var(--bg-card)') : 'var(--bg-card)'),
-                            boxShadow: isCustomerUnfinished ? '0 4px 14px rgba(139, 92, 246, 0.15)' : 'none',
+                            backgroundColor: order.status === 'deleted' ? 'rgba(239, 68, 68, 0.04)' : (isTestOrder ? '#faf5ff' : (isCustomerOrder ? (isCustomerUnfinished ? 'rgba(139, 92, 246, 0.05)' : 'var(--bg-card)') : 'var(--bg-card)')),
+                            boxShadow: isCustomerUnfinished ? '0 4px 14px rgba(139, 92, 246, 0.15)' : (isTestOrder ? '0 2px 10px rgba(192, 132, 252, 0.2)' : 'none'),
                             position: 'relative',
                             transition: 'all 0.2s ease',
                             opacity: order.status === 'deleted' ? 0.88 : 1
@@ -3915,7 +3928,19 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                           {/* Order Header */}
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.85rem', fontWeight: 'bold', borderBottom: '1px solid var(--border)', paddingBottom: '6px', marginBottom: '8px' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                              {isCustomerOrder ? (
+                              {isTestOrder ? (
+                                <span style={{
+                                  background: 'linear-gradient(135deg, #7e22ce, #9333ea)',
+                                  color: 'white',
+                                  padding: '3px 8px',
+                                  borderRadius: '6px',
+                                  fontSize: '0.75rem',
+                                  fontWeight: '900',
+                                  letterSpacing: '0.5px'
+                                }}>
+                                  🧪 測試單 (不計入營收)
+                                </span>
+                              ) : isCustomerOrder ? (
                                 <span style={{
                                   background: 'linear-gradient(135deg, #7c3aed, #a855f7)',
                                   color: 'white',
@@ -3940,7 +3965,7 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                                 </span>
                               )}
 
-                              <span style={{ fontSize: '1.05rem', fontWeight: '900', color: isCustomerOrder ? '#7c3aed' : 'var(--text-main)' }}>
+                              <span style={{ fontSize: '1.05rem', fontWeight: '900', color: isTestOrder ? '#7e22ce' : (isCustomerOrder ? '#7c3aed' : 'var(--text-main)') }}>
                                 單號: {order.serialNum}
                               </span>
 
@@ -6351,6 +6376,58 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                       <div style={{ fontSize: '0.65rem', opacity: 0.85 }}>{scale.desc}</div>
                     </button>
                   ))}
+                </div>
+              </div>
+
+              {/* Section: Sandbox Test Environment */}
+              <div style={{ padding: '12px', borderRadius: '8px', backgroundColor: '#faf5ff', border: '1px solid #d8b4fe' }}>
+                <div style={{ fontSize: '0.85rem', fontWeight: 'bold', color: '#6b21a8', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  🧪 線上點餐測試環境 (沙盒模式)
+                </div>
+                <div style={{ fontSize: '0.78rem', color: '#7e22ce', lineHeight: '1.5', marginBottom: '10px' }}>
+                  隨時開放測試下單，<strong>不受營業時間/打烊限制</strong>，測試單<strong>完全不計入日結營收與交班帳目</strong>。
+                </div>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const testUrl = `${window.location.origin}/?test=true`;
+                      window.open(testUrl, '_blank');
+                    }}
+                    style={{
+                      flex: 1,
+                      padding: '8px',
+                      borderRadius: '6px',
+                      backgroundColor: '#9333ea',
+                      color: 'white',
+                      border: 'none',
+                      fontSize: '0.8rem',
+                      fontWeight: 'bold',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    🚀 開啟測試點餐頁面
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const testUrl = `${window.location.origin}/?test=true`;
+                      navigator.clipboard.writeText(testUrl);
+                      alert('已複製測試環境網址：\n' + testUrl);
+                    }}
+                    style={{
+                      padding: '8px 12px',
+                      borderRadius: '6px',
+                      border: '1px solid #c084fc',
+                      backgroundColor: '#ffffff',
+                      color: '#6b21a8',
+                      fontSize: '0.8rem',
+                      fontWeight: 'bold',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    📋 複製連結
+                  </button>
                 </div>
               </div>
 

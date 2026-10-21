@@ -36,13 +36,17 @@ export const formatSupabaseOrder = (dbOrder) => {
   }
 
   // Determine Type accurately:
+  // If order_number starts with 'TEST-', it is test (沙盒測試單)
   // If order_number starts with 'U-', it is uber (Uber Eats 外送)
   // If order_number starts with 'P-', it is foodpanda (熊貓外送)
   // If order_number starts with 'O-', it is takeout (現場外帶)
   // If order_number starts with 'I-', it is dine-in (內用)
   const orderNumStr = String(dbOrder.order_number || '');
+  const isTest = orderNumStr.startsWith('TEST-') || orderNumStr.startsWith('TEST') || dbOrder.type === 'test' || itemsData.is_test === true;
   let finalType = 'takeout';
-  if (orderNumStr.startsWith('U-') || orderNumStr.startsWith('U') || dbOrder.type === 'uber' || dbOrder.type === 'ubereats') {
+  if (isTest) {
+    finalType = 'test';
+  } else if (orderNumStr.startsWith('U-') || orderNumStr.startsWith('U') || dbOrder.type === 'uber' || dbOrder.type === 'ubereats') {
     finalType = 'uber';
   } else if (orderNumStr.startsWith('P-') || orderNumStr.startsWith('P') || dbOrder.type === 'foodpanda' || dbOrder.type === 'panda') {
     finalType = 'foodpanda';
@@ -57,7 +61,9 @@ export const formatSupabaseOrder = (dbOrder) => {
   const tableName = dbOrder.table_number || itemsData.table_number || null;
   let customerName = itemsData.customerName || '';
   if (!customerName) {
-    if (finalType === 'uber') {
+    if (finalType === 'test') {
+      customerName = '🧪 測試顧客 (免出餐)';
+    } else if (finalType === 'uber') {
       customerName = '🛵 外送 (Uber Eats)';
     } else if (finalType === 'foodpanda') {
       customerName = '🐼 外送 (foodpanda)';
@@ -106,7 +112,9 @@ export const formatSupabaseOrder = (dbOrder) => {
     cashier: itemsData.cashier || '',
     source: itemsData.source || (itemsData.cashier ? 'pos' : 'customer'),
     lineUser: itemsData.lineUser || null,
-    authUser: authUser || null
+    authUser: authUser || null,
+    is_test: isTest,
+    isTest: isTest
   };
 };
 
@@ -302,10 +310,32 @@ const MenuItemImage = ({ item }) => {
     </div>
   );
 };
-export default function CustomerView({ storeCode: propStoreCode, tableNumber: propTableNumber, onBackToDemo, onSwitchToLogin }) {
+export default function CustomerView({ storeCode: propStoreCode, tableNumber: propTableNumber, isTestMode: propIsTestMode, onBackToDemo, onSwitchToLogin }) {
   const storeCode = propStoreCode || getActiveStoreCode();
   const handleSwitchToLogin = onSwitchToLogin || onBackToDemo || (() => { window.location.href = '/?login=true'; });
   const [tableNumber, setTableNumber] = useState(propTableNumber || null);
+
+  const [isTestMode, setIsTestMode] = useState(() => {
+    if (propIsTestMode !== undefined && propIsTestMode !== null) return Boolean(propIsTestMode);
+    if (typeof window === 'undefined') return false;
+    const params = new URLSearchParams(window.location.search);
+    const fromUrl = params.get('test') !== null || params.get('sandbox') !== null || params.get('mode') === 'test';
+    if (fromUrl) {
+      try { sessionStorage.setItem('app_is_test_mode', 'true'); } catch (e) {}
+      return true;
+    }
+    try {
+      return sessionStorage.getItem('app_is_test_mode') === 'true';
+    } catch (e) {
+      return false;
+    }
+  });
+
+  useEffect(() => {
+    if (propIsTestMode !== undefined && propIsTestMode !== null) {
+      setIsTestMode(Boolean(propIsTestMode));
+    }
+  }, [propIsTestMode]);
 
   useEffect(() => {
     if (propTableNumber !== undefined) {
@@ -1484,8 +1514,8 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber: pr
     const total = subtotal + deliveryFee;
 
     // Generate easy-to-read daily sequential serial number (max number + 1 logic to prevent duplicates)
-    const orderType = tableNumber ? 'dine-in' : (isDelivery ? 'delivery' : 'takeout');
-    const prefix = tableNumber ? 'I' : (isDelivery ? 'D' : 'O');
+    const orderType = isTestMode ? 'test' : (tableNumber ? 'dine-in' : (isDelivery ? 'delivery' : 'takeout'));
+    const prefix = isTestMode ? 'TEST' : (tableNumber ? 'I' : (isDelivery ? 'D' : 'O'));
     
     const now = new Date();
     const taipeiDateStr = now.toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' });
@@ -1518,9 +1548,11 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber: pr
     try {
       const authUser = customerAuth;
       const authName = authUser?.displayName || '';
-      let finalCustomerName = tableNumber 
-        ? `內用 ${tableNumber} 號桌${authName ? ` (${authName})` : ''}`
-        : `${custName.trim() || authName || (isDelivery ? '外送顧客' : '現場顧客')}`;
+      let finalCustomerName = isTestMode
+        ? `🧪 測試點餐 (免出餐)${custName.trim() ? ` - ${custName.trim()}` : (authName ? ` - ${authName}` : '')}`
+        : (tableNumber 
+          ? `內用 ${tableNumber} 號桌${authName ? ` (${authName})` : ''}`
+          : `${custName.trim() || authName || (isDelivery ? '外送顧客' : '現場顧客')}`);
 
       if (activeGroupRoom?.roomCode) {
         finalCustomerName = `${finalCustomerName} (👥 揪團: ${activeGroupRoom.hostName}團 #${activeGroupRoom.roomCode})`;
@@ -1538,8 +1570,10 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber: pr
         order_number: serialNum,
         items: {
           source: 'customer',
-          channel: isDelivery ? 'Lalamove外送' : '線上點餐',
-          orderChannel: isDelivery ? 'Lalamove外送' : '線上點餐',
+          is_test: isTestMode,
+          isTest: isTestMode,
+          channel: isTestMode ? '🧪 線上測試點餐 (免出餐)' : (isDelivery ? 'Lalamove外送' : '線上點餐'),
+          orderChannel: isTestMode ? '🧪 線上測試點餐 (免出餐)' : (isDelivery ? 'Lalamove外送' : '線上點餐'),
           storeCode: storeCode,
           store_code: storeCode,
           cart: cart,
@@ -1675,7 +1709,7 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber: pr
   const isClosed = isTodayHoliday || isManuallyClosed;
   const isStoreOpenToday = isManuallyOpened || (!isClosed && (currentHour < 23 && currentHour >= 6));
 
-  if (!isInitialLoading && !isStoreOpenToday && !isClosed) {
+  if (!isTestMode && !isInitialLoading && !isStoreOpenToday && !isClosed) {
     return (
       <div style={{
         display: 'flex',
@@ -1744,13 +1778,36 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber: pr
           >
             🔄 重新整理頁面
           </button>
+          <div style={{ marginTop: '10px' }}>
+            <button
+              type="button"
+              onClick={() => {
+                try { sessionStorage.setItem('app_is_test_mode', 'true'); } catch (e) {}
+                const params = new URLSearchParams(window.location.search);
+                params.set('test', 'true');
+                window.location.href = window.location.pathname + `?${params.toString()}`;
+              }}
+              style={{
+                background: 'transparent',
+                border: '1px dashed #a855f7',
+                color: '#9333ea',
+                padding: '6px 12px',
+                borderRadius: '8px',
+                fontSize: '0.8rem',
+                cursor: 'pointer',
+                fontWeight: 'bold'
+              }}
+            >
+              🧪 進入線上點餐測試環境 (沙盒模式)
+            </button>
+          </div>
         </div>
       </div>
     );
   }
 
 
-  if (receiptConfig && receiptConfig.enableOnlineOrdering === false) {
+  if (!isTestMode && receiptConfig && receiptConfig.enableOnlineOrdering === false) {
     return (
       <div style={{
         display: 'flex',
@@ -1795,12 +1852,35 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber: pr
               📍 門市地址：{storeAddress}
             </div>
           )}
+          <div style={{ marginTop: '12px' }}>
+            <button
+              type="button"
+              onClick={() => {
+                try { sessionStorage.setItem('app_is_test_mode', 'true'); } catch (e) {}
+                const params = new URLSearchParams(window.location.search);
+                params.set('test', 'true');
+                window.location.href = window.location.pathname + `?${params.toString()}`;
+              }}
+              style={{
+                background: 'transparent',
+                border: '1px dashed #a855f7',
+                color: '#9333ea',
+                padding: '6px 12px',
+                borderRadius: '8px',
+                fontSize: '0.8rem',
+                cursor: 'pointer',
+                fontWeight: 'bold'
+              }}
+            >
+              🧪 進入線上點餐測試環境 (沙盒模式)
+            </button>
+          </div>
         </div>
       </div>
     );
   }
 
-  if (isClosed) {
+  if (!isTestMode && isClosed) {
     return (
       <div style={{
         display: 'flex',
@@ -1819,6 +1899,29 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber: pr
         <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', maxWidth: '300px', lineHeight: '1.6' }}>
           【{storeName}】今日營業已打烊收店。歡迎您明天再來點餐，謝謝您的支持！
         </p>
+        <div style={{ marginTop: '14px' }}>
+          <button
+            type="button"
+            onClick={() => {
+              try { sessionStorage.setItem('app_is_test_mode', 'true'); } catch (e) {}
+              const params = new URLSearchParams(window.location.search);
+              params.set('test', 'true');
+              window.location.href = window.location.pathname + `?${params.toString()}`;
+            }}
+            style={{
+              background: 'transparent',
+              border: '1px dashed #a855f7',
+              color: '#9333ea',
+              padding: '6px 12px',
+              borderRadius: '8px',
+              fontSize: '0.8rem',
+              cursor: 'pointer',
+              fontWeight: 'bold'
+            }}
+          >
+            🧪 進入線上點餐測試環境 (沙盒模式)
+          </button>
+        </div>
         <div style={{ marginTop: '24px', fontSize: '0.85rem', display: 'flex', gap: '12px', alignItems: 'center' }}>
           <a href="/privacy.html" style={{ color: 'var(--primary)', textDecoration: 'underline' }}>隱私權政策 (Privacy Policy)</a>
           <span style={{ color: 'var(--text-muted)' }}>|</span>
@@ -1952,6 +2055,58 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber: pr
             }}
           >
             {isHostOfRoom(activeGroupRoom) ? '👑 主揪管理 / 送單' : '👀 查看揪團進度'}
+          </button>
+        </div>
+      )}
+
+      {/* 🧪 線上點餐沙盒/測試模式頂部橫幅 */}
+      {isTestMode && (
+        <div style={{
+          backgroundColor: '#581c87',
+          color: '#f3e8ff',
+          padding: '8px 14px',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          boxShadow: '0 2px 8px rgba(88, 28, 135, 0.4)',
+          position: 'sticky',
+          top: 0,
+          zIndex: 95,
+          fontSize: '0.85rem'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: '1.1rem' }}>🧪</span>
+            <div>
+              <strong style={{ color: '#ffffff' }}>【線上點餐測試環境・沙盒模式】</strong>
+              <span style={{ fontSize: '0.75rem', opacity: 0.9, marginLeft: '6px' }}>
+                不受營業時間限制・測試單不計入營收
+              </span>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              try { sessionStorage.removeItem('app_is_test_mode'); } catch (e) {}
+              const params = new URLSearchParams(window.location.search);
+              params.delete('test');
+              params.delete('sandbox');
+              params.delete('mode');
+              const searchStr = params.toString();
+              window.location.href = window.location.pathname + (searchStr ? `?${searchStr}` : '');
+            }}
+            style={{
+              backgroundColor: 'rgba(255, 255, 255, 0.2)',
+              color: '#ffffff',
+              border: '1px solid rgba(255, 255, 255, 0.4)',
+              borderRadius: '6px',
+              padding: '4px 10px',
+              fontSize: '0.75rem',
+              fontWeight: 'bold',
+              cursor: 'pointer',
+              whiteSpace: 'nowrap'
+            }}
+          >
+            退出測試 ✕
           </button>
         </div>
       )}
@@ -2948,11 +3103,61 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber: pr
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
-            gap: '6px',
+            gap: '8px',
             color: 'var(--text-muted)',
             fontSize: '0.75rem'
           }}>
             <div>{storeName} ・ 顧客線上掃碼點餐系統</div>
+            <div>
+              {isTestMode ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    try { sessionStorage.removeItem('app_is_test_mode'); } catch (e) {}
+                    const params = new URLSearchParams(window.location.search);
+                    params.delete('test');
+                    params.delete('sandbox');
+                    params.delete('mode');
+                    const searchStr = params.toString();
+                    window.location.href = window.location.pathname + (searchStr ? `?${searchStr}` : '');
+                  }}
+                  style={{
+                    background: '#f3e8ff',
+                    border: '1px solid #c084fc',
+                    color: '#6b21a8',
+                    padding: '5px 12px',
+                    borderRadius: '12px',
+                    fontSize: '0.75rem',
+                    cursor: 'pointer',
+                    fontWeight: 'bold'
+                  }}
+                >
+                  🧪 退出測試環境 (返回正式點餐)
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    try { sessionStorage.setItem('app_is_test_mode', 'true'); } catch (e) {}
+                    const params = new URLSearchParams(window.location.search);
+                    params.set('test', 'true');
+                    window.location.href = window.location.pathname + `?${params.toString()}`;
+                  }}
+                  style={{
+                    background: 'transparent',
+                    border: '1px dashed #a855f7',
+                    color: '#9333ea',
+                    padding: '5px 12px',
+                    borderRadius: '12px',
+                    fontSize: '0.75rem',
+                    cursor: 'pointer',
+                    fontWeight: 'bold'
+                  }}
+                >
+                  🧪 進入線上點餐測試環境 (沙盒模式)
+                </button>
+              )}
+            </div>
           </div>
 
           {/* Sticky Floating Cart Bar */}

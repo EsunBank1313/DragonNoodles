@@ -2477,13 +2477,18 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
       if (data) {
         const storeOrders = filterOrdersByStore(data, storeCode);
 
-        // Filter out SYSTEM_STORE_CLOSE
+        // Filter out SYSTEM_STORE_CLOSE and test orders
         const clientOrders = storeOrders.filter(o => {
           let itemsData = o.items;
           if (typeof itemsData === 'string') {
             try { itemsData = JSON.parse(itemsData); } catch (e) { itemsData = {}; }
           }
-          return itemsData?.customerName !== 'SYSTEM_STORE_CLOSE';
+          if (itemsData?.customerName === 'SYSTEM_STORE_CLOSE') return false;
+          
+          // Exclude sandbox / test orders from bookkeeping so financial accounts stay clean
+          const orderNumStr = String(o.order_number || '');
+          const isTest = o.type === 'test' || itemsData?.is_test === true || orderNumStr.startsWith('TEST-') || orderNumStr.startsWith('TEST');
+          return !isTest;
         });
         setOrders(clientOrders.map(formatSupabaseOrder).filter(Boolean));
         

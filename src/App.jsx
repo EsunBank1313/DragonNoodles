@@ -60,15 +60,18 @@ const getInitialRoleAndParams = () => {
     if (wantsLogin) return { role: 'login', table: null, isStaffAuthorized: true, storeCode };
     if (wantsPos) return { role: 'pos', table: null, isStaffAuthorized: true, storeCode };
     if (wantsBookkeeping) return { role: 'bookkeeping', table: null, isStaffAuthorized: true, storeCode };
-    if (wantsAdmin) return { role: 'management', table: null, isStaffAuthorized: true, storeCode };
+    if (wantsAdmin) return { role: 'management', table: null, isStaffAuthorized: true, storeCode, isTestMode: false };
   }
 
-  return { role: 'customer', table: table || null, isStaffAuthorized: false, storeCode };
+  const isTestMode = params.get('test') !== null || params.get('sandbox') !== null || params.get('mode') === 'test';
+
+  return { role: 'customer', table: table || null, isStaffAuthorized: false, storeCode, isTestMode };
 };
 
 function App() {
   const initial = getInitialRoleAndParams();
   const [role, setRole] = useState(initial.role);
+  const [isTestMode, setIsTestMode] = useState(initial.isTestMode || false);
   const [storeCode, setStoreCode] = useState(initial.storeCode || 'dragon');
   const [tableNumber, setTableNumber] = useState(initial.table);
   const [storeName, setStoreName] = useState(() => {
@@ -258,6 +261,7 @@ function App() {
           storeCode={storeCode}
           tableNumber={tableNumber}
           storeName={storeName}
+          isTestMode={isTestMode}
           onSwitchToLogin={() => setRole('login')}
         />
       )}
