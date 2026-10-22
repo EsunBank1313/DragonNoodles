@@ -1778,29 +1778,6 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber: pr
           >
             🔄 重新整理頁面
           </button>
-          <div style={{ marginTop: '10px' }}>
-            <button
-              type="button"
-              onClick={() => {
-                try { sessionStorage.setItem('app_is_test_mode', 'true'); } catch (e) {}
-                const params = new URLSearchParams(window.location.search);
-                params.set('test', 'true');
-                window.location.href = window.location.pathname + `?${params.toString()}`;
-              }}
-              style={{
-                background: 'transparent',
-                border: '1px dashed #a855f7',
-                color: '#9333ea',
-                padding: '6px 12px',
-                borderRadius: '8px',
-                fontSize: '0.8rem',
-                cursor: 'pointer',
-                fontWeight: 'bold'
-              }}
-            >
-              🧪 進入線上點餐測試環境 (沙盒模式)
-            </button>
-          </div>
         </div>
       </div>
     );
@@ -1852,29 +1829,6 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber: pr
               📍 門市地址：{storeAddress}
             </div>
           )}
-          <div style={{ marginTop: '12px' }}>
-            <button
-              type="button"
-              onClick={() => {
-                try { sessionStorage.setItem('app_is_test_mode', 'true'); } catch (e) {}
-                const params = new URLSearchParams(window.location.search);
-                params.set('test', 'true');
-                window.location.href = window.location.pathname + `?${params.toString()}`;
-              }}
-              style={{
-                background: 'transparent',
-                border: '1px dashed #a855f7',
-                color: '#9333ea',
-                padding: '6px 12px',
-                borderRadius: '8px',
-                fontSize: '0.8rem',
-                cursor: 'pointer',
-                fontWeight: 'bold'
-              }}
-            >
-              🧪 進入線上點餐測試環境 (沙盒模式)
-            </button>
-          </div>
         </div>
       </div>
     );
@@ -1899,29 +1853,6 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber: pr
         <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', maxWidth: '300px', lineHeight: '1.6' }}>
           【{storeName}】今日營業已打烊收店。歡迎您明天再來點餐，謝謝您的支持！
         </p>
-        <div style={{ marginTop: '14px' }}>
-          <button
-            type="button"
-            onClick={() => {
-              try { sessionStorage.setItem('app_is_test_mode', 'true'); } catch (e) {}
-              const params = new URLSearchParams(window.location.search);
-              params.set('test', 'true');
-              window.location.href = window.location.pathname + `?${params.toString()}`;
-            }}
-            style={{
-              background: 'transparent',
-              border: '1px dashed #a855f7',
-              color: '#9333ea',
-              padding: '6px 12px',
-              borderRadius: '8px',
-              fontSize: '0.8rem',
-              cursor: 'pointer',
-              fontWeight: 'bold'
-            }}
-          >
-            🧪 進入線上點餐測試環境 (沙盒模式)
-          </button>
-        </div>
         <div style={{ marginTop: '24px', fontSize: '0.85rem', display: 'flex', gap: '12px', alignItems: 'center' }}>
           <a href="/privacy.html" style={{ color: 'var(--primary)', textDecoration: 'underline' }}>隱私權政策 (Privacy Policy)</a>
           <span style={{ color: 'var(--text-muted)' }}>|</span>
@@ -3108,8 +3039,8 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber: pr
             fontSize: '0.75rem'
           }}>
             <div>{storeName} ・ 顧客線上掃碼點餐系統</div>
-            <div>
-              {isTestMode ? (
+            {isTestMode && (
+              <div>
                 <button
                   type="button"
                   onClick={() => {
@@ -3134,30 +3065,8 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber: pr
                 >
                   🧪 退出測試環境 (返回正式點餐)
                 </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => {
-                    try { sessionStorage.setItem('app_is_test_mode', 'true'); } catch (e) {}
-                    const params = new URLSearchParams(window.location.search);
-                    params.set('test', 'true');
-                    window.location.href = window.location.pathname + `?${params.toString()}`;
-                  }}
-                  style={{
-                    background: 'transparent',
-                    border: '1px dashed #a855f7',
-                    color: '#9333ea',
-                    padding: '5px 12px',
-                    borderRadius: '12px',
-                    fontSize: '0.75rem',
-                    cursor: 'pointer',
-                    fontWeight: 'bold'
-                  }}
-                >
-                  🧪 進入線上點餐測試環境 (沙盒模式)
-                </button>
-              )}
-            </div>
+              </div>
+            )}
           </div>
 
           {/* Sticky Floating Cart Bar */}
