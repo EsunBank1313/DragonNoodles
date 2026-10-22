@@ -235,6 +235,16 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
   });
   const isStoreOpenToday = Boolean(storeOpenStatus && (storeOpenStatus.is_open === true || storeOpenStatus.isOpen === true));
 
+  // Auto-Open Configuration
+  const [autoOpenConfig, setAutoOpenConfig] = useState(() => {
+    try {
+      const cached = localStorage.getItem(`${storeCode}_auto_open_config`);
+      return cached ? JSON.parse(cached) : { enabled: true, openTime: '07:00', daysOfWeek: [0, 2, 3, 4, 5, 6] };
+    } catch (e) {
+      return { enabled: true, openTime: '07:00', daysOfWeek: [0, 2, 3, 4, 5, 6] };
+    }
+  });
+
   // Closed Dates for Locking
   const [closedDates, setClosedDates] = useState([]);
   // Daily Opening Prompt Modal State
@@ -294,11 +304,56 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
       hasPromptedDailyOpenRef.current = true;
       const todayStr = getTodayLocalDate();
       const isOpen = Boolean(storeOpenStatus && storeOpenStatus.is_open && storeOpenStatus.open_date === todayStr);
+
+      // Check auto-open eligibility
+      const nowTaipei = new Date();
+      const taipeiDateStr = nowTaipei.toLocaleDateString('en-CA', { timeZone: 'Asia/Taipei' });
+      const taipeiTimeStr = nowTaipei.toLocaleTimeString('en-GB', { timeZone: 'Asia/Taipei', hour: '2-digit', minute: '2-digit' });
+      const taipeiDay = new Date(nowTaipei.toLocaleString('en-US', { timeZone: 'Asia/Taipei' })).getDay();
+      const isClosedToday = Boolean(storeOpenStatus && (storeOpenStatus.is_open === false) && (storeOpenStatus.close_date === taipeiDateStr || storeOpenStatus.closed_at?.startsWith(taipeiDateStr)));
+
+      const isAutoOpenEligible = Boolean(
+        autoOpenConfig?.enabled !== false &&
+        (autoOpenConfig?.daysOfWeek || [0, 2, 3, 4, 5, 6]).includes(taipeiDay) &&
+        taipeiTimeStr >= (autoOpenConfig?.openTime || '07:00') &&
+        !isClosedToday
+      );
+
       if (!isOpen) {
-        setShowDailyOpenPromptModal(true);
+        if (isAutoOpenEligible) {
+          // Perform automatic open without showing modal!
+          const newStatus = {
+            is_open: true,
+            open_date: todayStr,
+            opened_at: new Date().toISOString(),
+            opened_by: '系統定時自動開店 (07:00)'
+          };
+          setStoreOpenStatus(newStatus);
+          try { localStorage.setItem(`${storeCode}_store_open_status`, JSON.stringify(newStatus)); } catch (e) {}
+
+          // Unlock today from closedDates if present
+          if (closedDates.includes(todayStr)) {
+            const updatedClosed = closedDates.filter(d => d !== todayStr);
+            setClosedDates(updatedClosed);
+            try { localStorage.setItem(`${storeCode}_restaurant_closed_dates`, JSON.stringify(updatedClosed)); } catch (e) {}
+            const closedKey = prefixNameForStore('SYSTEM_SETTING_CLOSED_DATES', storeCode);
+            supabase.from('menu_items').update({ description: JSON.stringify(updatedClosed) }).eq('name', closedKey).then(() => {});
+          }
+
+          const openStatusKey = prefixNameForStore('SYSTEM_SETTING_STORE_OPEN_STATUS', storeCode);
+          supabase.from('menu_items').select('*').eq('name', openStatusKey).then(({ data: exist }) => {
+            if (exist && exist.length > 0) {
+              supabase.from('menu_items').update({ description: JSON.stringify(newStatus) }).eq('name', openStatusKey).then(() => {});
+            } else {
+              supabase.from('menu_items').insert([{ name: openStatusKey, price: 0, category: 'settings', description: JSON.stringify(newStatus) }]).then(() => {});
+            }
+          });
+        } else {
+          setShowDailyOpenPromptModal(true);
+        }
       }
     }
-  }, [storeOpenStatus]);
+  }, [storeOpenStatus, autoOpenConfig]);
 
 
   // Orders state and printing integration
@@ -1016,6 +1071,16 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
             const parsedStatus = JSON.parse(openStatusItem.description);
             setStoreOpenStatus(parsedStatus);
             try { localStorage.setItem(`${storeCode}_store_open_status`, JSON.stringify(parsedStatus)); } catch (e) {}
+          } catch (e) {}
+        }
+
+        const autoOpenKey = prefixNameForStore('SYSTEM_SETTING_AUTO_OPEN_CONFIG', storeCode);
+        const autoOpenItem = storeItems.find(item => item.name === autoOpenKey || item.name === 'SYSTEM_SETTING_AUTO_OPEN_CONFIG');
+        if (autoOpenItem && autoOpenItem.description) {
+          try {
+            const parsedCfg = JSON.parse(autoOpenItem.description);
+            setAutoOpenConfig(parsedCfg);
+            try { localStorage.setItem(`${storeCode}_auto_open_config`, JSON.stringify(parsedCfg)); } catch (e) {}
           } catch (e) {}
         }
 
@@ -2911,6 +2976,43 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
             title="列印當班對帳單 (X-Report) 並交接現金給下一班人員"
           >
             🔄 換班交接
+          </button>
+
+          {/* Reconcile Delivery Orders (外送帳單重新核對) */}
+          <button
+            type="button"
+            onClick={async () => {
+              try {
+                const { data: todayOrders } = await supabase
+                  .from('orders')
+                  .select('*')
+                  .order('id', { ascending: false })
+                  .limit(100);
+                const deliveryOrders = (todayOrders || []).filter(o => o.type === 'uber' || o.type === 'panda' || o.order_number?.startsWith('U-') || o.order_number?.startsWith('P-'));
+                fetchOrders();
+                alert(`✅ 今日外送帳單已重新整理！\n目前已同步 ${deliveryOrders.length} 筆今日外送單據 (Uber Eats / Foodpanda)。\n系統每日 13:00 收店時亦會自動執行全單改單與退款核帳更新。`);
+              } catch (e) {
+                alert("核對外送帳單失敗: " + e.message);
+              }
+            }}
+            style={{
+              height: '36px',
+              padding: '0 10px',
+              fontSize: '0.82rem',
+              borderRadius: '6px',
+              border: '1px solid #0284c7',
+              backgroundColor: 'rgba(2, 132, 199, 0.1)',
+              color: '#0284c7',
+              cursor: 'pointer',
+              fontWeight: '900',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+              whiteSpace: 'nowrap'
+            }}
+            title="重新抓取並核對今日最新外送單據 (Uber Eats & Foodpanda)"
+          >
+            🔄 核對外送
           </button>
 
           {/* 5. Daily Closing (今日打烊收店) */}

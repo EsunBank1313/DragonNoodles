@@ -706,6 +706,14 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber: pr
       return cached ? JSON.parse(cached) : null;
     } catch (e) { return null; }
   });
+  const [autoOpenConfig, setAutoOpenConfig] = useState(() => {
+    try {
+      const cached = localStorage.getItem(`${storeCode}_auto_open_config`);
+      return cached ? JSON.parse(cached) : { enabled: true, openTime: '07:00', daysOfWeek: [0, 2, 3, 4, 5, 6] };
+    } catch (e) {
+      return { enabled: true, openTime: '07:00', daysOfWeek: [0, 2, 3, 4, 5, 6] };
+    }
+  });
   const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [closedDates, setClosedDates] = useState([]);
   const [showOrderConfirmModal, setShowOrderConfirmModal] = useState(false);
@@ -827,6 +835,16 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber: pr
             const parsed = JSON.parse(openStatusItem.description);
             setStoreOpenStatus(parsed);
             localStorage.setItem(`${storeCode}_store_open_status`, JSON.stringify(parsed));
+          } catch (e) {}
+        }
+
+        const autoOpenKey = prefixNameForStore('SYSTEM_SETTING_AUTO_OPEN_CONFIG', storeCode);
+        const autoOpenItem = storeItems.find(item => item.name === autoOpenKey || item.name === 'SYSTEM_SETTING_AUTO_OPEN_CONFIG');
+        if (autoOpenItem && autoOpenItem.description) {
+          try {
+            const parsedCfg = JSON.parse(autoOpenItem.description);
+            setAutoOpenConfig(parsedCfg);
+            localStorage.setItem(`${storeCode}_auto_open_config`, JSON.stringify(parsedCfg));
           } catch (e) {}
         }
 
@@ -1697,17 +1715,46 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber: pr
 
   const todayStr = getTodayLocalDate();
   const nowTaipei = new Date();
-  const currentHour = parseInt(nowTaipei.toLocaleTimeString('en-US', { timeZone: 'Asia/Taipei', hour12: false, hour: '2-digit' }), 10);
-  
-  // Robust open status checks
-  const isManuallyClosed = Boolean(storeOpenStatus && (storeOpenStatus.is_open === false || storeOpenStatus.isOpen === false));
-  const isManuallyOpened = Boolean(storeOpenStatus && (storeOpenStatus.is_open === true || storeOpenStatus.isOpen === true));
-  const isTodayHoliday = closedDates.includes(todayStr);
+  const taipeiDateStr = nowTaipei.toLocaleDateString('en-CA', { timeZone: 'Asia/Taipei' });
+  const taipeiTimeStr = nowTaipei.toLocaleTimeString('en-GB', { timeZone: 'Asia/Taipei', hour: '2-digit', minute: '2-digit' });
+  const taipeiDay = new Date(nowTaipei.toLocaleString('en-US', { timeZone: 'Asia/Taipei' })).getDay();
 
-  // If explicitly opened by cashier/manager, store is strictly open (overriding nighttime cutoff!)
-  // Store is only closed if today is a scheduled holiday or explicitly closed by staff
-  const isClosed = isTodayHoliday || isManuallyClosed;
-  const isStoreOpenToday = isManuallyOpened || (!isClosed && (currentHour < 23 && currentHour >= 6));
+  // Check if store was explicitly closed TODAY
+  const isManuallyClosedToday = Boolean(
+    storeOpenStatus && 
+    (storeOpenStatus.is_open === false || storeOpenStatus.isOpen === false) &&
+    (storeOpenStatus.close_date === taipeiDateStr || storeOpenStatus.closed_at?.startsWith(taipeiDateStr))
+  );
+
+  // Check if explicitly opened TODAY
+  const isManuallyOpenedToday = Boolean(
+    storeOpenStatus &&
+    (storeOpenStatus.is_open === true || storeOpenStatus.isOpen === true) &&
+    (storeOpenStatus.open_date === taipeiDateStr || storeOpenStatus.opened_at?.startsWith(taipeiDateStr))
+  );
+
+  // Auto-open eligibility: enabled, operating day, and time >= openTime (default 07:00)
+  const autoOpenTime = autoOpenConfig?.openTime || '07:00';
+  const isOperatingDay = (autoOpenConfig?.daysOfWeek || [0, 2, 3, 4, 5, 6]).includes(taipeiDay);
+  const isAutoOpenEligible = Boolean(
+    autoOpenConfig?.enabled !== false &&
+    isOperatingDay &&
+    taipeiTimeStr >= autoOpenTime &&
+    taipeiTimeStr < '13:00'
+  );
+
+  // Scheduled holiday check (if not manually opened today and not auto-open eligible)
+  const isTodayHoliday = closedDates.includes(todayStr) && !isManuallyOpenedToday && !isAutoOpenEligible;
+
+  // Determine whether store is open for ordering
+  const isStoreOpenToday = (!isTodayHoliday && !isManuallyClosedToday) && (
+    isManuallyOpenedToday ||
+    isAutoOpenEligible ||
+    (autoOpenConfig?.enabled === false && taipeiTimeStr >= '07:00' && taipeiTimeStr < '13:00')
+  );
+
+  // Is closed (holiday or daily closing completed)
+  const isClosed = isTodayHoliday || isManuallyClosedToday;
 
   if (!isTestMode && !isInitialLoading && !isStoreOpenToday && !isClosed) {
     return (

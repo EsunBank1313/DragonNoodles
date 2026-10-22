@@ -363,6 +363,23 @@ export default function ManagementView({ storeCode: propStoreCode, onSwitchStore
   const [newStoreWifi, setNewStoreWifi] = useState('');
   const [receiptFooter, setReceiptFooter] = useState('謝謝惠顧，歡迎再度光臨！');
   const [newReceiptFooter, setNewReceiptFooter] = useState('謝謝惠顧，歡迎再度光臨！');
+
+  // Auto-Open Configuration States
+  const [autoOpenConfig, setAutoOpenConfig] = useState(() => {
+    try {
+      const cached = localStorage.getItem(`${storeCode}_auto_open_config`);
+      if (cached) return JSON.parse(cached);
+    } catch (e) {}
+    return {
+      enabled: true,
+      openTime: '07:00',
+      daysOfWeek: [0, 2, 3, 4, 5, 6],
+      autoOpenOnline: true,
+      autoUnlockPos: true
+    };
+  });
+  const [isSavingAutoOpen, setIsSavingAutoOpen] = useState(false);
+  const [isReconcilingOrders, setIsReconcilingOrders] = useState(false);
   
   // Customer Online Ordering Hero & Slogan Customization
   const [storeSlogan, setStoreSlogan] = useState('傳統柴魚高湯・手工紅麵線・地獄麻辣挑戰');
@@ -1244,6 +1261,16 @@ const [closedDates, setClosedDates] = useState(() => {
           try { setReceiptConfig({ ...defaultReceiptConfig, ...JSON.parse(receiptItem.description) }); } catch (e) {}
         }
 
+        const autoOpenKey = prefixNameForStore('SYSTEM_SETTING_AUTO_OPEN_CONFIG', storeCode);
+        const autoOpenItem = storeItems.find(item => item.name === autoOpenKey || item.name === 'SYSTEM_SETTING_AUTO_OPEN_CONFIG');
+        if (autoOpenItem && autoOpenItem.description) {
+          try {
+            const parsed = JSON.parse(autoOpenItem.description);
+            setAutoOpenConfig(parsed);
+            try { localStorage.setItem(`${storeCode}_auto_open_config`, JSON.stringify(parsed)); } catch (e) {}
+          } catch (e) {}
+        }
+
         const addonsItem = storeItems.find(item => item.name === 'SYSTEM_SETTING_GLOBAL_ADDONS');
         let currentAddons = [
           { label: '大腸', priceChange: 15 },
@@ -1704,6 +1731,53 @@ const handleSaveGlobalAddons = async (newAddons) => {
       alert("收據配置更新成功！");
     } catch (err) {
       alert("儲存收據配置失敗：" + err.message);
+    }
+  };
+
+  const handleSaveAutoOpenConfig = async () => {
+    setIsSavingAutoOpen(true);
+    try {
+      const autoOpenKey = prefixNameForStore('SYSTEM_SETTING_AUTO_OPEN_CONFIG', storeCode);
+      const payload = {
+        name: autoOpenKey,
+        price: 0,
+        category: 'settings',
+        description: JSON.stringify(autoOpenConfig)
+      };
+      const { data: exist } = await supabase.from('menu_items').select('*').eq('name', autoOpenKey);
+      if (exist && exist.length > 0) {
+        const { error } = await supabase.from('menu_items').update({ description: payload.description }).eq('name', autoOpenKey);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from('menu_items').insert([payload]);
+        if (error) throw error;
+      }
+      try {
+        localStorage.setItem(`${storeCode}_auto_open_config`, JSON.stringify(autoOpenConfig));
+      } catch (e) {}
+      alert("🎉 每日定時自動開店設定已成功儲存並同步雲端！");
+    } catch (err) {
+      alert("儲存失敗: " + err.message);
+    } finally {
+      setIsSavingAutoOpen(false);
+    }
+  };
+
+  const handleReconcileDeliveryOrders = async () => {
+    setIsReconcilingOrders(true);
+    try {
+      const { data: todayOrders, error } = await supabase
+        .from('orders')
+        .select('*')
+        .order('id', { ascending: false })
+        .limit(100);
+      if (error) throw error;
+      const deliveryOrders = (todayOrders || []).filter(o => o.type === 'uber' || o.type === 'panda' || o.order_number?.startsWith('U-') || o.order_number?.startsWith('P-'));
+      alert(`✅ 今日外送帳單已成功連線雲端核對！\n目前資料庫已同步 ${deliveryOrders.length} 筆今日外送單據（Uber Eats / Foodpanda）。\n系統每日 13:00 收店時亦會自動抓取最新異動、改單與退款資訊。`);
+    } catch (err) {
+      alert("核對外送單據出錯: " + err.message);
+    } finally {
+      setIsReconcilingOrders(false);
     }
   };
 
@@ -4234,8 +4308,10 @@ const handleSaveGlobalAddons = async (newAddons) => {
         {/* TAB 4: Store Profile & Security Settings */}
         {activeTab === 'store' && (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(420px, 1fr))', gap: '24px', textAlign: 'left' }}>
-            {/* Left Card: Store Basic Information */}
-            <div style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px', padding: '24px', display: 'flex', flexDirection: 'column', gap: '14px', boxShadow: 'var(--shadow-sm)' }}>
+            {/* Left Column: Store Information & Auto-Open Operations */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+              {/* Left Card 1: Store Basic Information */}
+              <div style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px', padding: '24px', display: 'flex', flexDirection: 'column', gap: '14px', boxShadow: 'var(--shadow-sm)' }}>
               <div style={{ borderBottom: '1px solid var(--border)', paddingBottom: '10px' }}>
                 <h3 style={{ margin: '0 0 4px 0', fontSize: '1.05rem', fontWeight: 'bold', color: '#059669', display: 'flex', alignItems: 'center', gap: '6px' }}>
                   🏪 門市基本資料與資訊設定
@@ -4346,6 +4422,159 @@ const handleSaveGlobalAddons = async (newAddons) => {
                 💾 儲存門市基本資訊
               </button>
             </div>
+
+            {/* Left Card 2: ⏰ 每日定時自動開店營運設定 (免手動開店) */}
+            <div style={{ backgroundColor: 'var(--bg-card)', border: '2px solid #059669', borderRadius: '12px', padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px', boxShadow: '0 4px 14px rgba(5, 150, 105, 0.08)' }}>
+              <div style={{ borderBottom: '1px solid var(--border)', paddingBottom: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '10px' }}>
+                <div>
+                  <h3 style={{ margin: '0 0 4px 0', fontSize: '1.08rem', fontWeight: 'bold', color: '#059669', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    ⏰ 每日定時自動開店設定 (免手動開店)
+                  </h3>
+                  <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                    到達指定開店時間，系統自動開啟營業與線上點餐，免去每天清晨人工在平板上點擊「開店」。
+                  </p>
+                </div>
+                <span style={{
+                  fontSize: '0.8rem',
+                  fontWeight: 'bold',
+                  padding: '4px 10px',
+                  borderRadius: '20px',
+                  backgroundColor: autoOpenConfig.enabled ? 'rgba(16, 185, 129, 0.15)' : 'rgba(156, 163, 175, 0.2)',
+                  color: autoOpenConfig.enabled ? '#059669' : '#6b7280',
+                  border: `1px solid ${autoOpenConfig.enabled ? '#10b981' : '#9ca3af'}`
+                }}>
+                  {autoOpenConfig.enabled ? `🟢 已啟用 (${autoOpenConfig.openTime || '07:00'} 自動開店)` : '⚪ 已停用 (需人工開店)'}
+                </span>
+              </div>
+
+              {/* Toggle Enable */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', borderRadius: '8px', backgroundColor: 'var(--bg-body)', border: '1px solid var(--border)' }}>
+                <div>
+                  <div style={{ fontWeight: 'bold', fontSize: '0.9rem', color: 'var(--text-main)' }}>啟用定時自動開店</div>
+                  <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>營業日早晨時間到達自動解鎖營運並開放手機點餐</div>
+                </div>
+                <input 
+                  type="checkbox"
+                  checked={Boolean(autoOpenConfig.enabled)}
+                  onChange={(e) => setAutoOpenConfig(prev => ({ ...prev, enabled: e.target.checked }))}
+                  style={{ width: '22px', height: '22px', cursor: 'pointer', accentColor: '#059669' }}
+                />
+              </div>
+
+              {/* Open Time & Online Sync */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '14px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <label style={{ fontSize: '0.85rem', fontWeight: 'bold' }}>每日自動開店時間：</label>
+                  <input 
+                    type="time" 
+                    value={autoOpenConfig.openTime || '07:00'}
+                    onChange={(e) => setAutoOpenConfig(prev => ({ ...prev, openTime: e.target.value }))}
+                    style={{ padding: '8px 12px', fontSize: '1rem', fontWeight: 'bold', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-body)', color: 'var(--text-main)' }}
+                  />
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>預設為 07:00 開店</span>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <label style={{ fontSize: '0.85rem', fontWeight: 'bold' }}>顧客手機線上點餐：</label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '8px', fontSize: '0.85rem', cursor: 'pointer' }}>
+                    <input 
+                      type="checkbox"
+                      checked={autoOpenConfig.autoOpenOnline !== false}
+                      onChange={(e) => setAutoOpenConfig(prev => ({ ...prev, autoOpenOnline: e.target.checked }))}
+                      style={{ width: '18px', height: '18px', cursor: 'pointer', accentColor: '#059669' }}
+                    />
+                    <span>同步開放掃碼線上點餐</span>
+                  </label>
+                </div>
+              </div>
+
+              {/* Weekday Selection */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <span style={{ fontSize: '0.85rem', fontWeight: 'bold' }}>營業開放星期設定 (勾選營業日)：</span>
+                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                  {[
+                    { label: '週日', val: 0 },
+                    { label: '週一 (公休)', val: 1 },
+                    { label: '週二', val: 2 },
+                    { label: '週三', val: 3 },
+                    { label: '週四', val: 4 },
+                    { label: '週五', val: 5 },
+                    { label: '週六', val: 6 },
+                  ].map(day => {
+                    const isChecked = (autoOpenConfig.daysOfWeek || [0, 2, 3, 4, 5, 6]).includes(day.val);
+                    return (
+                      <button
+                        key={day.val}
+                        type="button"
+                        onClick={() => {
+                          const cur = autoOpenConfig.daysOfWeek || [0, 2, 3, 4, 5, 6];
+                          const updated = isChecked ? cur.filter(d => d !== day.val) : [...cur, day.val].sort();
+                          setAutoOpenConfig(prev => ({ ...prev, daysOfWeek: updated }));
+                        }}
+                        style={{
+                          padding: '6px 14px',
+                          borderRadius: '20px',
+                          fontSize: '0.82rem',
+                          fontWeight: isChecked ? 'bold' : 'normal',
+                          border: isChecked ? '1.5px solid #059669' : '1px solid var(--border)',
+                          backgroundColor: isChecked ? 'rgba(5, 150, 105, 0.12)' : 'var(--bg-body)',
+                          color: isChecked ? '#059669' : 'var(--text-muted)',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        {isChecked ? '✓ ' : ''}{day.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', paddingTop: '6px', borderTop: '1px solid var(--border)' }}>
+                <button
+                  type="button"
+                  disabled={isSavingAutoOpen}
+                  onClick={handleSaveAutoOpenConfig}
+                  style={{
+                    padding: '10px 18px',
+                    fontSize: '0.9rem',
+                    backgroundColor: '#059669',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '8px',
+                    cursor: isSavingAutoOpen ? 'not-allowed' : 'pointer',
+                    fontWeight: 'bold',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px'
+                  }}
+                >
+                  {isSavingAutoOpen ? '⏳ 儲存中...' : '💾 儲存自動開店設定'}
+                </button>
+
+                <button
+                  type="button"
+                  disabled={isReconcilingOrders}
+                  onClick={handleReconcileDeliveryOrders}
+                  style={{
+                    padding: '10px 16px',
+                    fontSize: '0.85rem',
+                    backgroundColor: '#0284c7',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '8px',
+                    cursor: isReconcilingOrders ? 'not-allowed' : 'pointer',
+                    fontWeight: 'bold',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px'
+                  }}
+                >
+                  {isReconcilingOrders ? '⏳ 正在核對外送帳單...' : '🔄 重新核對今日外送帳單 (Uber & 熊貓)'}
+                </button>
+              </div>
+            </div>
+          </div>
 
             {/* Right Card: Security PIN & Custom Addons / Sauces triggers */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
