@@ -118,7 +118,9 @@ export default function ThermalPrintPortal({ printPayload, onClose }) {
           {receiptConfig.showAddress !== false && storeProfile.storeAddress && (
             <div style={{ textAlign: 'center', fontSize: '10px' }}>{storeProfile.storeAddress}</div>
           )}
-          <div style={{ textAlign: 'center', fontSize: subFontSize, fontWeight: 'bold', marginTop: '2px' }}>=== 交易收據明細 ===</div>
+          <div style={{ textAlign: 'center', fontSize: subFontSize, fontWeight: 'bold', marginTop: '2px' }}>
+            {isUber ? '=== Uber 外送出貨單 ===' : (isPanda ? '=== 熊貓外送出貨單 ===' : '=== 交易收據明細 ===')}
+          </div>
           {isTestOrder && (
             <div style={{ textAlign: 'center', fontSize: '13px', fontWeight: '900', margin: '3px 0', padding: '3px 0', border: '2px solid #000', backgroundColor: '#000', color: '#fff' }}>
               【 🧪 測試訂單 (免出餐) 】
@@ -139,6 +141,9 @@ export default function ThermalPrintPortal({ printPayload, onClose }) {
           {receiptConfig.printType !== false && (
             <div style={{ fontWeight: 'bold', wordBreak: 'break-all' }}>類型: {isPosOrder ? '【POS機點餐】' : (isOnlineOrder ? '【線上點餐】' : '')}{typeStr} {tableNameStr ? `(${tableNameStr}桌)` : ''}</div>
           )}
+          {custNameStr && (
+            <div style={{ fontWeight: 'bold', fontSize: is58mm ? '13px' : '15px', margin: '2px 0', wordBreak: 'break-all' }}>顧客: {custNameStr}</div>
+          )}
           {order.pickupTime && (
             <div style={{ fontWeight: 'bold', fontSize: is58mm ? '12px' : '14px', margin: '2px 0' }}>取餐時間: {order.pickupTime}</div>
           )}
@@ -157,7 +162,9 @@ export default function ThermalPrintPortal({ printPayload, onClose }) {
               <div key={idx} style={{ marginBottom: '4px', width: '100%', boxSizing: 'border-box' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '4px', fontSize: itemFontSize, fontWeight: 'bold', width: '100%', boxSizing: 'border-box' }}>
                   <span style={{ minWidth: 0, flex: 1, wordBreak: 'break-word', paddingRight: '2px' }}>{item.name} x{item.quantity}</span>
-                  <span style={{ flexShrink: 0, minWidth: '36px', textAlign: 'right', whiteSpace: 'nowrap' }}>${unitPrice}</span>
+                  {!isUber && !isPanda && (
+                    <span style={{ flexShrink: 0, minWidth: '36px', textAlign: 'right', whiteSpace: 'nowrap' }}>${unitPrice}</span>
+                  )}
                 </div>
                 {specsArray.length > 0 && (
                   <div style={{ fontSize: specFontSize, paddingLeft: '6px', fontWeight: 'bold', wordBreak: 'break-all' }}>
@@ -176,20 +183,22 @@ export default function ThermalPrintPortal({ printPayload, onClose }) {
           })}
 
           <div style={{ borderTop: '1px dashed #000', margin: '4px 0' }}></div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: is58mm ? '14px' : '16px', fontWeight: 'bold', width: '100%', boxSizing: 'border-box' }}>
-            <span>應收總計:</span>
-            <span style={{ flexShrink: 0, textAlign: 'right', whiteSpace: 'nowrap' }}>${totalNum}</span>
-          </div>
+          {!isUber && !isPanda && (
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: is58mm ? '14px' : '16px', fontWeight: 'bold', width: '100%', boxSizing: 'border-box' }}>
+              <span>應收總計:</span>
+              <span style={{ flexShrink: 0, textAlign: 'right', whiteSpace: 'nowrap' }}>${totalNum}</span>
+            </div>
+          )}
           {isUber && (
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: baseFontSize, fontWeight: 'bold', width: '100%', boxSizing: 'border-box' }}>
               <span>付款方式:</span>
-              <span style={{ flexShrink: 0, textAlign: 'right', whiteSpace: 'nowrap' }}>🛵 平台結清</span>
+              <span style={{ flexShrink: 0, textAlign: 'right', whiteSpace: 'nowrap' }}>🛵 平台線上結清 (免收款)</span>
             </div>
           )}
           {isPanda && (
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: baseFontSize, fontWeight: 'bold', width: '100%', boxSizing: 'border-box' }}>
               <span>付款方式:</span>
-              <span style={{ flexShrink: 0, textAlign: 'right', whiteSpace: 'nowrap' }}>🐼 平台結清</span>
+              <span style={{ flexShrink: 0, textAlign: 'right', whiteSpace: 'nowrap' }}>🐼 平台線上結清 (免收款)</span>
             </div>
           )}
           {!isUber && !isPanda && receiptConfig.printReceivedAndChange !== false && order.cashReceived !== undefined && order.cashReceived !== null && (

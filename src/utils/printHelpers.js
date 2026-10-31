@@ -371,11 +371,12 @@ export const printDualReceipts = (order, storeProfile = defaultStoreProfile, rec
           ${(receiptConfig.showTaxId !== false && storeProfile.storeTaxId) ? `<div class="center" style="font-size: 11px;">統一編號: ${storeProfile.storeTaxId}</div>` : ''}
           ${(receiptConfig.showPhone !== false && storeProfile.storePhone) ? `<div class="center" style="font-size: 11px;">電話: ${storeProfile.storePhone}</div>` : ''}
           ${(receiptConfig.showAddress !== false && storeProfile.storeAddress) ? `<div class="center" style="font-size: 10px;">${storeProfile.storeAddress}</div>` : ''}
-          <div class="center subtitle" style="margin-top: 2px;">=== 交易收據明細 ===</div>
+          <div class="center subtitle" style="margin-top: 2px;">=== ${isUber ? 'Uber 外送出貨單' : (isPanda ? '熊貓外送出貨單' : '交易收據明細')} ===</div>
           ${isPosOrder ? '<div class="center" style="font-size: 13px; font-weight: bold; margin: 2px 0; border: 1px solid #000; padding: 2px 0;">【 💻 POS機點餐 】</div>' : (isOnlineOrder ? '<div class="center" style="font-size: 13px; font-weight: bold; margin: 2px 0; border: 1px solid #000; padding: 2px 0;">【 📱 線上點餐 】</div>' : '')}
           <div class="divider"></div>
           <div style="font-size: 14px; font-weight: bold; margin-bottom: 2px;">單號: ${orderNumStr}</div>
           ${(receiptConfig.printType !== false) ? `<div>類型: ${isPosOrder ? '【POS機點餐】' : (isOnlineOrder ? '【線上點餐】' : '')}${typeStr} ${tableNameStr ? `(${tableNameStr}桌)` : ''}</div>` : ''}
+          ${custNameStr ? `<div style="font-weight: bold; margin: 2px 0;">顧客: ${custNameStr}</div>` : ''}
           ${order.pickupTime ? `<div style="font-weight: bold; font-size: 13px; margin: 2px 0;">取餐時間: ${order.pickupTime}</div>` : ''}
           ${(receiptConfig.printDateTime !== false) ? `<div style="font-size: 11px;">時間: ${new Date(dateStr).toLocaleString('zh-TW', { hour12: false })}</div>` : ''}
           <div class="divider"></div>
@@ -384,7 +385,7 @@ export const printDualReceipts = (order, storeProfile = defaultStoreProfile, rec
             return `
               <div class="row" style="font-size: 13px;">
                 <span class="item">${item.name} x${item.quantity}</span>
-                <span>$${unitPrice}</span>
+                ${(!isUber && !isPanda) ? `<span>$${unitPrice}</span>` : ''}
               </div>
               ${item.specs && item.specs.length > 0 ? `
                 <div style="font-size: 11px; padding-left: 8px; font-weight: bold;">
@@ -393,15 +394,22 @@ export const printDualReceipts = (order, storeProfile = defaultStoreProfile, rec
               ` : ''}
             `;
           }).join('')}
+          ${(!isUber && !isPanda) ? `
           <div class="divider"></div>
           <div class="row" style="font-size: 14px; font-weight: bold;">
             <span>應收總計:</span>
             <span>$${totalNum}</span>
           </div>
+          ` : '<div class="divider"></div>'}
           ${isUber ? `
             <div class="row" style="font-size: 13px; font-weight: bold; color: #059669;">
               <span>付款方式:</span>
-              <span>🛵 平台線上結清</span>
+              <span>🛵 平台線上結清 (免收款)</span>
+            </div>
+          ` : (isPanda ? `
+            <div class="row" style="font-size: 13px; font-weight: bold; color: #d946ef;">
+              <span>付款方式:</span>
+              <span>🐼 平台線上結清 (免收款)</span>
             </div>
           ` : ((receiptConfig.printReceivedAndChange !== false && order.cashReceived !== undefined && order.cashReceived !== null) ? `
             <div class="row" style="font-size: 13px; font-weight: bold;">
@@ -412,7 +420,7 @@ export const printDualReceipts = (order, storeProfile = defaultStoreProfile, rec
               <span>找零:</span>
               <span>$${order.changeAmount}</span>
             </div>
-          ` : '')}
+          ` : ''))}
           ${(receiptConfig.showWifi !== false && storeProfile.storeWifi) ? `
             <div class="divider"></div>
             <div style="font-size: 10px; text-align: center;">📶 店內 Wi-Fi: ${storeProfile.storeWifi}</div>
