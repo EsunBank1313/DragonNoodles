@@ -194,6 +194,7 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
   const [tableNumber, setTableNumber] = useState(null);
   const [custName, setCustName] = useState('');
   const [remarks, setRemarks] = useState('');
+  const [paymentNote, setPaymentNote] = useState(''); // 電子支付末5碼/註記
   
   // Cash Register Calculations
   const [cashReceived, setCashReceived] = useState('');
@@ -679,19 +680,47 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
     );
     const isDelivery = (o) => isUberOrder(o) || isPandaOrder(o);
 
-    const uberOrders = todayOrders.filter(isUberOrder);
-    const pandaOrders = todayOrders.filter(isPandaOrder);
-    const uberRev = uberOrders.reduce((sum, o) => sum + (Number(o.total) || 0), 0);
-    const pandaRev = pandaOrders.reduce((sum, o) => sum + (Number(o.total) || 0), 0);
-    const uberCount = uberOrders.length;
-    const pandaCount = pandaOrders.length;
+    let cashRev = 0;
+    let linePayRev = 0;
+    let linePayCount = 0;
+    let twqrRev = 0;
+    let twqrCount = 0;
+    let otherOnlineRev = 0;
+    let otherOnlineCount = 0;
+    let uberRev = 0;
+    let uberCount = 0;
+    let pandaRev = 0;
+    let pandaCount = 0;
 
-    const onlineRev = todayOrders
-      .filter(o => !isDelivery(o) && (o.paymentMethod === 'online' || o.paymentMethod === 'linepay' || o.paymentMethod === 'jkopay' || o.paymentMethod === '線上付'))
-      .reduce((sum, o) => sum + (Number(o.total) || 0), 0);
+    todayOrders.forEach(o => {
+      const amt = Number(o.total) || 0;
+      if (isUberOrder(o)) {
+        uberRev += amt;
+        uberCount += 1;
+        return;
+      }
+      if (isPandaOrder(o)) {
+        pandaRev += amt;
+        pandaCount += 1;
+        return;
+      }
+      const pm = String(o.paymentMethod || '').toLowerCase().trim();
+      if (pm === 'linepay' || pm === 'line pay' || pm === 'line_pay') {
+        linePayRev += amt;
+        linePayCount += 1;
+      } else if (pm === 'twqr' || pm === 'twqr_transfer' || pm.includes('twqr') || pm.includes('台灣 pay') || pm.includes('taiwan pay') || pm === '轉帳') {
+        twqrRev += amt;
+        twqrCount += 1;
+      } else if (pm === 'card' || pm === 'credit' || pm === '信用卡' || pm === 'online' || pm === '線上付' || pm === '線上點餐' || pm === 'jkopay' || pm === '街口支付' || pm === '悠遊卡') {
+        otherOnlineRev += amt;
+        otherOnlineCount += 1;
+      } else {
+        // Physical cash in drawer
+        cashRev += amt;
+      }
+    });
 
-    // Physical cash drawer strictly excludes online payment and delivery platforms
-    const cashRev = totalRev - onlineRev - uberRev - pandaRev;
+    const nonCashTotal = linePayRev + twqrRev + otherOnlineRev + uberRev + pandaRev;
     const dineInCount = todayOrders.filter(o => o.type === 'dine-in' && !isDelivery(o)).length;
     const takeoutCount = todayOrders.filter(o => o.type !== 'dine-in' && !isDelivery(o)).length;
     const avgOrderVal = todayOrders.length > 0 ? Math.round(totalRev / todayOrders.length) : 0;
@@ -709,7 +738,14 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
       cashier: cashierName || '店長 (Admin)',
       totalRevenue: totalRev,
       cashRevenue: cashRev,
-      onlineRevenue: onlineRev,
+      nonCashTotal: nonCashTotal,
+      linePayRevenue: linePayRev,
+      linePayCount,
+      twqrRevenue: twqrRev,
+      twqrCount,
+      otherOnlineRevenue: otherOnlineRev,
+      otherOnlineCount,
+      onlineRevenue: linePayRev + twqrRev + otherOnlineRev,
       uberRevenue: uberRev,
       uberCount,
       pandaRevenue: pandaRev,
@@ -848,7 +884,13 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
       paymentBreakdown[m] = 0;
     });
 
-    let onlinePaymentTotal = 0;
+    let cashRevenue = 0;
+    let linePayRevenue = 0;
+    let linePayCount = 0;
+    let twqrRevenue = 0;
+    let twqrCount = 0;
+    let otherOnlineRevenue = 0;
+    let otherOnlineCount = 0;
     let uberRevenue = 0;
     let uberCount = 0;
     let pandaRevenue = 0;
@@ -879,30 +921,32 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
         takeoutCount += 1;
       }
 
-      const rawPay = o.paymentMethod || '現金';
+      const pm = String(o.paymentMethod || '').toLowerCase().trim();
 
-      if (rawPay === 'online' || rawPay === '線上付' || rawPay === '線上點餐') {
-        onlinePaymentTotal += orderTotal;
-        return;
-      }
-
-      if (paymentBreakdown[rawPay] !== undefined) {
-        paymentBreakdown[rawPay] += orderTotal;
-      } else if (rawPay === 'cash' || rawPay === '現金') {
-        if (paymentBreakdown['現金'] !== undefined) paymentBreakdown['現金'] += orderTotal;
-        else paymentBreakdown[rawPay] = (paymentBreakdown[rawPay] || 0) + orderTotal;
-      } else if (rawPay === 'card' || rawPay === '信用卡' || rawPay === '刷卡') {
-        if (paymentBreakdown['信用卡'] !== undefined) paymentBreakdown['信用卡'] += orderTotal;
-        else paymentBreakdown[rawPay] = (paymentBreakdown[rawPay] || 0) + orderTotal;
-      } else if (rawPay === 'linepay' || rawPay === 'LINE Pay') {
+      if (pm === 'linepay' || pm === 'line pay' || pm === 'line_pay') {
+        linePayRevenue += orderTotal;
+        linePayCount += 1;
         if (paymentBreakdown['LINE Pay'] !== undefined) paymentBreakdown['LINE Pay'] += orderTotal;
-        else paymentBreakdown[rawPay] = (paymentBreakdown[rawPay] || 0) + orderTotal;
+        else paymentBreakdown['LINE Pay'] = (paymentBreakdown['LINE Pay'] || 0) + orderTotal;
+      } else if (pm === 'twqr' || pm === 'twqr_transfer' || pm.includes('twqr') || pm.includes('台灣 pay') || pm.includes('taiwan pay') || pm === '轉帳') {
+        twqrRevenue += orderTotal;
+        twqrCount += 1;
+        if (paymentBreakdown['TWQR'] !== undefined) paymentBreakdown['TWQR'] += orderTotal;
+        else paymentBreakdown['TWQR / 台灣Pay'] = (paymentBreakdown['TWQR / 台灣Pay'] || 0) + orderTotal;
+      } else if (pm === 'card' || pm === 'credit' || pm === '信用卡' || pm === 'online' || pm === '線上付' || pm === '線上點餐' || pm === 'jkopay' || pm === '街口支付' || pm === '悠遊卡') {
+        otherOnlineRevenue += orderTotal;
+        otherOnlineCount += 1;
+        const key = o.paymentMethod || '信用卡';
+        paymentBreakdown[key] = (paymentBreakdown[key] || 0) + orderTotal;
       } else {
-        paymentBreakdown[rawPay] = (paymentBreakdown[rawPay] || 0) + orderTotal;
+        // Cash payment into drawer
+        cashRevenue += orderTotal;
+        if (paymentBreakdown['現金'] !== undefined) paymentBreakdown['現金'] += orderTotal;
+        else paymentBreakdown['現金'] = (paymentBreakdown['現金'] || 0) + orderTotal;
       }
     });
 
-    const cashRev = paymentBreakdown['現金'] || paymentBreakdown['cash'] || 0;
+    const nonCashTotal = linePayRevenue + twqrRevenue + otherOnlineRevenue + uberRevenue + pandaRevenue;
     const avgOrderVal = targetOrders.length > 0 ? Math.round(totalRev / targetOrders.length) : 0;
 
     return {
@@ -911,9 +955,16 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
       loginTime,
       orderCount: targetOrders.length,
       totalRevenue: totalRev,
-      cashRevenue: cashRev,
+      cashRevenue,
+      nonCashTotal,
+      linePayRevenue,
+      linePayCount,
+      twqrRevenue,
+      twqrCount,
+      otherOnlineRevenue,
+      otherOnlineCount,
       paymentBreakdown,
-      onlineRevenue: onlinePaymentTotal,
+      onlineRevenue: linePayRevenue + twqrRevenue + otherOnlineRevenue,
       uberRevenue,
       uberCount,
       pandaRevenue,
@@ -1964,6 +2015,27 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
       const serialNum = `${prefix}-${String(maxNum + 1).padStart(3, '0')}`;
       locallyPrintedOrders.current.add(serialNum);
 
+      let payMethodKey = 'cash';
+      let payMethodLabel = '現金';
+      if (orderType === 'uber' || orderType === 'ubereats') {
+        payMethodKey = 'ubereats';
+        payMethodLabel = 'Uber Eats';
+      } else if (orderType === 'foodpanda' || orderType === 'panda') {
+        payMethodKey = 'foodpanda';
+        payMethodLabel = 'foodpanda';
+      } else if (!isCash) {
+        if (selectedPaymentMethod === 'LINE Pay' || selectedPaymentMethod.toLowerCase() === 'linepay') {
+          payMethodKey = 'linepay';
+          payMethodLabel = 'LINE Pay';
+        } else if (selectedPaymentMethod === 'TWQR' || selectedPaymentMethod.toLowerCase().includes('twqr') || selectedPaymentMethod.includes('台灣 Pay')) {
+          payMethodKey = 'twqr';
+          payMethodLabel = 'TWQR';
+        } else {
+          payMethodKey = selectedPaymentMethod;
+          payMethodLabel = selectedPaymentMethod;
+        }
+      }
+
       const orderPayload = {
         order_number: serialNum,
         items: {
@@ -1987,8 +2059,10 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                     : (custName.trim() || '現場外帶 (POS)'))),
           customerPhone: '',
           pickupTime: '',
-          paymentMethod: (orderType === 'uber' || orderType === 'ubereats') ? 'ubereats' : ((orderType === 'foodpanda' || orderType === 'panda') ? 'foodpanda' : (isCash ? 'cash' : selectedPaymentMethod)),
-          remarks: "",
+          paymentMethod: payMethodKey,
+          paymentNote: paymentNote.trim(),
+          transferLast5: paymentNote.trim(),
+          remarks: paymentNote.trim() ? `【${payMethodLabel}註記: ${paymentNote.trim()}】` : "",
           cashier: cashierName || localStorage.getItem('cashier_name') || '店長 (Admin)'
         },
         total: finalTotal,
@@ -2025,11 +2099,13 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
       const createdOrder = dbOrders[0];
       const orderToPrint = {
         ...formatSupabaseOrder(createdOrder),
+        paymentMethod: payMethodKey,
+        paymentNote: paymentNote.trim(),
+        transferLast5: paymentNote.trim(),
         cashReceived: received,
         changeAmount: received - finalTotal
       };
 
-      // 3. Print receipt automatically ONLY if isAutoPrintEnabled is true
       // 3. Print receipt automatically ONLY if isAutoPrintEnabled is true
       if (isAutoPrintEnabledRef.current) {
         try {
@@ -2042,6 +2118,9 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
       setLatestOrder({
         ...createdOrder,
         ...formatSupabaseOrder(createdOrder),
+        paymentMethod: payMethodKey,
+        paymentNote: paymentNote.trim(),
+        transferLast5: paymentNote.trim(),
         cashReceived: received,
         changeAmount: received - finalTotal
       });
@@ -2070,7 +2149,10 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                 : ((orderType === 'foodpanda' || orderType === 'panda')
                     ? (custName.trim() ? `foodpanda (${custName.trim()})` : '🐼 熊貓外送')
                     : (custName.trim() || '現場外帶'))),
-          paymentMethod: (orderType === 'uber' || orderType === 'ubereats') ? 'ubereats' : ((orderType === 'foodpanda' || orderType === 'panda') ? 'foodpanda' : (isCash ? 'cash' : selectedPaymentMethod)),
+          paymentMethod: payMethodKey,
+          paymentNote: paymentNote.trim(),
+          transferLast5: paymentNote.trim(),
+          remarks: paymentNote.trim() ? `【${payMethodLabel}註記: ${paymentNote.trim()}】` : "",
           cashier: cashierName || '店長 (Admin)'
         },
         total: finalTotal,
@@ -2093,6 +2175,9 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
       const fallbackPrintOrder = {
         ...offlineOrder,
         serialNum: fallbackSerial,
+        paymentMethod: payMethodKey,
+        paymentNote: paymentNote.trim(),
+        transferLast5: paymentNote.trim(),
         cashReceived: received,
         changeAmount: received - finalTotal
       };
@@ -2334,28 +2419,69 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                   <span>💰 當班營業總額:</span>
                   <span>NT$ {shiftData.totalRevenue.toLocaleString()}</span>
                 </div>
-                {shiftData.paymentBreakdown && Object.entries(shiftData.paymentBreakdown).map(([methodName, amount]) => {
-                  const isCash = methodName === '現金' || methodName === 'cash';
-                  return (
-                    <div key={methodName} style={{ display: 'flex', justifyContent: 'space-between', paddingLeft: '10px', color: isCash ? '#16a34a' : 'var(--text-main)', fontWeight: isCash ? 'bold' : 'normal' }}>
-                      <span>└ {methodName}:</span>
-                      <span>NT$ {amount.toLocaleString()}</span>
+
+                <div style={{
+                  backgroundColor: 'rgba(22, 163, 74, 0.08)',
+                  border: '1px solid #86efac',
+                  borderRadius: '8px',
+                  padding: '8px 12px',
+                  marginTop: '4px',
+                  marginBottom: '4px'
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '1.05rem', fontWeight: '900', color: '#15803d' }}>
+                    <span>💵 錢櫃應有現金:</span>
+                    <span>NT$ {(shiftData.cashRevenue || 0).toLocaleString()}</span>
+                  </div>
+                  <div style={{ fontSize: '0.75rem', color: '#166534', marginTop: '2px' }}>
+                    * 實點抽屜現金只需比對此金額 (已排除所有電支與外送)
+                  </div>
+                </div>
+
+                <div style={{
+                  backgroundColor: 'rgba(37, 99, 235, 0.05)',
+                  border: '1px solid #bfdbfe',
+                  borderRadius: '8px',
+                  padding: '8px 12px',
+                  marginBottom: '4px'
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.92rem', fontWeight: 'bold', color: '#1d4ed8' }}>
+                    <span>⚡ 取代現金缺口合計:</span>
+                    <span>NT$ {(shiftData.nonCashTotal || 0).toLocaleString()}</span>
+                  </div>
+                  {shiftData.linePayRevenue > 0 && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', paddingLeft: '8px', color: '#059669', marginTop: '2px' }}>
+                      <span>• 🟢 LINE Pay:</span>
+                      <span>NT$ {shiftData.linePayRevenue.toLocaleString()} ({shiftData.linePayCount || 0}筆)</span>
                     </div>
-                  );
-                })}
-                {shiftData.onlineRevenue > 0 && (
-                  <div style={{ display: 'flex', justifyContent: 'space-between', paddingLeft: '10px', color: 'var(--text-muted)' }}>
-                    <span>└ 線上點餐付款:</span>
-                    <span>NT$ {shiftData.onlineRevenue.toLocaleString()}</span>
+                  )}
+                  {shiftData.twqrRevenue > 0 && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', paddingLeft: '8px', color: '#2563eb', marginTop: '2px' }}>
+                      <span>• 🏦 TWQR/台灣Pay:</span>
+                      <span>NT$ {shiftData.twqrRevenue.toLocaleString()} ({shiftData.twqrCount || 0}筆)</span>
+                    </div>
+                  )}
+                  {shiftData.otherOnlineRevenue > 0 && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', paddingLeft: '8px', color: '#6366f1', marginTop: '2px' }}>
+                      <span>• 💳 信用卡/其他電支:</span>
+                      <span>NT$ {shiftData.otherOnlineRevenue.toLocaleString()} ({shiftData.otherOnlineCount || 0}筆)</span>
+                    </div>
+                  )}
+                  {shiftData.uberRevenue > 0 && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', paddingLeft: '8px', color: '#06C167', marginTop: '2px', fontWeight: 'bold' }}>
+                      <span>• 🛵 Uber Eats:</span>
+                      <span>NT$ {shiftData.uberRevenue.toLocaleString()} ({shiftData.uberCount || 0}筆)</span>
+                    </div>
+                  )}
+                  {shiftData.pandaRevenue > 0 && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', paddingLeft: '8px', color: '#d946ef', marginTop: '2px', fontWeight: 'bold' }}>
+                      <span>• 🐼 foodpanda:</span>
+                      <span>NT$ {shiftData.pandaRevenue.toLocaleString()} ({shiftData.pandaCount || 0}筆)</span>
+                    </div>
+                  )}
+                  <div style={{ fontSize: '0.72rem', color: '#6b7280', marginTop: '4px' }}>
+                    💡 總營收(${(shiftData.totalRevenue || 0).toLocaleString()}) - 電支外送缺口(${(shiftData.nonCashTotal || 0).toLocaleString()}) = 實收現金(${(shiftData.cashRevenue || 0).toLocaleString()})
                   </div>
-                )}
-                {shiftData.uberRevenue > 0 && (
-                  <div style={{ display: 'flex', justifyContent: 'space-between', paddingLeft: '10px', color: '#06C167', fontWeight: 'bold' }}>
-                    <span>└ 🛵 Uber Eats:</span>
-                    <span>NT$ {shiftData.uberRevenue.toLocaleString()}</span>
-                  </div>
-                )}
-                <div style={{ height: '1px', backgroundColor: 'var(--border)', margin: '4px 0' }} />
+                </div>
 
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold' }}>
                   <span>🧾 成交訂單筆數:</span>
@@ -4074,7 +4200,8 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
 
                     return filteredOrders.map(order => {
                       const isTestOrder = isTest(order);
-                      const isCustomerOrder = !isTestOrder && Boolean(!order.cashier || order.isOnline || (order.customerPhone && order.customerPhone.length > 0) || order.pickupTime || order.source === 'customer');
+                      const isDeliveryOrder = isDelivery(order);
+                      const isCustomerOrder = !isTestOrder && !isDeliveryOrder && Boolean(!order.cashier || order.isOnline || (order.customerPhone && order.customerPhone.length > 0) || order.pickupTime || order.source === 'customer');
                       const isCustomerUnfinished = isCustomerOrder && order.status !== 'completed' && order.status !== 'deleted' && order.status !== 'cancelled' && order.status !== 'rejected';
 
                       return (
@@ -4155,6 +4282,8 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                                 }}>
                                   📱 線上點餐
                                 </span>
+                              ) : isDeliveryOrder ? (
+                                null
                               ) : (
                                 <span style={{
                                   backgroundColor: 'var(--bg-body)',
@@ -4311,8 +4440,8 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                                   )}
                                   <span>
                                     💰 付款: {
-                                      order.paymentMethod === 'linepay' ? '🟢 LINE Pay 已付' :
-                                      order.paymentMethod === 'twqr_transfer' ? `🏦 TWQR/轉帳 (末5碼: ${order.transferLast5 || '無'})` :
+                                      (order.paymentMethod === 'linepay' || order.paymentMethod === 'LINE Pay') ? `🟢 LINE Pay 已付${order.paymentNote || order.transferLast5 ? ` (註記: ${order.paymentNote || order.transferLast5})` : ''}` :
+                                      (order.paymentMethod === 'twqr' || order.paymentMethod === 'twqr_transfer' || order.paymentMethod === 'TWQR') ? `🏦 TWQR/轉帳 (末5碼: ${order.paymentNote || order.transferLast5 || '無'})` :
                                       order.paymentMethod === 'online' ? '💳 線上已刷卡' :
                                       (order.paymentMethod === 'cash' || order.paymentMethod === 'counter' ? (isDeliveryOrder ? '💵 貨到付款 (司機代收)' : '現場現金') : order.paymentMethod)
                                     }
@@ -5363,7 +5492,7 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                             backgroundColor: isCash ? '#16a34a' : 'var(--bg-card)',
                             color: isCash ? '#ffffff' : 'var(--text-main)',
                             fontWeight: '900',
-                            fontSize: '1.15rem',
+                            fontSize: '1.1rem',
                             cursor: 'pointer',
                             display: 'flex',
                             alignItems: 'center',
@@ -5385,59 +5514,92 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                           style={{
                             height: '56px',
                             borderRadius: '12px',
-                            border: (!isCash && selectedPaymentMethod !== '現金') ? '3px solid #06C167' : '2px solid var(--border)',
-                            backgroundColor: (!isCash && selectedPaymentMethod !== '現金') ? '#06C167' : 'var(--bg-card)',
-                            color: (!isCash && selectedPaymentMethod !== '現金') ? '#ffffff' : 'var(--text-main)',
+                            border: (!isCash && (selectedPaymentMethod === 'LINE Pay' || selectedPaymentMethod === 'linepay')) ? '3px solid #06C167' : '2px solid var(--border)',
+                            backgroundColor: (!isCash && (selectedPaymentMethod === 'LINE Pay' || selectedPaymentMethod === 'linepay')) ? '#06C167' : 'var(--bg-card)',
+                            color: (!isCash && (selectedPaymentMethod === 'LINE Pay' || selectedPaymentMethod === 'linepay')) ? '#ffffff' : 'var(--text-main)',
                             fontWeight: '900',
-                            fontSize: '1.15rem',
+                            fontSize: '1.1rem',
                             cursor: 'pointer',
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'center',
                             gap: '8px',
-                            boxShadow: (!isCash && selectedPaymentMethod !== '現金') ? '0 4px 14px rgba(6, 193, 103, 0.35)' : 'none',
+                            boxShadow: (!isCash && (selectedPaymentMethod === 'LINE Pay' || selectedPaymentMethod === 'linepay')) ? '0 4px 14px rgba(6, 193, 103, 0.35)' : 'none',
                             transition: 'all 0.15s ease'
                           }}
                         >
-                          <span>📱 線上支付</span>
+                          <span>🟢 LINE Pay</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedPaymentMethod('TWQR');
+                            setCashReceived(String(finalTotal));
+                          }}
+                          style={{
+                            height: '56px',
+                            borderRadius: '12px',
+                            border: (!isCash && (selectedPaymentMethod === 'TWQR' || selectedPaymentMethod === 'twqr' || selectedPaymentMethod === '台灣 Pay')) ? '3px solid #2563eb' : '2px solid var(--border)',
+                            backgroundColor: (!isCash && (selectedPaymentMethod === 'TWQR' || selectedPaymentMethod === 'twqr' || selectedPaymentMethod === '台灣 Pay')) ? '#2563eb' : 'var(--bg-card)',
+                            color: (!isCash && (selectedPaymentMethod === 'TWQR' || selectedPaymentMethod === 'twqr' || selectedPaymentMethod === '台灣 Pay')) ? '#ffffff' : 'var(--text-main)',
+                            fontWeight: '900',
+                            fontSize: '1.1rem',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '8px',
+                            boxShadow: (!isCash && (selectedPaymentMethod === 'TWQR' || selectedPaymentMethod === 'twqr' || selectedPaymentMethod === '台灣 Pay')) ? '0 4px 14px rgba(37, 99, 235, 0.35)' : 'none',
+                            transition: 'all 0.15s ease'
+                          }}
+                        >
+                          <span>🏦 TWQR / 台灣Pay</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedPaymentMethod('信用卡');
+                            setCashReceived(String(finalTotal));
+                          }}
+                          style={{
+                            height: '56px',
+                            borderRadius: '12px',
+                            border: (!isCash && selectedPaymentMethod !== 'LINE Pay' && selectedPaymentMethod !== 'linepay' && selectedPaymentMethod !== 'TWQR' && selectedPaymentMethod !== 'twqr' && selectedPaymentMethod !== '台灣 Pay') ? '3px solid #6366f1' : '2px solid var(--border)',
+                            backgroundColor: (!isCash && selectedPaymentMethod !== 'LINE Pay' && selectedPaymentMethod !== 'linepay' && selectedPaymentMethod !== 'TWQR' && selectedPaymentMethod !== 'twqr' && selectedPaymentMethod !== '台灣 Pay') ? '#6366f1' : 'var(--bg-card)',
+                            color: (!isCash && selectedPaymentMethod !== 'LINE Pay' && selectedPaymentMethod !== 'linepay' && selectedPaymentMethod !== 'TWQR' && selectedPaymentMethod !== 'twqr' && selectedPaymentMethod !== '台灣 Pay') ? '#ffffff' : 'var(--text-main)',
+                            fontWeight: '900',
+                            fontSize: '1.05rem',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '6px',
+                            boxShadow: (!isCash && selectedPaymentMethod !== 'LINE Pay' && selectedPaymentMethod !== 'linepay' && selectedPaymentMethod !== 'TWQR' && selectedPaymentMethod !== 'twqr' && selectedPaymentMethod !== '台灣 Pay') ? '0 4px 14px rgba(99, 102, 241, 0.35)' : 'none',
+                            transition: 'all 0.15s ease'
+                          }}
+                        >
+                          <span>💳 其他電支 / 刷卡</span>
                         </button>
                       </div>
 
-                      {/* Online payment sub-method selection */}
-                      {!isCash && (
-                        <div style={{ marginTop: '10px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                          {posPaymentMethods.filter(m => m !== '現金').map(m => (
+                      {/* Sub-options for other electronic methods */}
+                      {(!isCash && selectedPaymentMethod !== 'LINE Pay' && selectedPaymentMethod !== 'linepay' && selectedPaymentMethod !== 'TWQR' && selectedPaymentMethod !== 'twqr' && selectedPaymentMethod !== '台灣 Pay') && (
+                        <div style={{ marginTop: '8px', display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                          {['信用卡', '街口支付', '悠遊卡', '線上付'].map(m => (
                             <button
                               key={m}
                               type="button"
                               onClick={() => setSelectedPaymentMethod(m)}
                               style={{
-                                padding: '6px 14px',
-                                borderRadius: '8px',
-                                border: selectedPaymentMethod === m ? '2px solid #06C167' : '1px solid var(--border)',
-                                backgroundColor: selectedPaymentMethod === m ? 'rgba(6, 193, 103, 0.15)' : 'var(--bg-card)',
-                                color: selectedPaymentMethod === m ? '#06C167' : 'var(--text-main)',
+                                padding: '4px 10px',
+                                borderRadius: '6px',
+                                border: selectedPaymentMethod === m ? '2px solid #6366f1' : '1px solid var(--border)',
+                                backgroundColor: selectedPaymentMethod === m ? 'rgba(99, 102, 241, 0.15)' : 'var(--bg-card)',
+                                color: selectedPaymentMethod === m ? '#6366f1' : 'var(--text-main)',
                                 fontWeight: 'bold',
-                                fontSize: '0.88rem',
-                                cursor: 'pointer'
-                              }}
-                            >
-                              {m}
-                            </button>
-                          ))}
-                          {['街口支付', '台灣 Pay', '悠遊卡'].filter(m => !posPaymentMethods.includes(m)).map(m => (
-                            <button
-                              key={m}
-                              type="button"
-                              onClick={() => setSelectedPaymentMethod(m)}
-                              style={{
-                                padding: '6px 14px',
-                                borderRadius: '8px',
-                                border: selectedPaymentMethod === m ? '2px solid #06C167' : '1px solid var(--border)',
-                                backgroundColor: selectedPaymentMethod === m ? 'rgba(6, 193, 103, 0.15)' : 'var(--bg-card)',
-                                color: selectedPaymentMethod === m ? '#06C167' : 'var(--text-main)',
-                                fontWeight: 'bold',
-                                fontSize: '0.88rem',
+                                fontSize: '0.8rem',
                                 cursor: 'pointer'
                               }}
                             >
@@ -5759,47 +5921,102 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                       flexDirection: 'column',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      gap: '16px',
-                      padding: '24px',
+                      gap: '12px',
+                      padding: '20px',
                       borderRadius: '16px',
                       backgroundColor: 'var(--bg-body)',
                       border: '2px dashed var(--border)',
                       textAlign: 'center'
                     }}>
                       <div style={{
-                        width: '72px',
-                        height: '72px',
+                        width: '64px',
+                        height: '64px',
                         borderRadius: '50%',
-                        backgroundColor: 'rgba(6, 193, 103, 0.15)',
-                        color: '#06C167',
+                        backgroundColor: (selectedPaymentMethod === 'LINE Pay' || selectedPaymentMethod === 'linepay') ? 'rgba(6, 193, 103, 0.15)' : ((selectedPaymentMethod === 'TWQR' || selectedPaymentMethod === 'twqr') ? 'rgba(37, 99, 235, 0.15)' : 'rgba(99, 102, 241, 0.15)'),
+                        color: (selectedPaymentMethod === 'LINE Pay' || selectedPaymentMethod === 'linepay') ? '#06C167' : ((selectedPaymentMethod === 'TWQR' || selectedPaymentMethod === 'twqr') ? '#2563eb' : '#6366f1'),
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        fontSize: '2.5rem'
+                        fontSize: '2.2rem'
                       }}>
-                        📱
+                        {(selectedPaymentMethod === 'LINE Pay' || selectedPaymentMethod === 'linepay') ? '🟢' : ((selectedPaymentMethod === 'TWQR' || selectedPaymentMethod === 'twqr') ? '🏦' : '📱')}
                       </div>
                       <div>
-                        <h3 style={{ fontSize: '1.35rem', fontWeight: '900', margin: '0 0 6px 0', color: 'var(--text-main)' }}>
+                        <h3 style={{ fontSize: '1.3rem', fontWeight: '900', margin: '0 0 4px 0', color: 'var(--text-main)' }}>
                           {orderType === 'uber' ? 'Uber Eats 平台線上扣款' : (orderType === 'foodpanda' ? 'foodpanda 平台線上扣款' : `以【${selectedPaymentMethod}】支付`)}
                         </h3>
-                        <p style={{ fontSize: '0.95rem', color: 'var(--text-muted)', margin: 0, maxWidth: '360px', lineHeight: '1.5' }}>
-                          {orderType === 'uber' || orderType === 'foodpanda' 
-                            ? '外送平台已由線上結清款項，免現場找零收現。' 
-                            : '請引導顧客掃描櫃台收款條碼或出示手機扣款碼。確認款項後即可點擊下方完成出單。'}
-                        </p>
+                        <div style={{ fontSize: '0.85rem', color: '#16a34a', fontWeight: 'bold' }}>
+                          ⚡ 免找零 · 款項不入錢箱現金 (取代現金缺口)
+                        </div>
                       </div>
+
                       <div style={{
                         fontSize: '1.8rem',
                         fontWeight: '900',
                         color: 'var(--primary)',
                         backgroundColor: 'var(--bg-card)',
-                        padding: '8px 24px',
+                        padding: '6px 24px',
                         borderRadius: '10px',
                         border: '1px solid var(--border)'
                       }}>
-                        扣款 NT$ {finalTotal}
+                        實收 NT$ {finalTotal}
                       </div>
+
+                      {/* 電子支付末5碼 / 收款註記 (選填) */}
+                      {orderType !== 'uber' && orderType !== 'foodpanda' && (
+                        <div style={{ width: '100%', maxWidth: '360px', marginTop: '6px', textAlign: 'left' }}>
+                          <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 'bold', color: 'var(--text-main)', marginBottom: '4px' }}>
+                            📝 收款註記 / 交易末5碼 (選填):
+                          </label>
+                          <input
+                            type="text"
+                            value={paymentNote}
+                            onChange={(e) => setPaymentNote(e.target.value)}
+                            placeholder={
+                              (selectedPaymentMethod === 'LINE Pay' || selectedPaymentMethod === 'linepay')
+                                ? '例: 89123 或手機末5碼'
+                                : ((selectedPaymentMethod === 'TWQR' || selectedPaymentMethod === 'twqr') ? '例: 轉帳末5碼或授權碼' : '請輸入末5碼或備註')
+                            }
+                            style={{
+                              width: '100%',
+                              padding: '8px 12px',
+                              borderRadius: '8px',
+                              border: '2px solid var(--border)',
+                              backgroundColor: 'var(--bg-card)',
+                              fontSize: '1rem',
+                              color: 'var(--text-main)',
+                              fontWeight: 'bold',
+                              boxSizing: 'border-box'
+                            }}
+                          />
+                          <div style={{ display: 'flex', gap: '6px', marginTop: '6px', flexWrap: 'wrap' }}>
+                            {['末5碼核對', '已掃碼', '免註記直接出單'].map(tag => (
+                              <button
+                                key={tag}
+                                type="button"
+                                onClick={() => {
+                                  if (tag === '免註記直接出單') setPaymentNote('');
+                                  else setPaymentNote(tag);
+                                }}
+                                style={{
+                                  padding: '2px 8px',
+                                  fontSize: '0.75rem',
+                                  borderRadius: '4px',
+                                  border: '1px solid var(--border)',
+                                  backgroundColor: 'var(--bg-card)',
+                                  color: 'var(--text-muted)',
+                                  cursor: 'pointer'
+                                }}
+                              >
+                                {tag}
+                              </button>
+                            ))}
+                          </div>
+                          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '4px', lineHeight: '1.3' }}>
+                            💡 填寫末5碼會印在熱感單據並記入日結/交班報表，方便打烊盤點精確對帳。
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
 

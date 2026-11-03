@@ -160,9 +160,56 @@ export const printThermalReceipt = (order, storeProfile = defaultStoreProfile, r
         ${isUber ? `
           <div class="row" style="font-size: 13px; font-weight: bold; color: #059669;">
             <span>付款方式:</span>
-            <span>🛵 平台線上結清</span>
+            <span>🛵 平台線上結清 (免收款)</span>
+          </div>
+        ` : isPanda ? `
+          <div class="row" style="font-size: 13px; font-weight: bold; color: #d946ef;">
+            <span>付款方式:</span>
+            <span>🐼 平台線上結清 (免收款)</span>
+          </div>
+        ` : (order.paymentMethod === 'linepay' || order.paymentMethod === 'LINE Pay') ? `
+          <div class="row" style="font-size: 13px; font-weight: bold; color: #059669;">
+            <span>付款方式:</span>
+            <span>🟢 LINE Pay (免找零)</span>
+          </div>
+          ${(order.paymentNote || order.transferLast5) ? `
+            <div class="row" style="font-size: 12px; font-weight: bold; color: #059669;">
+              <span>收款註記:</span>
+              <span>${order.paymentNote || order.transferLast5}</span>
+            </div>
+          ` : ''}
+        ` : (order.paymentMethod === 'twqr' || order.paymentMethod === 'twqr_transfer' || order.paymentMethod === 'TWQR') ? `
+          <div class="row" style="font-size: 13px; font-weight: bold; color: #2563eb;">
+            <span>付款方式:</span>
+            <span>🏦 TWQR/台灣Pay (免找零)</span>
+          </div>
+          ${(order.paymentNote || order.transferLast5) ? `
+            <div class="row" style="font-size: 12px; font-weight: bold; color: #2563eb;">
+              <span>收款末5碼:</span>
+              <span>${order.paymentNote || order.transferLast5}</span>
+            </div>
+          ` : ''}
+        ` : (order.paymentMethod === 'card' || order.paymentMethod === 'credit' || order.paymentMethod === '信用卡') ? `
+          <div class="row" style="font-size: 13px; font-weight: bold;">
+            <span>付款方式:</span>
+            <span>💳 信用卡扣款 (免找零)</span>
+          </div>
+          ${(order.paymentNote || order.transferLast5) ? `
+            <div class="row" style="font-size: 12px;">
+              <span>卡號末4碼:</span>
+              <span>${order.paymentNote || order.transferLast5}</span>
+            </div>
+          ` : ''}
+        ` : (order.paymentMethod === 'online' || order.paymentMethod === '線上付') ? `
+          <div class="row" style="font-size: 13px; font-weight: bold; color: #7c3aed;">
+            <span>付款方式:</span>
+            <span>📱 線上點餐付款</span>
           </div>
         ` : ((receiptConfig.printReceivedAndChange !== false && order.cashReceived !== undefined && order.cashReceived !== null) ? `
+          <div class="row" style="font-size: 13px; font-weight: bold;">
+            <span>付款方式:</span>
+            <span>💵 現金支付</span>
+          </div>
           <div class="row" style="font-size: 13px; font-weight: bold;">
             <span>實收金額:</span>
             <span>$${order.cashReceived}</span>
@@ -171,7 +218,12 @@ export const printThermalReceipt = (order, storeProfile = defaultStoreProfile, r
             <span>找零:</span>
             <span>$${order.changeAmount}</span>
           </div>
-        ` : '')}
+        ` : `
+          <div class="row" style="font-size: 13px; font-weight: bold;">
+            <span>付款方式:</span>
+            <span>${order.paymentMethod || '💵 現金支付'}</span>
+          </div>
+        `)}
         ${(receiptConfig.showWifi !== false && storeProfile.storeWifi) ? `
           <div class="divider"></div>
           <div style="font-size: 10px; text-align: center;">📶 店內 Wi-Fi: ${storeProfile.storeWifi}</div>
@@ -411,7 +463,49 @@ export const printDualReceipts = (order, storeProfile = defaultStoreProfile, rec
               <span>付款方式:</span>
               <span>🐼 平台線上結清 (免收款)</span>
             </div>
+          ` : (order.paymentMethod === 'linepay' || order.paymentMethod === 'LINE Pay') ? `
+            <div class="row" style="font-size: 13px; font-weight: bold; color: #059669;">
+              <span>付款方式:</span>
+              <span>🟢 LINE Pay (免找零)</span>
+            </div>
+            ${(order.paymentNote || order.transferLast5) ? `
+              <div class="row" style="font-size: 12px; font-weight: bold; color: #059669;">
+                <span>收款註記:</span>
+                <span>${order.paymentNote || order.transferLast5}</span>
+              </div>
+            ` : ''}
+          ` : (order.paymentMethod === 'twqr' || order.paymentMethod === 'twqr_transfer' || order.paymentMethod === 'TWQR') ? `
+            <div class="row" style="font-size: 13px; font-weight: bold; color: #2563eb;">
+              <span>付款方式:</span>
+              <span>🏦 TWQR/台灣Pay (免找零)</span>
+            </div>
+            ${(order.paymentNote || order.transferLast5) ? `
+              <div class="row" style="font-size: 12px; font-weight: bold; color: #2563eb;">
+                <span>收款末5碼:</span>
+                <span>${order.paymentNote || order.transferLast5}</span>
+              </div>
+            ` : ''}
+          ` : (order.paymentMethod === 'card' || order.paymentMethod === 'credit' || order.paymentMethod === '信用卡') ? `
+            <div class="row" style="font-size: 13px; font-weight: bold;">
+              <span>付款方式:</span>
+              <span>💳 信用卡扣款 (免找零)</span>
+            </div>
+            ${(order.paymentNote || order.transferLast5) ? `
+              <div class="row" style="font-size: 12px;">
+                <span>卡號末4碼:</span>
+                <span>${order.paymentNote || order.transferLast5}</span>
+              </div>
+            ` : ''}
+          ` : (order.paymentMethod === 'online' || order.paymentMethod === '線上付') ? `
+            <div class="row" style="font-size: 13px; font-weight: bold; color: #7c3aed;">
+              <span>付款方式:</span>
+              <span>📱 線上點餐付款</span>
+            </div>
           ` : ((receiptConfig.printReceivedAndChange !== false && order.cashReceived !== undefined && order.cashReceived !== null) ? `
+            <div class="row" style="font-size: 13px; font-weight: bold;">
+              <span>付款方式:</span>
+              <span>💵 現金支付</span>
+            </div>
             <div class="row" style="font-size: 13px; font-weight: bold;">
               <span>實收金額:</span>
               <span>$${order.cashReceived}</span>
@@ -420,7 +514,12 @@ export const printDualReceipts = (order, storeProfile = defaultStoreProfile, rec
               <span>找零:</span>
               <span>$${order.changeAmount}</span>
             </div>
-          ` : ''))}
+          ` : `
+            <div class="row" style="font-size: 13px; font-weight: bold;">
+              <span>付款方式:</span>
+              <span>${order.paymentMethod || '💵 現金支付'}</span>
+            </div>
+          `))}
           ${(receiptConfig.showWifi !== false && storeProfile.storeWifi) ? `
             <div class="divider"></div>
             <div style="font-size: 10px; text-align: center;">📶 店內 Wi-Fi: ${storeProfile.storeWifi}</div>
@@ -525,39 +624,57 @@ export const printDailyClosingReport = (dailyData, storeProfile = defaultStorePr
 
         <div class="section-title">=== 營業額總結 ===</div>
         <div class="row bold" style="font-size: 14px;">
-          <span>當日總營收:</span>
-          <span>$${dailyData.totalRevenue || 0}</span>
+          <span>當日總營業額:</span>
+          <span>$${(dailyData.totalRevenue || 0).toLocaleString()}</span>
         </div>
-        <div class="row" style="padding-left: 6px;">
-          <span>└ 現金實收:</span>
-          <span>$${dailyData.cashRevenue || 0}</span>
+        <div class="divider"></div>
+        <div class="row bold" style="font-size: 13px; color: #16a34a;">
+          <span>💵 錢箱應有現金:</span>
+          <span>$${(dailyData.cashRevenue || 0).toLocaleString()}</span>
         </div>
-        <div class="row" style="padding-left: 6px;">
-          <span>└ 線上/電子:</span>
-          <span>$${dailyData.onlineRevenue || 0}</span>
+        <div class="row bold" style="font-size: 12px; color: #2563eb; margin-top: 3px;">
+          <span>⚡ 取代現金缺口合計:</span>
+          <span>$${((dailyData.nonCashTotal !== undefined ? dailyData.nonCashTotal : ((dailyData.totalRevenue || 0) - (dailyData.cashRevenue || 0))) || 0).toLocaleString()}</span>
         </div>
-        ${(dailyData.uberRevenue || dailyData.pandaRevenue || dailyData.deliveryRevenue) ? `
-          <div class="row bold" style="padding-left: 6px;">
-            <span>└ 🛵 外送實收:</span>
-            <span>$${dailyData.deliveryRevenue || ((dailyData.uberRevenue || 0) + (dailyData.pandaRevenue || 0))}</span>
+        ${dailyData.linePayRevenue ? `
+          <div class="row" style="padding-left: 10px; font-size: 11px;">
+            <span>• 🟢 LINE Pay:</span>
+            <span>$${dailyData.linePayRevenue.toLocaleString()} (${dailyData.linePayCount || 0}筆)</span>
           </div>
-          ${dailyData.uberRevenue ? `
-            <div class="row" style="padding-left: 14px; font-size: 11px;">
-              <span>• Uber Eats:</span>
-              <span>$${dailyData.uberRevenue}</span>
-            </div>
-          ` : ''}
-          ${dailyData.pandaRevenue ? `
-            <div class="row" style="padding-left: 14px; font-size: 11px;">
-              <span>• foodpanda:</span>
-              <span>$${dailyData.pandaRevenue}</span>
-            </div>
-          ` : ''}
+        ` : ''}
+        ${dailyData.twqrRevenue ? `
+          <div class="row" style="padding-left: 10px; font-size: 11px;">
+            <span>• 🏦 TWQR/台灣Pay:</span>
+            <span>$${dailyData.twqrRevenue.toLocaleString()} (${dailyData.twqrCount || 0}筆)</span>
+          </div>
+        ` : ''}
+        ${dailyData.otherOnlineRevenue ? `
+          <div class="row" style="padding-left: 10px; font-size: 11px;">
+            <span>• 💳 其他電支/刷卡:</span>
+            <span>$${dailyData.otherOnlineRevenue.toLocaleString()} (${dailyData.otherOnlineCount || 0}筆)</span>
+          </div>
+        ` : (dailyData.onlineRevenue && !dailyData.linePayRevenue && !dailyData.twqrRevenue ? `
+          <div class="row" style="padding-left: 10px; font-size: 11px;">
+            <span>• 📱 線上點餐付款:</span>
+            <span>$${dailyData.onlineRevenue.toLocaleString()}</span>
+          </div>
+        ` : '')}
+        ${dailyData.uberRevenue ? `
+          <div class="row" style="padding-left: 10px; font-size: 11px;">
+            <span>• 🛵 Uber Eats:</span>
+            <span>$${dailyData.uberRevenue.toLocaleString()} (${dailyData.uberCount || 0}筆)</span>
+          </div>
+        ` : ''}
+        ${dailyData.pandaRevenue ? `
+          <div class="row" style="padding-left: 10px; font-size: 11px;">
+            <span>• 🐼 foodpanda:</span>
+            <span>$${dailyData.pandaRevenue.toLocaleString()} (${dailyData.pandaCount || 0}筆)</span>
+          </div>
         ` : ''}
         ${dailyData.manualRevenue ? `
-          <div class="row" style="padding-left: 6px;">
-            <span>└ 手動補登:</span>
-            <span>$${dailyData.manualRevenue}</span>
+          <div class="row" style="padding-left: 10px; font-size: 11px;">
+            <span>• 📝 手動補登:</span>
+            <span>$${dailyData.manualRevenue.toLocaleString()}</span>
           </div>
         ` : ''}
 
@@ -611,8 +728,10 @@ export const printDailyClosingReport = (dailyData, storeProfile = defaultStorePr
 
         <div class="double-divider"></div>
         <div style="margin-top: 14px; margin-bottom: 8px;">
-          <div>錢箱現金核對: [  ] 相符 (應為 $${dailyData.cashRevenue || 0})</div>
-          <div style="font-size: 11px; color: #444; margin-top: 2px;">* Uber Eats 等線上款項不入錢箱現金</div>
+          <div style="font-weight: bold; font-size: 13px;">錢箱實點現金應為: $${(dailyData.cashRevenue || 0).toLocaleString()} [  ] 相符</div>
+          <div style="font-size: 10px; color: #444; margin-top: 3px; line-height: 1.3;">
+            * 核算公式: 總營業額 - 電支外送缺口($${((dailyData.nonCashTotal !== undefined ? dailyData.nonCashTotal : ((dailyData.totalRevenue || 0) - (dailyData.cashRevenue || 0))) || 0).toLocaleString()}) = 錢箱實收現金
+          </div>
           <div style="margin-top: 12px;">店長/結帳人員簽名:</div>
           <div style="border-bottom: 1px solid #000; margin-top: 25px;"></div>
         </div>
@@ -682,35 +801,56 @@ export const printShiftHandoverReport = (shiftData, storeProfile = defaultStoreP
           <span>當班總營收:</span>
           <span>NT$ ${(shiftData.totalRevenue || 0).toLocaleString()}</span>
         </div>
-        ${shiftData.paymentBreakdown ? Object.entries(shiftData.paymentBreakdown).map(([methodName, amount]) => `
-          <div class="row" style="padding-left: 6px;">
-            <span>└ ${methodName}:</span>
-            <span class="${methodName === '現金' || methodName === 'cash' ? 'bold' : ''}">NT$ ${(amount || 0).toLocaleString()}</span>
-          </div>
-        `).join('') : `
-          <div class="row" style="padding-left: 6px;">
-            <span>└ 現金實收:</span>
-            <span class="bold">NT$ ${(shiftData.cashRevenue || 0).toLocaleString()}</span>
-          </div>
-        `}
-        ${shiftData.onlineRevenue ? `
-          <div class="row" style="padding-left: 6px;">
-            <span>└ 線上點餐付:</span>
-            <span>NT$ ${(shiftData.onlineRevenue || 0).toLocaleString()}</span>
+        <div class="divider"></div>
+        <div class="row bold" style="font-size: 13px; color: #16a34a;">
+          <span>💵 錢櫃應有現金:</span>
+          <span>NT$ ${(shiftData.cashRevenue || 0).toLocaleString()}</span>
+        </div>
+        <div class="row bold" style="font-size: 12px; color: #2563eb; margin-top: 3px;">
+          <span>⚡ 取代現金缺口合計:</span>
+          <span>NT$ ${((shiftData.nonCashTotal !== undefined ? shiftData.nonCashTotal : ((shiftData.totalRevenue || 0) - (shiftData.cashRevenue || 0))) || 0).toLocaleString()}</span>
+        </div>
+        ${shiftData.linePayRevenue ? `
+          <div class="row" style="padding-left: 10px; font-size: 11px;">
+            <span>• 🟢 LINE Pay:</span>
+            <span>NT$ ${shiftData.linePayRevenue.toLocaleString()} (${shiftData.linePayCount || 0}筆)</span>
           </div>
         ` : ''}
+        ${shiftData.twqrRevenue ? `
+          <div class="row" style="padding-left: 10px; font-size: 11px;">
+            <span>• 🏦 TWQR/台灣Pay:</span>
+            <span>NT$ ${shiftData.twqrRevenue.toLocaleString()} (${shiftData.twqrCount || 0}筆)</span>
+          </div>
+        ` : ''}
+        ${shiftData.otherOnlineRevenue ? `
+          <div class="row" style="padding-left: 10px; font-size: 11px;">
+            <span>• 💳 其他電支/刷卡:</span>
+            <span>NT$ ${shiftData.otherOnlineRevenue.toLocaleString()} (${shiftData.otherOnlineCount || 0}筆)</span>
+          </div>
+        ` : (shiftData.onlineRevenue && !shiftData.linePayRevenue && !shiftData.twqrRevenue ? `
+          <div class="row" style="padding-left: 10px; font-size: 11px;">
+            <span>• 📱 線上點餐付款:</span>
+            <span>NT$ ${shiftData.onlineRevenue.toLocaleString()}</span>
+          </div>
+        ` : '')}
         ${shiftData.uberRevenue ? `
-          <div class="row" style="padding-left: 6px;">
-            <span>└ 🛵 Uber Eats:</span>
-            <span>NT$ ${(shiftData.uberRevenue || 0).toLocaleString()}</span>
+          <div class="row" style="padding-left: 10px; font-size: 11px;">
+            <span>• 🛵 Uber Eats:</span>
+            <span>NT$ ${shiftData.uberRevenue.toLocaleString()} (${shiftData.uberCount || 0}筆)</span>
           </div>
         ` : ''}
         ${shiftData.pandaRevenue ? `
-          <div class="row" style="padding-left: 6px;">
-            <span>└ 🐼 foodpanda:</span>
-            <span>NT$ ${(shiftData.pandaRevenue || 0).toLocaleString()}</span>
+          <div class="row" style="padding-left: 10px; font-size: 11px;">
+            <span>• 🐼 foodpanda:</span>
+            <span>NT$ ${shiftData.pandaRevenue.toLocaleString()} (${shiftData.pandaCount || 0}筆)</span>
           </div>
         ` : ''}
+        ${(shiftData.paymentBreakdown && Object.keys(shiftData.paymentBreakdown).some(k => k !== '現金' && k !== 'cash' && !['linepay', 'LINE Pay', 'twqr', 'TWQR'].includes(k))) ? Object.entries(shiftData.paymentBreakdown).filter(([k]) => k !== '現金' && k !== 'cash' && !['linepay', 'LINE Pay', 'twqr', 'TWQR'].includes(k) && shiftData.paymentBreakdown[k] > 0).map(([methodName, amount]) => `
+          <div class="row" style="padding-left: 10px; font-size: 11px;">
+            <span>• ${methodName}:</span>
+            <span>NT$ ${(amount || 0).toLocaleString()}</span>
+          </div>
+        `).join('') : ''}
 
         <div class="divider"></div>
         <div class="section-title">=== 當班訂單統計 ===</div>
@@ -745,8 +885,10 @@ export const printShiftHandoverReport = (shiftData, storeProfile = defaultStoreP
 
         <div class="double-divider"></div>
         <div style="margin-top: 14px; margin-bottom: 8px;">
-          <div style="font-weight: bold;">💰 錢櫃實點現金應為: NT$ ${(shiftData.cashRevenue || 0).toLocaleString()}</div>
-          <div style="font-size: 10px; color: #555; margin-top: 2px;">* 僅含實收現金，已扣除 Uber 等線上平台款</div>
+          <div style="font-weight: bold; font-size: 13px;">💰 錢櫃實點現金應為: NT$ ${(shiftData.cashRevenue || 0).toLocaleString()}</div>
+          <div style="font-size: 10px; color: #555; margin-top: 3px; line-height: 1.3;">
+            * 核算公式: 當班總營收 - 電支外送缺口($${((shiftData.nonCashTotal !== undefined ? shiftData.nonCashTotal : ((shiftData.totalRevenue || 0) - (shiftData.cashRevenue || 0))) || 0).toLocaleString()}) = 錢櫃應有現金
+          </div>
           <div style="margin-top: 12px;">交班人員簽名:</div>
           <div style="border-bottom: 1px solid #000; margin-top: 22px;"></div>
           <div style="margin-top: 12px;">接班人員簽名:</div>

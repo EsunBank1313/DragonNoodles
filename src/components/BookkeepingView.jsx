@@ -798,9 +798,21 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
       const orderDate = new Date(o.timestamp).toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' });
       return (o.status === 'completed' || o.status === 'received') && orderDate === auditDate;
     });
+    const isUberOrder = (o) => (
+      o.type === 'uber' || o.type === 'ubereats' || o.paymentMethod === 'ubereats' || String(o.serialNum || o.order_number || '').startsWith('U-')
+    );
+    const isPandaOrder = (o) => (
+      o.type === 'foodpanda' || o.type === 'panda' || o.paymentMethod === 'foodpanda' || String(o.serialNum || o.order_number || '').startsWith('P-')
+    );
+    const isNonCash = (o) => {
+      if (isUberOrder(o) || isPandaOrder(o) || o.type === 'delivery') return true;
+      const pm = String(o.paymentMethod || '').toLowerCase().trim();
+      if (!pm || pm === 'cash' || pm === '現金' || pm === 'counter') return false;
+      return true;
+    };
     const manualForDate = Number(manualRevenues[auditDate] || 0);
     const dateTotalRev = dateOrders.reduce((sum, o) => sum + (Number(o.total) || 0), 0) + manualForDate;
-    const dateOnlineRev = dateOrders.filter(o => o.paymentMethod === 'online').reduce((sum, o) => sum + (Number(o.total) || 0), 0);
+    const dateOnlineRev = dateOrders.filter(isNonCash).reduce((sum, o) => sum + (Number(o.total) || 0), 0);
     const dateCashRev = dateTotalRev - dateOnlineRev;
 
     const counted = Number(auditCountedCash || 0);
@@ -10007,10 +10019,41 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
           const orderDate = new Date(o.timestamp).toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' });
           return (o.status === 'completed' || o.status === 'received') && orderDate === auditDate;
         });
+        const isUberOrder = (o) => (
+          o.type === 'uber' || o.type === 'ubereats' || o.paymentMethod === 'ubereats' || String(o.serialNum || o.order_number || '').startsWith('U-')
+        );
+        const isPandaOrder = (o) => (
+          o.type === 'foodpanda' || o.type === 'panda' || o.paymentMethod === 'foodpanda' || String(o.serialNum || o.order_number || '').startsWith('P-')
+        );
         const manualForTarget = Number(manualRevenues[auditDate] || 0);
         const sysTotalRev = targetOrders.reduce((sum, o) => sum + (Number(o.total) || 0), 0) + manualForTarget;
-        const sysOnlineRev = targetOrders.filter(o => o.paymentMethod === 'online').reduce((sum, o) => sum + (Number(o.total) || 0), 0);
-        const sysCashRev = sysTotalRev - sysOnlineRev;
+        
+        let sysLinePayRev = 0;
+        let sysTwqrRev = 0;
+        let sysOtherElectronicRev = 0;
+        let sysDeliveryRev = 0;
+        let sysCashOrdersRev = 0;
+
+        targetOrders.forEach(o => {
+          const amt = Number(o.total) || 0;
+          if (isUberOrder(o) || isPandaOrder(o) || o.type === 'delivery') {
+            sysDeliveryRev += amt;
+            return;
+          }
+          const pm = String(o.paymentMethod || '').toLowerCase().trim();
+          if (pm === 'linepay' || pm === 'line pay' || pm === 'line_pay') {
+            sysLinePayRev += amt;
+          } else if (pm === 'twqr' || pm === 'twqr_transfer' || pm.includes('twqr') || pm.includes('台灣 pay') || pm.includes('taiwan pay') || pm === '轉帳') {
+            sysTwqrRev += amt;
+          } else if (pm === 'card' || pm === 'credit' || pm === '信用卡' || pm === 'online' || pm === '線上付' || pm === '線上點餐' || pm === 'jkopay' || pm === '街口支付' || pm === '悠遊卡') {
+            sysOtherElectronicRev += amt;
+          } else {
+            sysCashOrdersRev += amt;
+          }
+        });
+
+        const sysNonCashRev = sysLinePayRev + sysTwqrRev + sysOtherElectronicRev + sysDeliveryRev;
+        const sysCashRev = sysCashOrdersRev + manualForTarget;
 
         const counted = Number(auditCountedCash || 0);
         const floatVal = Number(auditDrawerFloat || 0);
@@ -10083,11 +10126,17 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.9rem' }}>
                   <span>系統總營業額：<strong>NT$ {sysTotalRev.toLocaleString()}</strong> ({targetOrders.length} 筆)</span>
-                  <span>系統現金營收：<strong style={{ color: 'var(--primary)', fontSize: '1.05rem' }}>NT$ {sysCashRev.toLocaleString()}</strong></span>
+                  <span>錢箱應有現金：<strong style={{ color: '#16a34a', fontSize: '1.05rem' }}>NT$ {sysCashRev.toLocaleString()}</strong></span>
                 </div>
-                {sysOnlineRev > 0 && (
-                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px' }}>
-                    * 線上/非現金支付：NT$ {sysOnlineRev.toLocaleString()}
+                {sysNonCashRev > 0 && (
+                  <div style={{ fontSize: '0.78rem', color: '#2563eb', marginTop: '6px', lineHeight: '1.4' }}>
+                    <div>⚡ <strong>取代現金缺口合計：NT$ {sysNonCashRev.toLocaleString()}</strong></div>
+                    <div style={{ color: 'var(--text-muted)', fontSize: '0.72rem', marginTop: '2px' }}>
+                      {sysLinePayRev > 0 ? `🟢 LINE Pay: NT$ ${sysLinePayRev.toLocaleString()}   ` : ''}
+                      {sysTwqrRev > 0 ? `🏦 TWQR: NT$ ${sysTwqrRev.toLocaleString()}   ` : ''}
+                      {sysOtherElectronicRev > 0 ? `💳 電支刷卡: NT$ ${sysOtherElectronicRev.toLocaleString()}   ` : ''}
+                      {sysDeliveryRev > 0 ? `🛵 外送平台: NT$ ${sysDeliveryRev.toLocaleString()}` : ''}
+                    </div>
                   </div>
                 )}
               </div>
