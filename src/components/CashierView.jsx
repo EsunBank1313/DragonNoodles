@@ -34,6 +34,8 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
 
   const systemStartTime = useRef(Date.now());
   const locallyPrintedOrders = useRef(new Set());
+  const knownAlertedOrderIds = useRef(new Set());
+  const isInitialOrdersLoaded = useRef(false);
   const [menuItems, setMenuItems] = useState(() => {
     try {
       const saved = localStorage.getItem(`${storeCode}_restaurant_menu_items`);
@@ -1268,6 +1270,14 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
         });
 
         setOrders(sorted);
+
+        // 首次載入時，將現有訂單 ID 登記為已知，避免重新整理畫面時誤把歷史舊單當成新單猛響鈴
+        if (!isInitialOrdersLoaded.current) {
+          clientOrders.forEach(o => {
+            if (o.id) knownAlertedOrderIds.current.add(String(o.id));
+          });
+          isInitialOrdersLoaded.current = true;
+        }
       }
     } catch (err) {
       console.error("Failed to load orders in CashierView:", err);
@@ -1280,116 +1290,207 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
     fetchOrders();
   }, [storeCode]);
 
-  // Listen to incoming orders (Permanent Realtime Channel with Dynamic Ref Check)
+  // 🔔 統整處理新進線上/雲端訂單的彈窗提醒、鈴聲廣播與自動列印
+  const notifyNewIncomingOrder = (rawOrder) => {
+    if (!rawOrder) return;
+    const orderId = String(rawOrder.id);
+    const orderNum = String(rawOrder.order_number || '');
+
+    // 避免同一張訂單被重複跳窗通知
+    if (knownAlertedOrderIds.current.has(orderId)) {
+      return;
+    }
+    knownAlertedOrderIds.current.add(orderId);
+
+    let itemsData = rawOrder.items;
+    if (typeof itemsData === 'string') {
+      try { itemsData = JSON.parse(itemsData); } catch (e) { itemsData = {}; }
+    }
+    if (itemsData?.customerName === 'SYSTEM_STORE_CLOSE') return;
+
+    // 若本機剛剛才在 POS 結帳出單，則略過本機結帳單的提醒
+    if (locallyPrintedOrders.current.has(orderId) || (orderNum && locallyPrintedOrders.current.has(orderNum))) {
+      return;
+    }
+
+    const mappedOrder = formatSupabaseOrder(rawOrder);
+    if (!mappedOrder) return;
+
+    // 1. 播放招牌雙重叮咚清脆鈴聲與語音播報
+    triggerChime();
+    speakOrderAnnouncement(mappedOrder);
+
+    // 2. 彈出醒目置中新訂單確認彈窗 (需店員手動按確認)
+    setNewOrderAlert(mappedOrder);
+    if (newOrderAlertTimeoutRef.current) clearTimeout(newOrderAlertTimeoutRef.current);
+
+    // 3. 若開啟自動出單且該單尚未出單，立即送印
+    if (isAutoPrintEnabledRef.current && !itemsData?.is_printed) {
+      locallyPrintedOrders.current.add(orderId);
+      if (orderNum) locallyPrintedOrders.current.add(orderNum);
+      printReceipt(mappedOrder);
+
+      const updatedItems = { ...itemsData, is_printed: true };
+      supabase
+        .from('orders')
+        .update({ items: updatedItems })
+        .eq('id', rawOrder.id)
+        .then(() => {})
+        .catch(err => console.warn('Failed to update is_printed:', err));
+    }
+  };
+
+  // 📡 Realtime 雲端推播監聽 (支援斷線重連、視窗切換即時喚醒)
   useEffect(() => {
-    const channelId = `pos_realtime_${'standalone'}_${Date.now()}`;
-    const ordersChannel = supabase.channel(channelId)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, (payload) => {
-        fetchOrders();
-        // If a new order is received, play chime and speak announcement
-        if (payload.eventType === 'INSERT') {
-          const itemsData = typeof payload.new.items === 'string' ? JSON.parse(payload.new.items) : payload.new.items;
-          if (itemsData?.customerName !== 'SYSTEM_STORE_CLOSE') {
-            const orderNum = payload.new.order_number;
-            const orderId = String(payload.new.id);
+    let ordersChannel = null;
+    let reconnectTimer = null;
 
-            // Skip if already printed by this POS terminal
-            if (locallyPrintedOrders.current.has(orderNum) || locallyPrintedOrders.current.has(orderId)) {
-              return;
-            }
-
-            triggerChime();
-            const mappedOrder = formatSupabaseOrder(payload.new);
-            if (mappedOrder) {
-              speakOrderAnnouncement(mappedOrder);
-              setNewOrderAlert(mappedOrder);
-              if (newOrderAlertTimeoutRef.current) clearTimeout(newOrderAlertTimeoutRef.current);
-              // 需現場人員手動點擊「確定」確認單子，不自動關閉彈窗
-
-              // Check live ref to guarantee auto-print status even after toggling without refresh
-              if (isAutoPrintEnabledRef.current) {
-                locallyPrintedOrders.current.add(orderNum);
-                locallyPrintedOrders.current.add(orderId);
-                printReceipt(mappedOrder);
-              }
+    const setupRealtimeChannel = () => {
+      if (ordersChannel) {
+        try { supabase.removeChannel(ordersChannel); } catch (e) {}
+      }
+      const channelId = `pos_realtime_${storeCode}_${Date.now()}`;
+      ordersChannel = supabase.channel(channelId)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, (payload) => {
+          fetchOrders();
+          if (payload.eventType === 'INSERT') {
+            const storeNewOrders = filterOrdersByStore([payload.new], storeCode);
+            if (storeNewOrders.length > 0) {
+              notifyNewIncomingOrder(payload.new);
             }
           }
-        }
-      })
-      .subscribe();
+        })
+        .subscribe((status) => {
+          if (status === 'CLOSED' || status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+            console.warn(`[POS Realtime] 狀態異常 (${status})，將於 5 秒後自動重新連線...`);
+            if (reconnectTimer) clearTimeout(reconnectTimer);
+            reconnectTimer = setTimeout(setupRealtimeChannel, 5000);
+          }
+        });
+    };
+
+    setupRealtimeChannel();
+
+    // 視窗切回前景或網路恢復時，立即同步並確保連線
+    const handleReactivate = () => {
+      fetchOrders();
+    };
+    const handleOnline = () => {
+      setupRealtimeChannel();
+      fetchOrders();
+    };
+    window.addEventListener('focus', handleReactivate);
+    window.addEventListener('online', handleOnline);
+    const handleVis = () => {
+      if (document.visibilityState === 'visible') fetchOrders();
+    };
+    document.addEventListener('visibilitychange', handleVis);
 
     return () => {
-      supabase.removeChannel(ordersChannel);
+      if (ordersChannel) supabase.removeChannel(ordersChannel);
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      window.removeEventListener('focus', handleReactivate);
+      window.removeEventListener('online', handleOnline);
+      document.removeEventListener('visibilitychange', handleVis);
     };
   }, [storeCode]);
 
-  // Background Auto-Print Polling Daemon (Runs continuously & reads live isAutoPrintEnabledRef)
+  // 🛡️ 背景守護輪詢 (每 4.5 秒主動檢查新單，不論是否開啟自動出單皆能保證彈窗與鈴聲提醒)
   useEffect(() => {
     const interval = setInterval(async () => {
-      if (!isAutoPrintEnabledRef.current) return;
-
       try {
         const todayStr = getTodayLocalDate();
         const todayTaipeiISO = new Date(`${todayStr}T00:00:00+08:00`).toISOString();
-        const { data: newOrders, error } = await supabase
+        const { data: recentOrders, error } = await supabase
           .from('orders')
           .select('*')
-          .eq('status', 'received')
           .gte('created_at', todayTaipeiISO)
           .order('id', { ascending: false })
           .limit(50);
 
         if (error) throw error;
-        if (newOrders && newOrders.length > 0) {
-          const storeNewOrders = filterOrdersByStore(newOrders, storeCode);
-          const unprintedOrders = storeNewOrders.filter(o => {
-            const orderId = String(o.id);
-            const orderNum = o.order_number;
-            if (locallyPrintedOrders.current.has(orderId) || locallyPrintedOrders.current.has(orderNum)) {
-              return false;
+        if (recentOrders && recentOrders.length > 0) {
+          const storeOrders = filterOrdersByStore(recentOrders, storeCode);
+
+          // 1. 若有尚未通知過的顧客手機線上點餐 (received 或 preparing)，強制補發彈窗與鈴聲！
+          if (isInitialOrdersLoaded.current) {
+            const unalertedOnlineOrders = storeOrders.filter(o => {
+              const orderId = String(o.id);
+              if (knownAlertedOrderIds.current.has(orderId)) return false;
+              if (o.status === 'deleted' || o.status === 'cancelled') return false;
+
+              let itemsData = o.items;
+              if (typeof itemsData === 'string') {
+                try { itemsData = JSON.parse(itemsData); } catch (e) { itemsData = {}; }
+              }
+              if (itemsData?.customerName === 'SYSTEM_STORE_CLOSE') return false;
+
+              const orderNumStr = String(o.order_number || '');
+              const isTest = orderNumStr.startsWith('TEST-') || o.type === 'test' || itemsData.is_test === true;
+              if (isTest) return false;
+
+              const isCust = Boolean(
+                itemsData.source === 'customer' ||
+                o.source === 'customer' ||
+                itemsData.orderChannel === '線上點餐' ||
+                itemsData.channel === '線上點餐' ||
+                itemsData.pickupTime ||
+                (itemsData.customerPhone && itemsData.customerPhone.length > 0)
+              );
+
+              return isCust && (o.status === 'received' || o.status === 'preparing');
+            });
+
+            // 依建立先後順序觸發通知
+            for (const order of unalertedOnlineOrders.reverse()) {
+              notifyNewIncomingOrder(order);
             }
-            let itemsData = o.items;
-            if (typeof itemsData === 'string') {
-              try { itemsData = JSON.parse(itemsData); } catch (e) { itemsData = {}; }
-            }
-            return !itemsData || !itemsData.is_printed;
-          });
+          }
 
-          for (const order of unprintedOrders) {
-            if (!isAutoPrintEnabledRef.current) break;
+          // 2. 若開啟自動出單功能，針對未列印單據執行出單
+          if (isAutoPrintEnabledRef.current) {
+            const unprintedOrders = storeOrders.filter(o => {
+              const orderId = String(o.id);
+              const orderNum = o.order_number;
+              if (locallyPrintedOrders.current.has(orderId) || (orderNum && locallyPrintedOrders.current.has(orderNum))) {
+                return false;
+              }
+              if (o.status !== 'received' && o.status !== 'preparing') return false;
+              let itemsData = o.items;
+              if (typeof itemsData === 'string') {
+                try { itemsData = JSON.parse(itemsData); } catch (e) { itemsData = {}; }
+              }
+              return !itemsData || !itemsData.is_printed;
+            });
 
-            const orderId = String(order.id);
-            const orderNum = order.order_number;
-            locallyPrintedOrders.current.add(orderId);
-            locallyPrintedOrders.current.add(orderNum);
+            for (const order of unprintedOrders) {
+              if (!isAutoPrintEnabledRef.current) break;
+              const orderId = String(order.id);
+              const orderNum = order.order_number;
+              locallyPrintedOrders.current.add(orderId);
+              if (orderNum) locallyPrintedOrders.current.add(orderNum);
 
-            const itemsData = typeof order.items === 'string' ? JSON.parse(order.items) : order.items;
-            const updatedItems = { ...itemsData, is_printed: true };
-            
-            await supabase
-              .from('orders')
-              .update({ items: updatedItems })
-              .eq('id', order.id);
+              const itemsData = typeof order.items === 'string' ? JSON.parse(order.items) : order.items;
+              const updatedItems = { ...itemsData, is_printed: true };
+              await supabase
+                .from('orders')
+                .update({ items: updatedItems })
+                .eq('id', order.id);
 
-            const mappedOrder = formatSupabaseOrder(order);
-            triggerChime();
-            if (mappedOrder) {
-              speakOrderAnnouncement(mappedOrder);
-              setNewOrderAlert(mappedOrder);
-              if (newOrderAlertTimeoutRef.current) clearTimeout(newOrderAlertTimeoutRef.current);
-              // 需現場人員手動點擊「確定」確認單子，不自動關閉彈窗
-              if (isAutoPrintEnabledRef.current) {
+              const mappedOrder = formatSupabaseOrder(order);
+              if (mappedOrder) {
                 printReceipt(mappedOrder);
               }
             }
           }
 
+          // 定時刷新收銀畫面訂單列表
           fetchOrders();
         }
       } catch (err) {
-        console.error("Error polling for auto-print:", err);
+        console.warn("Background order polling error:", err);
       }
-    }, 6000);
+    }, 4500);
 
     return () => clearInterval(interval);
   }, [storeCode]);
