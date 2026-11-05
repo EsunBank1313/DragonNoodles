@@ -875,6 +875,48 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
 
   // Edit Vendor index state
   const [editingVendorIndex, setEditingVendorIndex] = useState(null);
+
+  // 💡 營運費用支出 (水電瓦斯、大樓管理費、門市耗材與各項雜支)
+  const defaultExpenseCategories = [
+    { id: 'utilities', name: '水電瓦斯', icon: '⚡' },
+    { id: 'management', name: '大樓管理費', icon: '🏢' },
+    { id: 'cleaning', name: '清潔垃圾', icon: '🗑️' },
+    { id: 'telecom', name: '網路電話', icon: '🌐' },
+    { id: 'maintenance', name: '修繕維護', icon: '🔧' },
+    { id: 'supplies', name: '包材耗材', icon: '📦' },
+    { id: 'other', name: '其他雜支', icon: '🧾' }
+  ];
+
+  const quickExpenseTemplates = [
+    { category: '大樓管理費', name: '大樓/店面管理費', icon: '🏢' },
+    { category: '水電瓦斯', name: '台電電費', icon: '⚡' },
+    { category: '水電瓦斯', name: '自來水費', icon: '💧' },
+    { category: '水電瓦斯', name: '天然瓦斯費', icon: '🔥' },
+    { category: '水電瓦斯', name: '叫桶裝瓦斯 (每桶)', icon: '🔥' },
+    { category: '清潔垃圾', name: '門市垃圾清運清潔費', icon: '🗑️' },
+    { category: '網路電話', name: '中華電信網路通訊費', icon: '🌐' },
+    { category: '修繕維護', name: '冷氣/設備器具修繕保養', icon: '🔧' },
+    { category: '包材耗材', name: '外帶紙碗提袋清潔雜支', icon: '📦' }
+  ];
+
+  const [expenses, setExpenses] = useState(() => {
+    try {
+      const saved = localStorage.getItem(`${storeCode}_restaurant_expenses`);
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+      return [];
+    }
+  });
+  const [expDate, setExpDate] = useState(() => getTodayLocalDate());
+  const [expCategory, setExpCategory] = useState('水電瓦斯');
+  const [expName, setExpName] = useState('');
+  const [expAmount, setExpAmount] = useState('');
+  const [expPaymentMethod, setExpPaymentMethod] = useState('現金');
+  const [expStatus, setExpStatus] = useState('paid');
+  const [expNote, setExpNote] = useState('');
+  const [editingExpenseId, setEditingExpenseId] = useState(null);
+  const [expenseFilterCategory, setExpenseFilterCategory] = useState('all');
+  const [expenseRangeType, setExpenseRangeType] = useState('all');
     const [selectedBookkeepingDate, setSelectedBookkeepingDate] = useState(getTodayLocalDate());
   const [activeTab, setActiveTab] = useState('sales'); // 'sales', 'variable', 'fixed', 'monthly'
   const [selectedMonthlyReportMonth, setSelectedMonthlyReportMonth] = useState('all');
@@ -1499,19 +1541,19 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
 
     // 3. Daily Details Section
     csv += `=== 每日營業額與收支損益明細表 ===\n`;
-    csv += `對帳日期, 營業總額 (營業額), 系統點餐營業額, 手動補登營業額, 訂單筆數, 食材進貨成本, 固定成本分攤, 營業毛利, 毛利率(%), 營運淨利, 淨利率(%), 經營狀態\n`;
+    csv += `對帳日期, 營業總額 (營業額), 系統點餐營業額, 手動補登營業額, 訂單筆數, 食材進貨成本, 營運費用支出(水電瓦斯管理費), 固定成本分攤, 營業毛利, 毛利率(%), 營運淨利, 淨利率(%), 經營狀態\n`;
     
     targetReports.forEach(r => {
       const dayGross = r.revenue - r.variableCosts;
       const dayGrossMargin = r.revenue > 0 ? ((dayGross / r.revenue) * 100).toFixed(1) : '0.0';
-      const dayNet = dayGross - r.fixedCosts;
+      const dayNet = dayGross - r.fixedCosts - (r.expenses || 0);
       const dayNetMargin = r.revenue > 0 ? ((dayNet / r.revenue) * 100).toFixed(1) : '0.0';
       const statusStr = dayNet >= 0 ? '盈餘' : '虧損';
 
-      csv += `${r.month},${r.revenue},${r.systemRevenue || 0},${r.manualRev || 0},${r.orderCount || 0},${r.variableCosts},${r.fixedCosts},${dayGross},${dayGrossMargin}%,${dayNet},${dayNetMargin}%,${statusStr}\n`;
+      csv += `${r.month},${r.revenue},${r.systemRevenue || 0},${r.manualRev || 0},${r.orderCount || 0},${r.variableCosts},${r.expenses || 0},${r.fixedCosts},${dayGross},${dayGrossMargin}%,${dayNet},${dayNetMargin}%,${statusStr}\n`;
     });
 
-    csv += `合計/總結,${totalRevenue},${totalSystemRevenue},${totalManualRevenue},${totalOrdersCount},${totalVariable},${totalFixed},${totalGrossProfit},${grossMarginPercent.toFixed(1)}%,${netProfit},${netMarginPercent.toFixed(1)}%,\n\n`;
+    csv += `合計/總結,${totalRevenue},${totalSystemRevenue},${totalManualRevenue},${totalOrdersCount},${totalVariable},${totalPeriodExpenses},${totalFixed},${totalGrossProfit},${grossMarginPercent.toFixed(1)}%,${netProfit},${netMarginPercent.toFixed(1)}%,\n\n`;
 
     // 4. Product Sales Ranking Section (含大小碗規格)
     const totalQtyAll = itemSalesList.reduce((acc, curr) => acc + curr.qty, 0);
@@ -1548,10 +1590,13 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
     let totalRevenue = 0;
     let totalVariable = 0;
     let totalFixed = 0;
+    let totalSystemRevenue = 0;
+    let totalManualRevenue = 0;
+    let totalExpensesPrint = 0;
     const reportsWithProfit = targetReports.map(r => {
       const dayGross = r.revenue - r.variableCosts;
       const dayGrossMargin = r.revenue > 0 ? ((dayGross / r.revenue) * 100) : 0;
-      const dayNetProfit = dayGross - r.fixedCosts;
+      const dayNetProfit = dayGross - r.fixedCosts - (r.expenses || 0);
       const dayNetMargin = r.revenue > 0 ? ((dayNetProfit / r.revenue) * 100) : 0;
       return { 
         ...r, 
@@ -1562,13 +1607,12 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
       };
     });
 
-    let totalSystemRevenue = 0;
-    let totalManualRevenue = 0;
     targetReports.forEach(r => {
       totalRevenue += (Number(r.revenue) || 0);
       totalSystemRevenue += (Number(r.systemRevenue) || 0);
       totalManualRevenue += (Number(r.manualRev) || 0);
       totalVariable += (Number(r.variableCosts) || 0);
+      totalExpensesPrint += (Number(r.expenses) || 0);
     });
 
     const uniqueMonths = Array.from(new Set(targetReports.map(r => r.month.slice(0, 7))));
@@ -1579,7 +1623,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
 
     const totalGrossProfit = totalRevenue - totalVariable;
     const grossMarginPercent = totalRevenue > 0 ? ((totalGrossProfit / totalRevenue) * 100) : 0;
-    const netProfit = totalGrossProfit - totalFixed;
+    const netProfit = totalGrossProfit - totalFixed - totalExpensesPrint;
     const netMarginPercent = totalRevenue > 0 ? ((netProfit / totalRevenue) * 100) : 0;
 
     // Hourly order peak calculations
@@ -1988,6 +2032,10 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
         <div class="kpi-value ${grossMarginPercent >= 0 ? 'profit' : 'loss'}">${grossMarginPercent.toFixed(1)}%</div>
       </div>
       <div class="kpi-card">
+        <div class="kpi-title">💡 營運費用支出</div>
+        <div class="kpi-value" style="color: #6366f1;">-NT$ ${totalExpensesPrint.toLocaleString()}</div>
+      </div>
+      <div class="kpi-card">
         <div class="kpi-title">🏢 固定成本總額</div>
         <div class="kpi-value" style="color: #ef4444;">-NT$ ${totalFixed.toLocaleString()}</div>
       </div>
@@ -2267,6 +2315,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
               <th>手動補登</th>
               <th>訂單數</th>
               <th>進貨變動成本</th>
+              <th>💡 營運費用</th>
               <th>營業毛利</th>
               <th>毛利率</th>
               <th>固定成本</th>
@@ -2284,7 +2333,8 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                 <td style="color: var(--text-muted);">NT$ ${(r.systemRevenue || 0).toLocaleString()}</td>
                 <td style="color: var(--text-muted);">NT$ ${(r.manualRev || 0).toLocaleString()}</td>
                 <td style="color: #38bdf8; font-weight: bold;">${r.orderCount || 0} 筆</td>
-                <td style="color: #ef4444;">NT$ ${r.variableCosts.toLocaleString()}</td>
+                <td style="color: #ea580c;">NT$ ${r.variableCosts.toLocaleString()}</td>
+                <td style="color: #6366f1; font-weight: bold;">NT$ ${(r.expenses || 0).toLocaleString()}</td>
                 <td style="font-weight: bold; color: ${r.grossProfit >= 0 ? '#10b981' : '#ef4444'};">NT$ ${r.grossProfit.toLocaleString()}</td>
                 <td style="font-weight: bold;">${r.grossMargin.toFixed(1)}%</td>
                 <td style="color: #ef4444;">NT$ ${r.fixedCosts.toLocaleString()}</td>
@@ -2618,6 +2668,131 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
     }
   };
 
+  // 💡 Fetch Operating Expenses from Cloud
+  const fetchExpenses = async () => {
+    try {
+      const expKey = prefixNameForStore('SYSTEM_SETTING_OPERATING_EXPENSES', storeCode);
+      let { data } = await supabase.from('menu_items').select('*').eq('name', expKey);
+      if ((!data || data.length === 0) && storeCode !== 'dragon') {
+        const fallbackRes = await supabase.from('menu_items').select('*').eq('name', 'SYSTEM_SETTING_OPERATING_EXPENSES');
+        data = fallbackRes.data;
+      }
+      if (data && data.length > 0) {
+        const parsed = JSON.parse(data[0].description);
+        if (Array.isArray(parsed)) {
+          setExpenses(parsed);
+          localStorage.setItem(`${storeCode}_restaurant_expenses`, JSON.stringify(parsed));
+        }
+      }
+    } catch (err) {
+      console.warn("Failed to fetch expenses from cloud:", err);
+    }
+  };
+
+  const saveExpensesToCloud = async (updated) => {
+    try {
+      setExpenses(updated);
+      localStorage.setItem(`${storeCode}_restaurant_expenses`, JSON.stringify(updated));
+      const expKey = prefixNameForStore('SYSTEM_SETTING_OPERATING_EXPENSES', storeCode);
+      const { data: exist } = await supabase.from('menu_items').select('*').eq('name', expKey);
+      if (exist && exist.length > 0) {
+        await supabase.from('menu_items').update({
+          description: JSON.stringify(updated)
+        }).eq('name', expKey);
+      } else {
+        await supabase.from('menu_items').insert([{
+          name: expKey,
+          description: JSON.stringify(updated),
+          price: 0,
+          category: 'settings',
+          image: ''
+        }]);
+      }
+    } catch (err) {
+      console.error("Failed to save expenses to cloud:", err);
+    }
+  };
+
+  const handleAddExpense = async (e) => {
+    e.preventDefault();
+    if (!expName.trim()) {
+      alert("請輸入費用項目名稱！");
+      return;
+    }
+    const costNum = parseFloat(expAmount);
+    if (isNaN(costNum) || costNum <= 0) {
+      alert("請輸入大於 0 的支出金額！");
+      return;
+    }
+
+    let updated;
+    if (editingExpenseId) {
+      updated = expenses.map(item => item.id === editingExpenseId ? {
+        ...item,
+        date: expDate,
+        category: expCategory,
+        name: expName.trim(),
+        amount: costNum,
+        paymentMethod: expPaymentMethod,
+        status: expStatus,
+        note: expNote.trim(),
+        updatedAt: new Date().toISOString()
+      } : item);
+      setEditingExpenseId(null);
+    } else {
+      const newExp = {
+        id: `exp_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
+        date: expDate,
+        category: expCategory,
+        name: expName.trim(),
+        amount: costNum,
+        paymentMethod: expPaymentMethod,
+        status: expStatus,
+        note: expNote.trim(),
+        createdAt: new Date().toISOString()
+      };
+      updated = [newExp, ...expenses];
+    }
+
+    await saveExpensesToCloud(updated);
+    setExpName('');
+    setExpAmount('');
+    setExpNote('');
+    alert(editingExpenseId ? "✓ 費用支出修改成功！" : "🎉 費用支出登記成功，已即時同步至雲端！");
+  };
+
+  const handleDeleteExpense = async (id) => {
+    if (!window.confirm("確定要刪除這筆費用支出記錄嗎？")) return;
+    const updated = expenses.filter(e => e.id !== id);
+    await saveExpensesToCloud(updated);
+  };
+
+  const handleEditExpense = (item) => {
+    setEditingExpenseId(item.id);
+    setExpDate(item.date);
+    setExpCategory(item.category || '水電瓦斯');
+    setExpName(item.name);
+    setExpAmount(String(item.amount));
+    setExpPaymentMethod(item.paymentMethod || '現金');
+    setExpStatus(item.status || 'paid');
+    setExpNote(item.note || '');
+    const formEl = document.getElementById('expense-form');
+    if (formEl) formEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  };
+
+  const handleCancelEditExpense = () => {
+    setEditingExpenseId(null);
+    setExpName('');
+    setExpAmount('');
+    setExpNote('');
+  };
+
+  const handleToggleExpenseStatus = async (item) => {
+    const nextStatus = item.status === 'paid' ? 'pending' : 'paid';
+    const updated = expenses.map(e => e.id === item.id ? { ...e, status: nextStatus } : e);
+    await saveExpensesToCloud(updated);
+  };
+
   const saveVendorsToCloud = async (updatedVendors) => {
     try {
       const vendorKey = prefixNameForStore('SYSTEM_SETTING_VENDORS_V2', storeCode);
@@ -2857,6 +3032,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
     fetchOrders();
     fetchPurchases();
     fetchFixedCosts();
+    fetchExpenses();
     fetchMenuItems();
     fetchInventoryFromCloud();
   }, [storeCode]);
@@ -4549,6 +4725,34 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
     return purchasesForSelectedRange.reduce((sum, p) => sum + p.cost, 0);
   }, [purchasesForSelectedRange]);
 
+  // 💡 Memoized Operating Expenses (水電瓦斯、大樓管理費、門市雜支)
+  const expensesByDate = useMemo(() => {
+    const map = {};
+    expenses.forEach(e => {
+      if (e.date) {
+        if (!map[e.date]) map[e.date] = 0;
+        map[e.date] += (Number(e.amount) || 0);
+      }
+    });
+    return map;
+  }, [expenses]);
+
+  const expensesForSelectedMonth = useMemo(() => {
+    return expenses.filter(e => (e.date || '').startsWith(selectedYearMonth));
+  }, [expenses, selectedYearMonth]);
+
+  const totalExpensesForSelectedMonth = useMemo(() => {
+    return expensesForSelectedMonth.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+  }, [expensesForSelectedMonth]);
+
+  const expensesForSelectedDate = useMemo(() => {
+    return expenses.filter(e => e.date === selectedBookkeepingDate);
+  }, [expenses, selectedBookkeepingDate]);
+
+  const totalExpensesForSelectedDate = useMemo(() => {
+    return expensesForSelectedDate.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+  }, [expensesForSelectedDate]);
+
   // Selected Year Month (YYYY-MM)
   const selectedYearMonth = selectedBookkeepingDate ? selectedBookkeepingDate.slice(0, 7) : new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' }).slice(0, 7);
 
@@ -4592,6 +4796,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
     const datesSet = new Set(closedDates);
     Object.keys(ordersByDate).forEach(d => datesSet.add(d));
     purchases.forEach(p => { if (p.date) datesSet.add(p.date); });
+    expenses.forEach(e => { if (e.date) datesSet.add(e.date); });
     Object.keys(manualRevenues).forEach(d => {
       if (Number(manualRevenues[d]) > 0) datesSet.add(d);
     });
@@ -4604,6 +4809,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
       const systemRevenue = dayOrders.reduce((sum, o) => sum + o.total, 0);
       const totalRevenue = systemRevenue + dayManual;
       const variableCosts = purchasesByDate[day] || 0;
+      const dayExpenses = expensesByDate[day] || 0;
 
       const month = day.slice(0, 7);
       const activeFixed = fixedCosts.filter(fc => fc.expiryDate.slice(0, 7) >= month);
@@ -4619,9 +4825,10 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
         manualRev: dayManual,
         revenue: totalRevenue,
         variableCosts,
+        expenses: dayExpenses,
         fixedCosts: fixedShare
       };
-    }).filter(r => r.revenue > 0 || r.variableCosts > 0); // 包含所有有營業額或有進貨變動成本支出的天數（確保休市、公休或備料日的進貨成本不漏算）
+    }).filter(r => r.revenue > 0 || r.variableCosts > 0 || r.expenses > 0); // 包含所有有營業額或有進貨變動成本支出的天數（確保休市、公休或備料日的進貨成本不漏算）
   }, [orders, purchases, manualRevenues, fixedCosts, closedDates]);
 
   const handleHomeClick = () => {
@@ -4906,6 +5113,24 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
               }}
             >
               🛒 變動成本 (進貨採購)
+            </button>
+            <button 
+              onClick={() => setActiveTab('expenses')} 
+              style={{
+                padding: '10px 20px',
+                fontSize: '0.85rem',
+                fontWeight: 'bold',
+                border: 'none',
+                borderBottom: activeTab === 'expenses' ? '3px solid #6366f1' : '3px solid transparent',
+                backgroundColor: 'transparent',
+                color: activeTab === 'expenses' ? '#6366f1' : 'var(--text-muted)',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px'
+              }}
+            >
+              💡 營運費用 (水電/瓦斯/管理費)
             </button>
             <button 
               onClick={() => setActiveTab('fixed')} 
@@ -6051,6 +6276,384 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
               </div>
             )}
 
+                        {/* 2.5 OPERATING EXPENSES TAB (水電瓦斯、大樓管理費、門市雜支) */}
+            {activeTab === 'expenses' && (() => {
+              const currentMonthPrefix = selectedYearMonth;
+              const filteredExpenses = expenses.filter(exp => {
+                if (expenseRangeType === 'thisMonth' && !(exp.date || '').startsWith(currentMonthPrefix)) return false;
+                if (expenseRangeType === 'today' && exp.date !== selectedBookkeepingDate) return false;
+                if (expenseFilterCategory !== 'all' && exp.category !== expenseFilterCategory) return false;
+                return true;
+              });
+
+              // Subtotal calculations
+              const utilitiesTotal = expenses.filter(e => (e.date || '').startsWith(currentMonthPrefix) && (e.category === '水電瓦斯' || e.name?.includes('電') || e.name?.includes('水') || e.name?.includes('瓦斯'))).reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+              const managementTotal = expenses.filter(e => (e.date || '').startsWith(currentMonthPrefix) && (e.category === '大樓管理費' || e.name?.includes('管理費'))).reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+              const pendingExpenses = expenses.filter(e => e.status === 'pending');
+              const pendingTotal = pendingExpenses.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+
+              return (
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '14px', flexWrap: 'wrap', gap: '10px' }}>
+                    <div>
+                      <h4 style={{ fontSize: '1rem', fontWeight: 'bold', margin: '0 0 4px 0', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        💡 門市營運費用支出管理 - 水電瓦斯、大樓管理費與各項雜支
+                      </h4>
+                      <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', margin: 0 }}>
+                        登記門市各項非食材類之固定或變動營運開銷（大樓管理費、公用事業水電瓦斯、垃圾清潔等），自動併入每月損益報表核算真實營業淨利。
+                      </p>
+                    </div>
+
+                    {/* KPI Summary Cards */}
+                    <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                      <div style={{ padding: '8px 14px', backgroundColor: 'var(--bg-body)', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 'bold' }}>🗓️ 本月費用總計</div>
+                        <div style={{ fontSize: '1.15rem', fontWeight: '900', color: '#6366f1' }}>
+                          NT$ {totalExpensesForSelectedMonth.toLocaleString()}
+                        </div>
+                      </div>
+                      <div style={{ padding: '8px 14px', backgroundColor: 'var(--bg-body)', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 'bold' }}>⚡ 水電瓦斯小計</div>
+                        <div style={{ fontSize: '1.15rem', fontWeight: '900', color: '#ea580c' }}>
+                          NT$ {utilitiesTotal.toLocaleString()}
+                        </div>
+                      </div>
+                      <div style={{ padding: '8px 14px', backgroundColor: 'var(--bg-body)', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 'bold' }}>🏢 管理費小計</div>
+                        <div style={{ fontSize: '1.15rem', fontWeight: '900', color: '#0ea5e9' }}>
+                          NT$ {managementTotal.toLocaleString()}
+                        </div>
+                      </div>
+                      {pendingTotal > 0 && (
+                        <div style={{ padding: '8px 14px', backgroundColor: '#fff1f2', borderRadius: '8px', border: '1px solid #fecdd3' }}>
+                          <div style={{ fontSize: '0.7rem', color: '#e11d48', fontWeight: 'bold' }}>⏳ 待付款帳單 ({pendingExpenses.length}筆)</div>
+                          <div style={{ fontSize: '1.15rem', fontWeight: '900', color: '#e11d48' }}>
+                            NT$ {pendingTotal.toLocaleString()}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* ⚡ Quick Fill Template Buttons */}
+                  <div style={{
+                    backgroundColor: 'rgba(99, 102, 241, 0.05)',
+                    border: '1px solid rgba(99, 102, 241, 0.2)',
+                    borderRadius: '8px',
+                    padding: '10px 14px',
+                    marginBottom: '16px'
+                  }}>
+                    <div style={{ fontSize: '0.75rem', fontWeight: 'bold', color: '#6366f1', marginBottom: '8px' }}>
+                      ⚡ 常用費用快捷填入 (點擊自動帶入項目名稱與類別):
+                    </div>
+                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                      {quickExpenseTemplates.map((tmpl, idx) => (
+                        <button
+                          key={idx}
+                          type="button"
+                          onClick={() => {
+                            setExpCategory(tmpl.category);
+                            setExpName(tmpl.name);
+                            if (tmpl.name.includes('瓦斯')) {
+                              setExpPaymentMethod('現金');
+                            } else if (tmpl.name.includes('電費') || tmpl.name.includes('水費') || tmpl.name.includes('管理費')) {
+                              setExpPaymentMethod('銀行轉帳');
+                            }
+                          }}
+                          style={{
+                            padding: '4px 10px',
+                            fontSize: '0.75rem',
+                            borderRadius: '6px',
+                            border: '1px solid var(--border)',
+                            backgroundColor: expName === tmpl.name ? '#6366f1' : 'var(--bg-card)',
+                            color: expName === tmpl.name ? 'white' : 'var(--text-main)',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            fontWeight: 'bold',
+                            transition: 'all 0.15s ease'
+                          }}
+                        >
+                          <span>{tmpl.icon}</span>
+                          <span>{tmpl.name}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* 📝 Add / Edit Expense Form */}
+                  <form id="expense-form" onSubmit={handleAddExpense} style={{
+                    backgroundColor: 'var(--bg-body)',
+                    border: editingExpenseId ? '2px solid #6366f1' : '1px solid var(--border)',
+                    borderRadius: '8px',
+                    padding: '16px',
+                    marginBottom: '20px',
+                    display: 'flex',
+                    flexWrap: 'wrap',
+                    gap: '12px',
+                    alignItems: 'flex-end',
+                    boxShadow: editingExpenseId ? '0 4px 12px rgba(99, 102, 241, 0.15)' : 'none'
+                  }}>
+                    <div style={{ flex: '1 1 130px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      <label style={{ fontSize: '0.75rem', fontWeight: 'bold' }}>支出日期 *</label>
+                      <input 
+                        type="date" 
+                        required
+                        value={expDate}
+                        onChange={(e) => setExpDate(e.target.value)}
+                        style={{ padding: '6px 10px', fontSize: '0.8rem', borderRadius: '4px', border: '1px solid var(--border)', color: 'var(--text-main)', backgroundColor: 'var(--bg-card)', height: '33px' }}
+                      />
+                    </div>
+
+                    <div style={{ flex: '1 1 120px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      <label style={{ fontSize: '0.75rem', fontWeight: 'bold' }}>費用類別 *</label>
+                      <select
+                        value={expCategory}
+                        onChange={(e) => setExpCategory(e.target.value)}
+                        style={{ padding: '6px 10px', fontSize: '0.8rem', borderRadius: '4px', border: '1px solid var(--border)', color: 'var(--text-main)', backgroundColor: 'var(--bg-card)', height: '33px', fontWeight: 'bold' }}
+                      >
+                        {defaultExpenseCategories.map(cat => (
+                          <option key={cat.id} value={cat.name}>{cat.icon} {cat.name}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div style={{ flex: '2 1 200px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      <label style={{ fontSize: '0.75rem', fontWeight: 'bold' }}>費用項目名稱說明 *</label>
+                      <input 
+                        type="text" 
+                        placeholder="例: 大樓管理費、7-8月電費、叫瓦斯3桶" 
+                        required
+                        value={expName}
+                        onChange={(e) => setExpName(e.target.value)}
+                        style={{ padding: '6px 10px', fontSize: '0.8rem', borderRadius: '4px', border: '1px solid var(--border)', color: 'var(--text-main)', backgroundColor: 'var(--bg-card)', height: '33px' }}
+                      />
+                    </div>
+
+                    <div style={{ flex: '1 1 110px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      <label style={{ fontSize: '0.75rem', fontWeight: 'bold' }}>支出金額 (NT$) *</label>
+                      <input 
+                        type="number" 
+                        placeholder="金額" 
+                        required
+                        min="1"
+                        value={expAmount}
+                        onChange={(e) => setExpAmount(e.target.value)}
+                        style={{ padding: '6px 10px', fontSize: '0.8rem', borderRadius: '4px', border: '1px solid var(--border)', color: 'var(--text-main)', backgroundColor: 'var(--bg-card)', height: '33px', fontWeight: 'bold' }}
+                      />
+                    </div>
+
+                    <div style={{ flex: '1 1 110px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      <label style={{ fontSize: '0.75rem', fontWeight: 'bold' }}>支付方式</label>
+                      <select
+                        value={expPaymentMethod}
+                        onChange={(e) => setExpPaymentMethod(e.target.value)}
+                        style={{ padding: '6px 10px', fontSize: '0.8rem', borderRadius: '4px', border: '1px solid var(--border)', color: 'var(--text-main)', backgroundColor: 'var(--bg-card)', height: '33px' }}
+                      >
+                        <option value="現金">💵 現金支付</option>
+                        <option value="銀行轉帳">🏦 銀行轉帳/匯款</option>
+                        <option value="帳戶自動扣繳">⚡ 帳戶自動扣繳</option>
+                        <option value="信用卡">💳 信用卡刷卡</option>
+                        <option value="電子支付">📱 電子支付/LINE Pay</option>
+                      </select>
+                    </div>
+
+                    <div style={{ flex: '1 1 90px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      <label style={{ fontSize: '0.75rem', fontWeight: 'bold' }}>付款狀態</label>
+                      <select
+                        value={expStatus}
+                        onChange={(e) => setExpStatus(e.target.value)}
+                        style={{ padding: '6px 10px', fontSize: '0.8rem', borderRadius: '4px', border: '1px solid var(--border)', color: 'var(--text-main)', backgroundColor: 'var(--bg-card)', height: '33px', fontWeight: 'bold' }}
+                      >
+                        <option value="paid">🟢 已付款</option>
+                        <option value="pending">⏳ 待付款</option>
+                      </select>
+                    </div>
+
+                    <div style={{ flex: '2 1 180px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      <label style={{ fontSize: '0.75rem', fontWeight: 'bold' }}>備註說明 (選填)</label>
+                      <input 
+                        type="text" 
+                        placeholder="例: 發票號碼、度數或分攤說明" 
+                        value={expNote}
+                        onChange={(e) => setExpNote(e.target.value)}
+                        style={{ padding: '6px 10px', fontSize: '0.8rem', borderRadius: '4px', border: '1px solid var(--border)', color: 'var(--text-main)', backgroundColor: 'var(--bg-card)', height: '33px' }}
+                      />
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <button 
+                        type="submit" 
+                        style={{ 
+                          padding: '8px 18px', 
+                          fontSize: '0.8rem', 
+                          borderRadius: '6px', 
+                          border: 'none', 
+                          backgroundColor: '#6366f1', 
+                          color: 'white', 
+                          fontWeight: 'bold', 
+                          height: '33px', 
+                          cursor: 'pointer', 
+                          whiteSpace: 'nowrap',
+                          boxShadow: '0 2px 6px rgba(99, 102, 241, 0.3)'
+                        }}
+                      >
+                        {editingExpenseId ? '💾 儲存修改' : '➕ 登錄費用'}
+                      </button>
+                      {editingExpenseId && (
+                        <button 
+                          type="button" 
+                          onClick={handleCancelEditExpense}
+                          style={{ padding: '8px 14px', fontSize: '0.8rem', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'transparent', color: 'var(--text-main)', height: '33px', cursor: 'pointer', whiteSpace: 'nowrap' }}
+                        >
+                          ❌ 取消
+                        </button>
+                      )}
+                    </div>
+                  </form>
+
+                  {/* 🔍 Filters & Table Header */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '10px' }}>
+                    <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: '0.75rem', fontWeight: 'bold', color: 'var(--text-muted)' }}>範圍篩選：</span>
+                      {[
+                        { id: 'all', label: `全部歷程 (${expenses.length})` },
+                        { id: 'thisMonth', label: `🗓️ 本月 (${expenses.filter(e => (e.date || '').startsWith(currentMonthPrefix)).length})` },
+                        { id: 'today', label: `📅 本日 (${expenses.filter(e => e.date === selectedBookkeepingDate).length})` }
+                      ].map(tab => (
+                        <button
+                          key={tab.id}
+                          type="button"
+                          onClick={() => setExpenseRangeType(tab.id)}
+                          style={{
+                            padding: '4px 10px',
+                            fontSize: '0.75rem',
+                            borderRadius: '6px',
+                            border: expenseRangeType === tab.id ? '1px solid #6366f1' : '1px solid var(--border)',
+                            backgroundColor: expenseRangeType === tab.id ? '#6366f1' : 'var(--bg-card)',
+                            color: expenseRangeType === tab.id ? 'white' : 'var(--text-main)',
+                            fontWeight: 'bold',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          {tab.label}
+                        </button>
+                      ))}
+
+                      {/* Category Filter */}
+                      <select
+                        value={expenseFilterCategory}
+                        onChange={(e) => setExpenseFilterCategory(e.target.value)}
+                        style={{
+                          padding: '4px 8px',
+                          fontSize: '0.75rem',
+                          borderRadius: '6px',
+                          border: '1px solid var(--border)',
+                          backgroundColor: 'var(--bg-card)',
+                          color: 'var(--text-main)',
+                          marginLeft: '6px'
+                        }}
+                      >
+                        <option value="all">📂 所有費用類別</option>
+                        {defaultExpenseCategories.map(cat => (
+                          <option key={cat.id} value={cat.name}>{cat.icon} {cat.name}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                      共 <strong>{filteredExpenses.length}</strong> 筆支出 · 篩選總額: <strong style={{ color: '#ef4444', fontSize: '0.9rem' }}>NT$ {filteredExpenses.reduce((sum, e) => sum + (Number(e.amount) || 0), 0).toLocaleString()}</strong>
+                    </div>
+                  </div>
+
+                  {/* 📋 Expenses Table */}
+                  <div style={{ overflowX: 'auto', border: '1px solid var(--border)', borderRadius: '8px' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem', textAlign: 'left' }}>
+                      <thead>
+                        <tr style={{ backgroundColor: 'var(--bg-input)', borderBottom: '1px solid var(--border)', color: 'var(--text-muted)' }}>
+                          <th style={{ padding: '10px 12px' }}>支出日期</th>
+                          <th style={{ padding: '10px 12px' }}>類別</th>
+                          <th style={{ padding: '10px 12px' }}>項目名稱說明</th>
+                          <th style={{ padding: '10px 12px' }}>支出金額</th>
+                          <th style={{ padding: '10px 12px' }}>支付方式</th>
+                          <th style={{ padding: '10px 12px' }}>付款狀態</th>
+                          <th style={{ padding: '10px 12px' }}>備註說明</th>
+                          <th style={{ padding: '10px 12px', textAlign: 'center' }}>操作</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredExpenses.length === 0 ? (
+                          <tr>
+                            <td colSpan="8" style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                              目前無符合條件的營運費用支出紀錄
+                            </td>
+                          </tr>
+                        ) : (
+                          filteredExpenses.map(item => (
+                            <tr key={item.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                              <td style={{ padding: '10px 12px', fontFamily: 'monospace', fontWeight: 'bold' }}>{item.date}</td>
+                              <td style={{ padding: '10px 12px' }}>
+                                <span style={{
+                                  padding: '2px 8px',
+                                  borderRadius: '6px',
+                                  fontSize: '0.72rem',
+                                  fontWeight: 'bold',
+                                  backgroundColor: item.category === '水電瓦斯' ? 'rgba(234, 88, 12, 0.1)' : (item.category === '大樓管理費' ? 'rgba(14, 165, 233, 0.1)' : 'rgba(99, 102, 241, 0.1)'),
+                                  color: item.category === '水電瓦斯' ? '#ea580c' : (item.category === '大樓管理費' ? '#0ea5e9' : '#6366f1')
+                                }}>
+                                  {item.category || '營運雜支'}
+                                </span>
+                              </td>
+                              <td style={{ padding: '10px 12px', fontWeight: 'bold', color: 'var(--text-main)' }}>{item.name}</td>
+                              <td style={{ padding: '10px 12px', fontWeight: '900', color: '#ef4444', fontSize: '0.9rem' }}>
+                                NT$ {Number(item.amount).toLocaleString()}
+                              </td>
+                              <td style={{ padding: '10px 12px', color: 'var(--text-muted)' }}>{item.paymentMethod || '現金'}</td>
+                              <td style={{ padding: '10px 12px' }}>
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleExpenseStatus(item)}
+                                  style={{
+                                    padding: '2px 8px',
+                                    borderRadius: '12px',
+                                    fontSize: '0.7rem',
+                                    fontWeight: 'bold',
+                                    border: 'none',
+                                    cursor: 'pointer',
+                                    backgroundColor: item.status === 'paid' ? '#dcfce7' : '#fee2e2',
+                                    color: item.status === 'paid' ? '#15803d' : '#b91c1c'
+                                  }}
+                                  title="點擊切換付款狀態"
+                                >
+                                  {item.status === 'paid' ? '✔ 已付款' : '⏳ 待付款'}
+                                </button>
+                              </td>
+                              <td style={{ padding: '10px 12px', color: 'var(--text-muted)', fontSize: '0.75rem' }}>{item.note || '—'}</td>
+                              <td style={{ padding: '10px 12px', textAlign: 'center', display: 'flex', gap: '6px', justifyContent: 'center' }}>
+                                <button 
+                                  onClick={() => handleEditExpense(item)}
+                                  style={{ padding: '4px 8px', fontSize: '0.7rem', border: '1px solid var(--border)', color: 'var(--text-main)', backgroundColor: 'var(--bg-card)', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}
+                                >
+                                  ✏️ 編輯
+                                </button>
+                                <button 
+                                  onClick={() => handleDeleteExpense(item.id)}
+                                  style={{ padding: '4px 8px', fontSize: '0.7rem', border: '1px solid #ef4444', color: '#ef4444', backgroundColor: 'transparent', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}
+                                >
+                                  🗑️ 刪除
+                                </button>
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              );
+            })()}
+
             {/* 3. FIXED COSTS TAB */}
             {activeTab === 'fixed' && (
               <div>
@@ -6242,10 +6845,12 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
               let totalManualRev = 0;
               let totalPeriodVariable = 0;
 
+              let totalPeriodExpenses = 0;
               targetReports.forEach(r => {
                 totalSystemRev += (Number(r.systemRevenue) || 0);
                 totalManualRev += (Number(r.manualRev) || 0);
                 totalPeriodVariable += (Number(r.variableCosts) || 0);
+                totalPeriodExpenses += (Number(r.expenses) || 0);
               });
 
               // 依所選期間涵蓋之完整月份計算總固定成本 (不採每日零碎攤銷，以完整月份額度結算)
@@ -6262,7 +6867,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                 totalPeriodFixed = activeFixed.reduce((sum, fc) => sum + (Number(fc.cost) || 0), 0);
               }
 
-              const totalPeriodCost = totalPeriodFixed + totalPeriodVariable;
+              const totalPeriodCost = totalPeriodFixed + totalPeriodVariable + totalPeriodExpenses;
               const totalPeriodGrossProfit = totalPeriodRev - totalPeriodVariable;
               const totalPeriodNetProfit = totalPeriodRev - totalPeriodCost;
               const isPeriodNetProfit = totalPeriodNetProfit >= 0;
@@ -6484,11 +7089,33 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                       <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 'bold' }}>
                         🛒 總進貨變動成本
                       </div>
-                      <div style={{ fontSize: '1.35rem', fontWeight: '900', color: '#ef4444' }}>
+                      <div style={{ fontSize: '1.35rem', fontWeight: '900', color: '#ea580c' }}>
                         NT$ {totalPeriodVariable.toLocaleString()}
                       </div>
                       <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '2px' }}>
                         食材物料與採購進貨
+                      </div>
+                    </div>
+
+                    {/* 3.5. 營運費用支出 (水電瓦斯管理費) */}
+                    <div style={{
+                      backgroundColor: 'var(--bg-card)',
+                      border: '1px solid var(--border)',
+                      borderRadius: '12px',
+                      padding: '16px',
+                      boxShadow: 'var(--shadow-sm)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '4px'
+                    }}>
+                      <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 'bold' }}>
+                        💡 總營運費用支出
+                      </div>
+                      <div style={{ fontSize: '1.35rem', fontWeight: '900', color: '#6366f1' }}>
+                        NT$ {totalPeriodExpenses.toLocaleString()}
+                      </div>
+                      <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                        水電瓦斯、管理費與門市雜支
                       </div>
                     </div>
 
@@ -7681,6 +8308,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                         <th style={{ padding: '10px 12px' }}>營業總收入</th>
                         <th style={{ padding: '10px 12px' }}>固定成本支出</th>
                         <th style={{ padding: '10px 12px' }}>進貨變動成本</th>
+                        <th style={{ padding: '10px 12px' }}>💡 營運費用支出</th>
                         <th style={{ padding: '10px 12px' }}>合計總成本</th>
                         <th style={{ padding: '10px 12px' }}>單日預估淨利</th>
                         <th style={{ padding: '10px 12px' }}>財務健康狀態</th>
@@ -7690,20 +8318,20 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                     <tbody>
                       {targetReports.length === 0 ? (
                         <tr>
-                          <td colSpan="8" style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)' }}>此月份無損益對帳資料可供彙整</td>
+                          <td colSpan="9" style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)' }}>此月份無損益對帳資料可供彙整</td>
                         </tr>
                       ) : (
                         targetReports.map(report => {
-                          const totalCost = report.fixedCosts + report.variableCosts;
+                          const totalCost = report.fixedCosts + report.variableCosts + (report.expenses || 0);
                           const monthlyProfit = report.revenue - totalCost;
                           const isProfit = monthlyProfit >= 0;
                           return (
                             <tr key={report.month} style={{ borderBottom: '1px solid var(--border)' }}>
                               <td style={{ padding: '10px 12px', fontWeight: 'bold', fontSize: '0.85rem', color: 'var(--primary)' }}>
                                 {report.month}
-                                {report.revenue === 0 && report.variableCosts > 0 && (
+                                {report.revenue === 0 && (report.variableCosts > 0 || (report.expenses || 0) > 0) && (
                                   <span style={{ fontSize: '0.68rem', backgroundColor: '#fef3c7', color: '#b45309', padding: '1px 5px', borderRadius: '4px', marginLeft: '6px', fontWeight: 'normal' }}>
-                                    採購備料日
+                                    {report.variableCosts > 0 ? '採購備料日' : '營運費用支出'}
                                   </span>
                                 )}
                               </td>
@@ -7714,7 +8342,8 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                                 </div>
                               </td>
                               <td style={{ padding: '10px 12px', color: '#ef4444' }}>NT$ {report.fixedCosts}</td>
-                              <td style={{ padding: '10px 12px', color: '#ef4444' }}>NT$ {report.variableCosts}</td>
+                              <td style={{ padding: '10px 12px', color: '#ea580c' }}>NT$ {report.variableCosts}</td>
+                              <td style={{ padding: '10px 12px', color: '#6366f1', fontWeight: 'bold' }}>NT$ {report.expenses || 0}</td>
                               <td style={{ padding: '10px 12px', fontWeight: 'bold', color: '#ef4444' }}>NT$ {totalCost}</td>
                               <td style={{ padding: '10px 12px', fontWeight: '900', fontSize: '0.85rem', color: isProfit ? '#16a34a' : '#dc2626' }}>
                                 NT$ {monthlyProfit}
@@ -7725,14 +8354,14 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                                   borderRadius: '12px',
                                   fontSize: '0.7rem',
                                   fontWeight: '600',
-                                  backgroundColor: report.revenue === 0 && report.variableCosts > 0 
+                                  backgroundColor: report.revenue === 0 && (report.variableCosts > 0 || (report.expenses || 0) > 0) 
                                     ? 'rgba(234, 88, 12, 0.1)' 
                                     : (isProfit ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)'),
-                                  color: report.revenue === 0 && report.variableCosts > 0 
+                                  color: report.revenue === 0 && (report.variableCosts > 0 || (report.expenses || 0) > 0) 
                                     ? '#ea580c' 
                                     : (isProfit ? '#16a34a' : '#ef4444')
                                 }}>
-                                  {report.revenue === 0 && report.variableCosts > 0 ? '📦 備料進貨' : (isProfit ? '🟢 盈餘利潤' : '🔴 營運虧損')}
+                                  {report.revenue === 0 && (report.variableCosts > 0 || (report.expenses || 0) > 0) ? '📦 成本/費用支出' : (isProfit ? '🟢 盈餘利潤' : '🔴 營運虧損')}
                                 </span>
                               </td>
                               <td style={{ padding: '10px 12px', textAlign: 'center' }}>

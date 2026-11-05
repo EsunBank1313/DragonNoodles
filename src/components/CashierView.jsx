@@ -1367,13 +1367,21 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
     const mappedOrder = formatSupabaseOrder(rawOrder);
     if (!mappedOrder) return;
 
+    // 外送平台訂單（Uber Eats / 熊貓 foodpanda）已由背景進程自動出單，免除店員手動點擊「確認接單」的阻擋式彈窗
+    const isDeliveryOrder = mappedOrder.type === 'uber' || mappedOrder.type === 'foodpanda' || mappedOrder.type === 'delivery' ||
+      String(mappedOrder.serialNum || mappedOrder.order_number || '').startsWith('U-') ||
+      String(mappedOrder.serialNum || mappedOrder.order_number || '').startsWith('P-') ||
+      String(mappedOrder.customerName || '').includes('熊貓') || String(mappedOrder.customerName || '').includes('Uber');
+
     // 1. 播放招牌雙重叮咚清脆鈴聲與語音播報
     triggerChime();
     speakOrderAnnouncement(mappedOrder);
 
-    // 2. 彈出醒目置中新訂單確認彈窗 (需店員手動按確認)
-    setNewOrderAlert(mappedOrder);
-    if (newOrderAlertTimeoutRef.current) clearTimeout(newOrderAlertTimeoutRef.current);
+    // 2. 僅對【顧客手機線上點餐】彈出醒目置中新訂單確認彈窗；外送平台直接免按確認
+    if (!isDeliveryOrder) {
+      setNewOrderAlert(mappedOrder);
+      if (newOrderAlertTimeoutRef.current) clearTimeout(newOrderAlertTimeoutRef.current);
+    }
 
     // 3. 若開啟自動出單且該單尚未出單，立即送印
     if (isAutoPrintEnabledRef.current && !itemsData?.is_printed) {
@@ -1479,6 +1487,13 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
               const orderNumStr = String(o.order_number || '');
               const isTest = orderNumStr.startsWith('TEST-') || o.type === 'test' || itemsData.is_test === true;
               if (isTest) return false;
+
+              // 外送平台（Uber / 熊貓）排除在顧客自取/內用提醒之外
+              const isDelivery = orderNumStr.startsWith('U-') || orderNumStr.startsWith('P-') ||
+                o.type === 'uber' || o.type === 'ubereats' || o.type === 'foodpanda' || o.type === 'panda' || o.type === 'delivery' ||
+                itemsData.source === 'foodpanda' || itemsData.source === 'uber' || itemsData.source === 'uber_sync' ||
+                String(itemsData.customerName || '').includes('熊貓') || String(itemsData.customerName || '').includes('Uber');
+              if (isDelivery) return false;
 
               const isCust = Boolean(
                 itemsData.source === 'customer' ||
@@ -4072,7 +4087,11 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
               >
                 {(() => {
                   const pendingCustomerOrders = orders.filter(o => {
-                    const isCust = Boolean(!o.cashier || o.isOnline || (o.customerPhone && o.customerPhone.length > 0) || o.pickupTime || o.source === 'customer');
+                    const isDeliveryOrder = o.type === 'uber' || o.type === 'ubereats' || o.type === 'foodpanda' || o.type === 'panda' || o.type === 'delivery' ||
+                      String(o.serialNum || o.order_number || '').startsWith('U-') ||
+                      String(o.serialNum || o.order_number || '').startsWith('P-') ||
+                      String(o.customerName || '').includes('熊貓') || String(o.customerName || '').includes('Uber');
+                    const isCust = !isDeliveryOrder && Boolean(!o.cashier || o.isOnline || (o.customerPhone && o.customerPhone.length > 0) || o.pickupTime || o.source === 'customer');
                     return isCust && o.status !== 'completed' && o.status !== 'deleted';
                   });
                   return (
@@ -4392,6 +4411,26 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                                     ⏳ 等待收單
                                   </span>
                                 );
+                              })() : isDeliveryOrder ? (() => {
+                                if (order.status === 'cancelled' || order.status === 'deleted') {
+                                  return (
+                                    <span style={{ padding: '3px 8px', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 'bold', backgroundColor: '#fee2e2', color: '#dc2626', border: '1px solid #fca5a5' }}>
+                                      ❌ 平台已作廢/取消
+                                    </span>
+                                  );
+                                }
+                                return (
+                                  <span style={{
+                                    padding: '2px 8px',
+                                    borderRadius: '4px',
+                                    fontSize: '0.72rem',
+                                    fontWeight: 'bold',
+                                    backgroundColor: 'rgba(22, 163, 74, 0.12)',
+                                    color: '#16a34a'
+                                  }}>
+                                    ✔ 外送自動出單 (免手動接單)
+                                  </span>
+                                );
                               })() : (
                                 <span style={{
                                   padding: '2px 6px',
@@ -4538,8 +4577,8 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                             </div>
 
                             <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                              {/* Online Customer Order 4-Stage Controls */}
-                              {isCustomerOrder && order.status !== 'deleted' && (
+                              {/* Online Customer Order 4-Stage Controls (外送平台單嚴格排除，不顯示接單製作/製作完成等按鈕) */}
+                              {isCustomerOrder && !isDeliveryOrder && order.status !== 'deleted' && (
                                 <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
                                   {(order.status === 'received' || !order.status) && (
                                     <>
