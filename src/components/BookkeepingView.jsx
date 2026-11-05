@@ -1364,6 +1364,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
     let totalSystemRevenue = 0;
     let totalManualRevenue = 0;
     let totalVariable = 0;
+    let totalExpenses = 0;
     let totalFixed = 0;
 
     targetReports.forEach(r => {
@@ -1371,6 +1372,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
       totalSystemRevenue += (Number(r.systemRevenue) || 0);
       totalManualRevenue += (Number(r.manualRev) || 0);
       totalVariable += (Number(r.variableCosts) || 0);
+      totalExpenses += (Number(r.expenses) || 0);
     });
 
     const uniqueMonths = Array.from(new Set(targetReports.map(r => r.month.slice(0, 7))));
@@ -1381,7 +1383,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
 
     const totalGrossProfit = totalRevenue - totalVariable;
     const grossMarginPercent = totalRevenue > 0 ? ((totalGrossProfit / totalRevenue) * 100) : 0;
-    const netProfit = totalGrossProfit - totalFixed;
+    const netProfit = totalGrossProfit - totalFixed - totalExpenses;
     const netMarginPercent = totalRevenue > 0 ? ((netProfit / totalRevenue) * 100) : 0;
 
     const activeDays = targetReports.filter(r => (Number(r.revenue) || 0) > 0 || (Number(r.orderCount) || 0) > 0).map(r => r.month);
@@ -4725,6 +4727,9 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
     return purchasesForSelectedRange.reduce((sum, p) => sum + p.cost, 0);
   }, [purchasesForSelectedRange]);
 
+  // Selected Year Month (YYYY-MM)
+  const selectedYearMonth = selectedBookkeepingDate ? selectedBookkeepingDate.slice(0, 7) : new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' }).slice(0, 7);
+
   // 💡 Memoized Operating Expenses (水電瓦斯、大樓管理費、門市雜支)
   const expensesByDate = useMemo(() => {
     const map = {};
@@ -4752,9 +4757,6 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
   const totalExpensesForSelectedDate = useMemo(() => {
     return expensesForSelectedDate.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
   }, [expensesForSelectedDate]);
-
-  // Selected Year Month (YYYY-MM)
-  const selectedYearMonth = selectedBookkeepingDate ? selectedBookkeepingDate.slice(0, 7) : new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' }).slice(0, 7);
 
   // 4. Memoized Active Fixed Costs
   const { activeFixedCostsForMonth, totalFixedCostsForMonth, dailyFixedCostShare } = useMemo(() => {
@@ -4829,7 +4831,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
         fixedCosts: fixedShare
       };
     }).filter(r => r.revenue > 0 || r.variableCosts > 0 || r.expenses > 0); // 包含所有有營業額或有進貨變動成本支出的天數（確保休市、公休或備料日的進貨成本不漏算）
-  }, [orders, purchases, manualRevenues, fixedCosts, closedDates]);
+  }, [orders, purchases, manualRevenues, fixedCosts, closedDates, expenses, expensesByDate]);
 
   const handleHomeClick = () => {
     const params = new URLSearchParams(window.location.search);
