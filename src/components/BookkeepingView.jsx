@@ -5083,7 +5083,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
           </div>
 
           {/* Sub-view navigation tabs */}
-          <div style={{ display: 'flex', borderBottom: '2px solid var(--border)', gap: '8px' }}>
+          <div style={{ display: 'flex', borderBottom: '2px solid var(--border)', gap: '8px', overflowX: 'auto', flexWrap: 'wrap' }}>
             <button 
               onClick={() => setActiveTab('sales')} 
               style={{
