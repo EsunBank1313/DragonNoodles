@@ -8,6 +8,7 @@ import { defaultStoreProfile, defaultReceiptConfig, printThermalReceipt, printDa
 import ModuleCenterModal from './ModuleCenterModal';
 import { getActiveModuleSettings, isModuleEnabled } from '../utils/moduleContext';
 import { resolveStoreCode, getActiveStoreCode, filterItemsByStore, filterOrdersByStore, prefixNameForStore, stripNameForStore, getStoreStorage, setStoreStorage, getStoreSessionStorage, setStoreSessionStorage, removeStoreSessionStorage, getStoreDisplayName } from '../utils/storeContext';
+import { deductInventoryForOrder, processBatchPendingOrders } from '../utils/inventoryDeduction.js';
 
 export default function CashierView({ storeCode: propStoreCode, cashierName, sessionId: propSessionId, onLogout }) {
   const storeCode = resolveStoreCode(propStoreCode || getActiveStoreCode());
@@ -1322,6 +1323,13 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
 
         setOrders(sorted);
 
+        // 🔄 銷售自動扣庫存 (肉包、皮蛋、飲品、加料等)
+        try {
+          processBatchPendingOrders(clientOrders, storeCode);
+        } catch (invErr) {
+          console.warn("[CashierView] Batch inventory deduction warning:", invErr);
+        }
+
         // 首次載入時，將現有訂單 ID 登記為已知，避免重新整理畫面時誤把歷史舊單當成新單猛響鈴
         if (!isInitialOrdersLoaded.current) {
           clientOrders.forEach(o => {
@@ -1366,6 +1374,13 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
 
     const mappedOrder = formatSupabaseOrder(rawOrder);
     if (!mappedOrder) return;
+
+    // 🔄 銷售自動扣庫存 (新進線上/外送訂單即時扣減)
+    try {
+      deductInventoryForOrder(rawOrder, storeCode);
+    } catch (invErr) {
+      console.warn('[CashierView] Incoming order inventory deduction warning:', invErr);
+    }
 
     // 外送平台訂單（Uber Eats / 熊貓 foodpanda）已由背景進程自動出單，免除店員手動點擊「確認接單」的阻擋式彈窗
     const isDeliveryOrder = mappedOrder.type === 'uber' || mappedOrder.type === 'foodpanda' || mappedOrder.type === 'delivery' ||
@@ -2128,6 +2143,13 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
         } catch (printErr) {
           console.warn("Print receipt warning:", printErr);
         }
+      }
+
+      // 🔄 銷售自動扣庫存 (POS現場單：肉包、皮蛋、飲品、加料等即時扣減)
+      try {
+        deductInventoryForOrder(createdOrder, storeCode);
+      } catch (invErr) {
+        console.warn('[CashierView] Immediate POS inventory deduction warning:', invErr);
       }
 
       setLatestOrder({

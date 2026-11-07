@@ -6,6 +6,7 @@ import { printDailyClosingReport, defaultStoreProfile, defaultReceiptConfig } fr
 import ModuleCenterModal from './ModuleCenterModal';
 import { getActiveModuleSettings, isModuleEnabled } from '../utils/moduleContext';
 import { resolveStoreCode, getActiveStoreCode, filterItemsByStore, filterOrdersByStore, prefixNameForStore, stripNameForStore, getStoreStorage, setStoreStorage, getStoreDisplayName } from '../utils/storeContext';
+import { processBatchPendingOrders } from '../utils/inventoryDeduction.js';
 
 // Dynamic Item & Addon Cost Calculation Engine
 export const calculateItemCost = (item) => {
@@ -301,7 +302,8 @@ export const defaultInventory = [
   { name: "拖鞋", qty: 8, unit: "組", minStock: 1 },
   { name: "手套", qty: 8, unit: "組", minStock: 1 },
   { name: "大瓷碗", qty: 12, unit: "個", minStock: 2 },
-  { name: "小瓷碗", qty: 6, unit: "個", minStock: 2 }
+  { name: "小瓷碗", qty: 6, unit: "個", minStock: 2 },
+  { name: "肉包", qty: 27, unit: "顆", minStock: 10 }
 ];
 
 const RECIPES = {
@@ -3134,65 +3136,12 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
     syncConds();
   }, [condimentsAvailability, isInventoryLoaded]);
 
-  // Process completed orders to decrease inventory automatically
+  // Process completed/received orders to decrease inventory automatically (肉包、皮蛋、飲品、加料等)
   useEffect(() => {
     if (!isInventoryLoaded) return;
     if (orders.length === 0) return;
-
-    const completedOrders = orders.filter(o => o.status === 'completed' || o.status === 'received');
-    const newProcessedIds = [...processedOrderIds];
-    const newLogs = [];
-    let processedAny = false;
-
-    const ordersToProcess = completedOrders.filter(order => !newProcessedIds.includes(order.id));
-
-    if (ordersToProcess.length === 0) return;
-
-    setInventory(prevInventory => {
-      const newInventory = prevInventory.map(item => ({ ...item }));
-
-      ordersToProcess.forEach(order => {
-        const cartItems = order.items?.cart || [];
-        cartItems.forEach(cartItem => {
-          const recipe = RECIPES[cartItem.name];
-          if (recipe) {
-            recipe.forEach(ingredient => {
-              const target = newInventory.find(i => i.name === ingredient.name);
-              if (target) {
-                const totalConsumption = cartItem.quantity * ingredient.qty;
-                target.qty = Math.max(0, Number((target.qty - totalConsumption).toFixed(2)));
-
-                newLogs.push({
-                  id: `LOG-SALE-${order.id.slice(-6)}-${ingredient.name}-${Date.now()}`,
-                  time: order.time || new Date().toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' }),
-                  date: order.date || new Date().toISOString().split('T')[0],
-                  itemName: ingredient.name,
-                  type: '銷售扣減(聯動)',
-                  change: `-${totalConsumption}`,
-                  unit: ingredient.unit,
-                  remarks: `交易單號: ${order.serialNum || order.id.slice(-6)} [${cartItem.name} x ${cartItem.quantity}]`
-                });
-              }
-            });
-          }
-        });
-        newProcessedIds.push(order.id);
-        processedAny = true;
-      });
-
-      return newInventory;
-    });
-
-    if (processedAny) {
-      setProcessedOrderIds(newProcessedIds);
-      if (newLogs.length > 0) {
-        setInventoryLogs(prev => {
-          const updatedLogs = [...newLogs, ...prev].slice(0, 50);
-          return updatedLogs;
-        });
-      }
-    }
-  }, [orders, processedOrderIds, isInventoryLoaded]);
+    processBatchPendingOrders(orders, storeCode);
+  }, [orders, isInventoryLoaded, storeCode]);
 
   // One-time sync of 7/23 purchases into inventory status
   useEffect(() => {
@@ -3267,10 +3216,32 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
       })
       .subscribe();
 
+    const invKey = prefixNameForStore('SYSTEM_SETTING_INVENTORY', storeCode);
+    const logsKey = prefixNameForStore('SYSTEM_SETTING_INVENTORY_LOGS', storeCode);
+    const inventoryChannel = supabase.channel(`bookkeeping-inventory-${storeCode}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'menu_items', filter: `name=eq.${invKey}` }, (payload) => {
+        if (payload?.new?.description) {
+          try {
+            const parsed = JSON.parse(payload.new.description);
+            if (Array.isArray(parsed)) setInventory(parsed);
+          } catch (e) {}
+        }
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'menu_items', filter: `name=eq.${logsKey}` }, (payload) => {
+        if (payload?.new?.description) {
+          try {
+            const parsed = JSON.parse(payload.new.description);
+            if (Array.isArray(parsed)) setInventoryLogs(parsed);
+          } catch (e) {}
+        }
+      })
+      .subscribe();
+
     return () => {
       supabase.removeChannel(ordersChannel);
       supabase.removeChannel(purchasesChannel);
       supabase.removeChannel(fixedCostsChannel);
+      supabase.removeChannel(inventoryChannel);
     };
   }, []);
 
