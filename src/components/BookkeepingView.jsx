@@ -1095,6 +1095,18 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
   const [purchaseCost, setPurchaseCost] = useState('');
   const [purchaseStatus, setPurchaseStatus] = useState('unpaid');
 
+  // Edit Purchase States
+  const [editingPurchase, setEditingPurchase] = useState(null);
+  const [editPurchaseDate, setEditPurchaseDate] = useState('');
+  const [editPurchaseVendor, setEditPurchaseVendor] = useState('');
+  const [editPurchaseItemName, setEditPurchaseItemName] = useState('');
+  const [editPurchaseQty, setEditPurchaseQty] = useState('');
+  const [editPurchaseCost, setEditPurchaseCost] = useState('');
+  const [editPurchaseStatus, setEditPurchaseStatus] = useState('paid');
+  const [editPurchaseRating, setEditPurchaseRating] = useState(5);
+  const [editPurchaseQualityNote, setEditPurchaseQualityNote] = useState('');
+  const [showEditPurchaseModal, setShowEditPurchaseModal] = useState(false);
+
   // Inventory States
   const [isInventoryLoaded, setIsInventoryLoaded] = useState(false);
   const [inventory, setInventory] = useState(() => storeCode === 'dragon' ? defaultInventory : []);
@@ -3935,6 +3947,72 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
     }
   };
 
+  // Open Edit Purchase Modal
+  const handleOpenEditPurchase = (purchase) => {
+    setEditingPurchase(purchase);
+    setEditPurchaseDate(purchase.date || '');
+    setEditPurchaseVendor(purchase.vendor || '');
+    setEditPurchaseItemName(purchase.itemName || purchase.item_name || '');
+    setEditPurchaseQty(purchase.quantity || '');
+    setEditPurchaseCost(String(purchase.cost ?? ''));
+    setEditPurchaseStatus(purchase.status || 'paid');
+    setEditPurchaseRating(purchase.rating || 5);
+    setEditPurchaseQualityNote(purchase.qualityNote || purchase.quality_note || '');
+    setShowEditPurchaseModal(true);
+  };
+
+  // Save Edited Purchase (Variable Cost)
+  const handleSaveEditPurchase = async (e) => {
+    if (e && e.preventDefault) e.preventDefault();
+    if (!editingPurchase) return;
+    if (!editPurchaseDate) return alert("請輸入進貨日期！");
+    if (!editPurchaseVendor.trim()) return alert("請輸入進貨廠商！");
+    if (!editPurchaseItemName.trim()) return alert("請輸入品項名稱！");
+    if (!editPurchaseQty.trim()) return alert("請輸入數量或重量！");
+    if (editPurchaseCost === '' || isNaN(Number(editPurchaseCost))) return alert("請輸入有效支出金額！");
+
+    const costNum = Number(editPurchaseCost);
+    const targetId = editingPurchase.id;
+
+    // Optimistic local update (zero wait)
+    const updatedPurchase = {
+      ...editingPurchase,
+      date: editPurchaseDate,
+      vendor: editPurchaseVendor.trim(),
+      itemName: editPurchaseItemName.trim(),
+      quantity: editPurchaseQty.trim(),
+      cost: costNum,
+      status: editPurchaseStatus,
+      rating: editPurchaseRating,
+      qualityNote: editPurchaseQualityNote.trim()
+    };
+
+    setPurchases(prev => prev.map(p => String(p.id) === String(targetId) ? updatedPurchase : p));
+    setShowEditPurchaseModal(false);
+    setEditingPurchase(null);
+
+    // Sync to Supabase in background
+    try {
+      const updatePayload = {
+        date: editPurchaseDate,
+        vendor: editPurchaseVendor.trim(),
+        item_name: prefixNameForStore(editPurchaseItemName.trim(), storeCode),
+        quantity: editPurchaseQty.trim(),
+        cost: costNum,
+        status: editPurchaseStatus,
+        rating: editPurchaseRating,
+        quality_note: editPurchaseQualityNote.trim()
+      };
+      const { error } = await supabase.from('purchases').update(updatePayload).eq('id', targetId);
+      if (error) throw error;
+    } catch (err) {
+      console.error("Failed to update purchase in Supabase:", err);
+      // Fallback local storage
+      const current = purchases.map(p => String(p.id) === String(targetId) ? updatedPurchase : p);
+      localStorage.setItem(`${storeCode}_restaurant_purchases`, JSON.stringify(current));
+    }
+  };
+
   // Toggle / Update Purchase Payment Status (paid <-> unpaid)
   const handleTogglePurchaseStatus = async (id, currentStatus) => {
     const nextStatus = currentStatus === 'paid' ? 'unpaid' : 'paid';
@@ -6237,12 +6315,21 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                               </button>
                             </td>
                             <td style={{ padding: '10px 12px', textAlign: 'center' }}>
-                              <button 
-                                onClick={() => handleDeletePurchase(p.id)}
-                                style={{ padding: '4px 8px', fontSize: '0.7rem', border: '1px solid #ef4444', color: '#ef4444', backgroundColor: 'transparent', borderRadius: '4px', cursor: 'pointer' }}
-                              >
-                                🗑️ 刪除
-                              </button>
+                              <div style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}>
+                                <button 
+                                  onClick={() => handleOpenEditPurchase(p)}
+                                  style={{ padding: '4px 8px', fontSize: '0.7rem', border: '1px solid #3b82f6', color: '#3b82f6', backgroundColor: 'transparent', borderRadius: '4px', cursor: 'pointer', whiteSpace: 'nowrap' }}
+                                  title="修改日期、金額或進貨資訊"
+                                >
+                                  ✏️ 編輯
+                                </button>
+                                <button 
+                                  onClick={() => handleDeletePurchase(p.id)}
+                                  style={{ padding: '4px 8px', fontSize: '0.7rem', border: '1px solid #ef4444', color: '#ef4444', backgroundColor: 'transparent', borderRadius: '4px', cursor: 'pointer', whiteSpace: 'nowrap' }}
+                                >
+                                  🗑️ 刪除
+                                </button>
+                              </div>
                             </td>
                           </tr>
                         ))
@@ -11705,6 +11792,165 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                 )}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ✏️ 編輯進貨紀錄 Modal */}
+      {showEditPurchaseModal && editingPurchase && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.65)',
+          zIndex: 9999,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '16px'
+        }}>
+          <div style={{
+            backgroundColor: 'var(--bg-card)',
+            color: 'var(--text-main)',
+            borderRadius: '12px',
+            maxWidth: '520px',
+            width: '100%',
+            padding: '24px',
+            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.3)',
+            border: '1px solid var(--border)'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', borderBottom: '1px solid var(--border)', paddingBottom: '10px' }}>
+              <h3 style={{ margin: 0, fontSize: '1.15rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span>✏️</span> 編輯進貨紀錄 (變動成本)
+              </h3>
+              <button 
+                onClick={() => { setShowEditPurchaseModal(false); setEditingPurchase(null); }}
+                style={{ background: 'none', border: 'none', fontSize: '1.2rem', cursor: 'pointer', color: 'var(--text-muted)' }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveEditPurchase} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 'bold', marginBottom: '4px', color: 'var(--text-muted)' }}>
+                    📅 進貨日期
+                  </label>
+                  <input
+                    type="date"
+                    required
+                    value={editPurchaseDate}
+                    onChange={(e) => setEditPurchaseDate(e.target.value)}
+                    style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-main)', color: 'var(--text-main)', boxSizing: 'border-box' }}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 'bold', marginBottom: '4px', color: 'var(--text-muted)' }}>
+                    🏢 廠商名稱
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="例: 肉商-大成"
+                    value={editPurchaseVendor}
+                    onChange={(e) => setEditPurchaseVendor(e.target.value)}
+                    style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-main)', color: 'var(--text-main)', boxSizing: 'border-box' }}
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 'bold', marginBottom: '4px', color: 'var(--text-muted)' }}>
+                    🥩 品項名稱
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="例: 大腸 / 麵線"
+                    value={editPurchaseItemName}
+                    onChange={(e) => setEditPurchaseItemName(e.target.value)}
+                    style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-main)', color: 'var(--text-main)', boxSizing: 'border-box' }}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 'bold', marginBottom: '4px', color: 'var(--text-muted)' }}>
+                    ⚖️ 數量 / 重量
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="例: 10斤 / 5包"
+                    value={editPurchaseQty}
+                    onChange={(e) => setEditPurchaseQty(e.target.value)}
+                    style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-main)', color: 'var(--text-main)', boxSizing: 'border-box' }}
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 'bold', marginBottom: '4px', color: 'var(--text-muted)' }}>
+                    💰 支出金額 (NT$)
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="any"
+                    required
+                    placeholder="例: 1200"
+                    value={editPurchaseCost}
+                    onChange={(e) => setEditPurchaseCost(e.target.value)}
+                    style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-main)', color: 'var(--text-main)', boxSizing: 'border-box', fontWeight: 'bold' }}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 'bold', marginBottom: '4px', color: 'var(--text-muted)' }}>
+                    💳 付款狀態
+                  </label>
+                  <select
+                    value={editPurchaseStatus}
+                    onChange={(e) => setEditPurchaseStatus(e.target.value)}
+                    style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-main)', color: 'var(--text-main)', boxSizing: 'border-box' }}
+                  >
+                    <option value="paid">🟢 已付款</option>
+                    <option value="unpaid">🔴 未付款 (月結/待付)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 'bold', marginBottom: '4px', color: 'var(--text-muted)' }}>
+                  📝 到貨品質備註 (選填)
+                </label>
+                <input
+                  type="text"
+                  placeholder="例: 品質特優、有少量破損等"
+                  value={editPurchaseQualityNote}
+                  onChange={(e) => setEditPurchaseQualityNote(e.target.value)}
+                  style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-main)', color: 'var(--text-main)', boxSizing: 'border-box' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '10px', borderTop: '1px solid var(--border)', paddingTop: '14px' }}>
+                <button
+                  type="button"
+                  onClick={() => { setShowEditPurchaseModal(false); setEditingPurchase(null); }}
+                  style={{ padding: '8px 18px', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'transparent', color: 'var(--text-main)', cursor: 'pointer', fontSize: '0.85rem' }}
+                >
+                  取消
+                </button>
+                <button
+                  type="submit"
+                  style={{ padding: '8px 22px', borderRadius: '6px', border: 'none', backgroundColor: '#2563eb', color: 'white', fontWeight: 'bold', cursor: 'pointer', fontSize: '0.85rem', boxShadow: '0 2px 6px rgba(37,99,235,0.35)' }}
+                >
+                  💾 儲存修改
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

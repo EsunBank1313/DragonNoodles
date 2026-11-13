@@ -3961,9 +3961,9 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber: pr
                       </div>
                       <div style={{ display: 'flex', justifyContent: 'center', marginTop: '6px' }}>
                         <img 
-                          src="/images/twqr_card.jpg" 
+                          src="/images/twqr_card.jpg?v=20261113" 
                           alt="TWQR 第一銀行 龍城麵線" 
-                          style={{ maxWidth: '200px', borderRadius: '8px', border: '1px solid #bae6fd' }} 
+                          style={{ maxWidth: '240px', borderRadius: '8px', border: '1px solid #bae6fd' }} 
                         />
                       </div>
                     </div>

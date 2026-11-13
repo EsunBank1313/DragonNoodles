@@ -421,7 +421,7 @@ export default function OrderTracker({ order, onBackToMenu, onShareGroupOrder })
 
             <div style={{ display: 'flex', justifyContent: 'center', marginTop: '4px' }}>
               <img
-                src="/images/twqr_card.jpg"
+                src="/images/twqr_card.jpg?v=20261113"
                 alt="TWQR 第一銀行 龍城麵線"
                 style={{
                   maxWidth: '220px',
