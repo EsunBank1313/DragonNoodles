@@ -3596,40 +3596,44 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
       status: purchaseStatus
     };
 
-    try {
-      const { error } = await supabase.from('purchases').insert([purchaseObj]);
-      if (error) throw error;
-      updateInventoryFromPurchase(vendorName.trim(), purchaseItemName, purchaseQty.trim(), purchaseDate, time);
-      fetchPurchases();
-      alert("🎉 新增進貨成功，已即時同步至雲端資料庫！");
-    } catch (err) {
-      console.error("Failed to add purchase in BookkeepingView:", err);
-      // Fallback to local
-      const localObj = {
-        id: purchaseObj.purchase_id,
-        date: purchaseDate,
-        time,
-        vendor: vendorName.trim(),
-        itemName: purchaseItemName,
-        quantity: purchaseQty.trim(),
-        cost: costNum,
-        status: purchaseStatus
-      };
-      const updated = [localObj, ...purchases];
-      setPurchases(updated);
-      localStorage.setItem(`${storeCode}_restaurant_purchases`, JSON.stringify(updated));
-      updateInventoryFromPurchase(vendorName.trim(), purchaseItemName, purchaseQty.trim(), purchaseDate, time);
-      fetchPurchases();
-      alert("同步雲端失敗（已儲存於本機）：" + err.message);
-    }
+    // 1. 樂觀即時更新 (Optimistic UI Update) - 立即更新畫面與庫存，輸入框秒清空免等待！
+    const tempId = `PUR-${Date.now()}`;
+    const localObj = {
+      id: tempId,
+      date: purchaseDate,
+      time,
+      vendor: vendorName.trim(),
+      itemName: purchaseItemName,
+      quantity: purchaseQty.trim(),
+      cost: costNum,
+      status: purchaseStatus
+    };
 
+    // 立即推入本機清單並觸發原物料庫存聯動
+    setPurchases(prev => [localObj, ...prev]);
+    updateInventoryFromPurchase(vendorName.trim(), purchaseItemName, purchaseQty.trim(), purchaseDate, time);
+
+    // 立即清空輸入欄位，讓店員無需等待可秒接下一筆輸入
     setPurchaseSelectedTags([]);
     setPurchaseQualityNote('');
     setPurchaseRating(5);
-
-    setPurchaseVendor('');
     setPurchaseQty('');
     setPurchaseCost('');
+
+    // 2. 背景非同步同步至雲端資料庫 (Supabase)，免除整表重新拉取延遲
+    try {
+      const { data, error } = await supabase.from('purchases').insert([purchaseObj]).select();
+      if (error) throw error;
+      if (data && data.length > 0) {
+        const realId = String(data[0].id);
+        setPurchases(prev => prev.map(p => p.id === tempId ? { ...p, id: realId } : p));
+      }
+    } catch (err) {
+      console.error("Failed to add purchase in BookkeepingView:", err);
+      // 網路或雲端異常時本機自動備份
+      const localBackup = [localObj, ...purchases];
+      localStorage.setItem(`${storeCode}_restaurant_purchases`, JSON.stringify(localBackup));
+    }
   };
 
   // Save / Delete Manual Revenue

@@ -18,6 +18,7 @@ import {
 import ThemeSelector from './ThemeSelector';
 import { menuItems as defaultMenuItems, luzhouFallbackMenuItems, defaultUpgradeCombos } from '../data/menuData';
 import { SYSTEM_MODULES, INDUSTRY_PRESETS, getActiveModuleSettings, saveActiveModuleSettings } from '../utils/moduleContext';
+import DeliveryStatementsPanel from './DeliveryStatementsPanel';
 
 
 // Preset categories and rich icon collection
@@ -1896,10 +1897,14 @@ const handleSaveGlobalAddons = async (newAddons) => {
 
     try {
       if (editingItem === 'new') {
-        const { error } = await supabase
+        const { data, error } = await supabase
           .from('menu_items')
-          .insert([updatedItem]);
+          .insert([updatedItem])
+          .select();
         if (error) throw error;
+        if (data && data.length > 0) {
+          setMenuItems(prev => [...prev, data[0]]);
+        }
         alert("商品新增成功並已發布至雲端！");
       } else {
         const { error } = await supabase
@@ -1907,10 +1912,12 @@ const handleSaveGlobalAddons = async (newAddons) => {
           .update(updatedItem)
           .eq('id', editingItem.id);
         if (error) throw error;
+        setMenuItems(prev => prev.map(m => m.id === editingItem.id ? { ...m, ...updatedItem } : m));
         alert("商品修改成功並已同步雲端！");
       }
       setEditingItem(null);
-      fetchMenuItems();
+      // 背景非同步重整，不卡住目前編輯畫面
+      setTimeout(() => fetchMenuItems(), 100);
     } catch (err) {
       alert("儲存商品失敗：" + err.message);
     }
@@ -2173,6 +2180,19 @@ const handleSaveGlobalAddons = async (newAddons) => {
           }}
         >
           🚫 黑名單管理
+        </button>
+
+        <button
+          onClick={() => setActiveTab('delivery')}
+          style={{
+            padding: '10px 18px', fontSize: '0.88rem', fontWeight: 'bold', borderRadius: '8px', border: '1px solid var(--border)', cursor: 'pointer',
+            backgroundColor: activeTab === 'delivery' ? '#0284c7' : 'var(--bg-card)',
+            color: activeTab === 'delivery' ? 'white' : 'var(--text-main)',
+            boxShadow: activeTab === 'delivery' ? '0 2px 8px rgba(2, 132, 199, 0.35)' : 'none',
+            display: 'flex', alignItems: 'center', gap: '6px'
+          }}
+        >
+          🛵 外送對帳與帳單匯入
         </button>
         
       </div>
@@ -5299,6 +5319,11 @@ const handleSaveGlobalAddons = async (newAddons) => {
               </div>
             </div>
           </div>
+        )}
+
+        {/* 🛵 Delivery Statements Panel Tab */}
+        {activeTab === 'delivery' && (
+          <DeliveryStatementsPanel supabase={supabase} storeName={storeName} />
         )}
       </div>
 {/* GLOBAL ADDON MANAGEMENT MODAL */}
