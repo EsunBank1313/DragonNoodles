@@ -729,7 +729,23 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
     const itemCounts = {};
     todayOrders.forEach(o => {
       (o.items || []).forEach(item => {
-        itemCounts[item.name] = (itemCounts[item.name] || 0) + item.quantity;
+        const q = Number(item.quantity) || 1;
+        itemCounts[item.name] = (itemCounts[item.name] || 0) + q;
+
+        // 🔄 統計套餐中之肉包 (Meat Buns in Combos)
+        const specs = Array.isArray(item.specs) ? item.specs : (typeof item.specs === 'string' ? [item.specs] : []);
+        const upgradeStr = JSON.stringify(item.upgradeCombo || '') + ' ' + specs.join(' ');
+        const rawName = String(item.name || '').trim();
+
+        if (!rawName.includes('肉包') && !rawName.includes('包子')) {
+          if (upgradeStr.includes('肉包') || upgradeStr.includes('包子')) {
+            const bunMultiplier = (upgradeStr.includes('2顆') || upgradeStr.includes('(2顆)') || upgradeStr.includes('2入') || upgradeStr.includes('兩顆') || upgradeStr.includes('大肉包 2顆') || upgradeStr.includes('大肉包(2顆)')) ? 2 : 1;
+            itemCounts['招牌大肉包 (套餐升級)'] = (itemCounts['招牌大肉包 (套餐升級)'] || 0) + (q * bunMultiplier);
+          }
+        } else if (rawName.includes('+') && (rawName.includes('肉包') || rawName.includes('包子'))) {
+          const bunMultiplier = (rawName.includes('2顆') || rawName.includes('2入') || rawName.includes('(2顆)')) ? 2 : 1;
+          itemCounts['招牌大肉包 (外送套餐組合)'] = (itemCounts['招牌大肉包 (外送套餐組合)'] || 0) + (q * bunMultiplier);
+        }
       });
     });
     const topItems = Object.entries(itemCounts).sort((a, b) => b[1] - a[1]);

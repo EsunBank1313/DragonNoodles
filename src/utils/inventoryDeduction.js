@@ -36,7 +36,7 @@ export function calculateOrderInventoryDeductions(order) {
     const upgrade = item.upgradeCombo || null;
 
     // --- 1. 肉包 (Meat Buns) ---
-    if (name.includes('肉包(量販包)') || name.includes('量販包')) {
+    if (name.includes('肉包(量販包)') || name.includes('量販包') || name.includes('10顆') || name.includes('10入')) {
       deductions.push({
         targetName: '肉包',
         qty: qty * 10,
@@ -44,22 +44,24 @@ export function calculateOrderInventoryDeductions(order) {
         reason: `${name} x${qty} (每包含10顆)`
       });
     } else if (name.includes('肉包') || name.includes('鮮肉包') || name.includes('包子')) {
+      const bunCountInName = (name.includes('2顆') || name.includes('2入') || name.includes('(2顆)') || name.includes('兩顆')) ? 2 : 1;
       deductions.push({
         targetName: '肉包',
-        qty: qty * 1,
+        qty: qty * bunCountInName,
         unit: '顆',
-        reason: `${name} x${qty}`
+        reason: `${name} x${qty * bunCountInName}顆`
       });
     }
 
-    // Check combo upgrades for meat buns (e.g. B套餐 大肉包)
-    const upgradeStr = JSON.stringify(upgrade || '') + specs.join(' ');
+    // Check combo upgrades for meat buns (e.g. B套餐 大肉包, C套餐 大肉包)
+    const upgradeStr = JSON.stringify(upgrade || '') + ' ' + specs.join(' ');
     if ((upgradeStr.includes('肉包') || upgradeStr.includes('包子')) && !name.includes('肉包') && !name.includes('包子')) {
+      const bunMultiplier = (upgradeStr.includes('2顆') || upgradeStr.includes('(2顆)') || upgradeStr.includes('2入') || upgradeStr.includes('兩顆') || upgradeStr.includes('大肉包 2顆') || upgradeStr.includes('大肉包(2顆)')) ? 2 : 1;
       deductions.push({
         targetName: '肉包',
-        qty: qty * 1,
+        qty: qty * bunMultiplier,
         unit: '顆',
-        reason: `${name} 套餐升級大肉包 x${qty}`
+        reason: `${name} 套餐升級大肉包 x${qty * bunMultiplier}顆`
       });
     }
 

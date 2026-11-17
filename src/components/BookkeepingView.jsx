@@ -1410,7 +1410,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
     const avgOrderValue = totalOrdersCount > 0 ? Math.round(totalRevenue / totalOrdersCount) : 0;
     const avgDailyRevenue = activeDays.length > 0 ? Math.round(totalRevenue / activeDays.length) : 0;
 
-    // Item sales breakdown (規格化分拆麵線大小碗)
+    // Item sales breakdown (規格化分拆麵線大小碗，並拆解套餐內含肉包)
     const itemSalesMap = {};
     filteredOrders.forEach(o => {
       const orderItems = Array.isArray(o.items) ? o.items : [];
@@ -1421,12 +1421,51 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
         const itemTotal = Number(item.totalPrice) || (price * qty);
         const itemCost = calculateItemCost(item);
 
-        if (!itemSalesMap[name]) {
-          itemSalesMap[name] = { name, qty: 0, revenue: 0, cost: 0 };
+        const specs = Array.isArray(item.specs) ? item.specs : (typeof item.specs === 'string' ? [item.specs] : []);
+        const upgradeStr = JSON.stringify(item.upgradeCombo || '') + ' ' + specs.join(' ');
+        const rawName = String(item.name || '').trim();
+
+        // 拆解套餐內含之肉包 (Combo Upgrade Meat Buns)
+        let comboBunQty = 0;
+        let comboBunPrice = 0;
+        let comboBunCost = 0;
+        let comboBunLabel = '';
+
+        if (!rawName.includes('肉包') && !rawName.includes('包子')) {
+          if (upgradeStr.includes('肉包') || upgradeStr.includes('包子')) {
+            const bunMultiplier = (upgradeStr.includes('2顆') || upgradeStr.includes('(2顆)') || upgradeStr.includes('2入') || upgradeStr.includes('兩顆') || upgradeStr.includes('大肉包 2顆') || upgradeStr.includes('大肉包(2顆)')) ? 2 : 1;
+            comboBunQty = qty * bunMultiplier;
+            comboBunLabel = '招牌大肉包 (套餐升級)';
+            const upgradePrice = Number(item.upgradeCombo?.price) || (bunMultiplier === 2 ? 35 : 20);
+            comboBunPrice = upgradePrice * qty;
+            comboBunCost = 15 * comboBunQty;
+          }
         }
-        itemSalesMap[name].qty += qty;
-        itemSalesMap[name].revenue += itemTotal;
-        itemSalesMap[name].cost += itemCost;
+
+        if (comboBunQty > 0) {
+          if (!itemSalesMap[comboBunLabel]) {
+            itemSalesMap[comboBunLabel] = { name: comboBunLabel, qty: 0, revenue: 0, cost: 0 };
+          }
+          itemSalesMap[comboBunLabel].qty += comboBunQty;
+          itemSalesMap[comboBunLabel].revenue += comboBunPrice;
+          itemSalesMap[comboBunLabel].cost += comboBunCost;
+
+          const mainRev = Math.max(0, itemTotal - comboBunPrice);
+          const mainCost = Math.max(0, itemCost - comboBunCost);
+          if (!itemSalesMap[name]) {
+            itemSalesMap[name] = { name, qty: 0, revenue: 0, cost: 0 };
+          }
+          itemSalesMap[name].qty += qty;
+          itemSalesMap[name].revenue += mainRev;
+          itemSalesMap[name].cost += mainCost;
+        } else {
+          if (!itemSalesMap[name]) {
+            itemSalesMap[name] = { name, qty: 0, revenue: 0, cost: 0 };
+          }
+          itemSalesMap[name].qty += qty;
+          itemSalesMap[name].revenue += itemTotal;
+          itemSalesMap[name].cost += itemCost;
+        }
       });
     });
 
@@ -1667,7 +1706,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
     const dayCount = activeDays.length || 1;
     const hourlyAvgs = hourlyCounts.map(count => count / dayCount);
 
-    // Item & Mee-Sua Sales Analysis calculation (分拆麵線大小碗)
+    // Item & Mee-Sua Sales Analysis calculation (分拆麵線大小碗，並拆解套餐內含肉包)
     const itemSalesMap = {};
     let totalItemsQty = 0;
     let totalItemsRevenue = 0;
@@ -1682,18 +1721,69 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
         const itemTotal = Number(item.totalPrice) || (price * qty);
         const itemCost = calculateItemCost(item);
 
-        if (!itemSalesMap[name]) {
-          itemSalesMap[name] = {
-            name,
-            qty: 0,
-            revenue: 0,
-            cost: 0,
-            isMeeSua: name.includes('麵線') || name.includes('羹')
-          };
+        const specs = Array.isArray(item.specs) ? item.specs : (typeof item.specs === 'string' ? [item.specs] : []);
+        const upgradeStr = JSON.stringify(item.upgradeCombo || '') + ' ' + specs.join(' ');
+        const rawName = String(item.name || '').trim();
+
+        // 拆解套餐內含之肉包 (Combo Upgrade Meat Buns)
+        let comboBunQty = 0;
+        let comboBunPrice = 0;
+        let comboBunCost = 0;
+        let comboBunLabel = '';
+
+        if (!rawName.includes('肉包') && !rawName.includes('包子')) {
+          if (upgradeStr.includes('肉包') || upgradeStr.includes('包子')) {
+            const bunMultiplier = (upgradeStr.includes('2顆') || upgradeStr.includes('(2顆)') || upgradeStr.includes('2入') || upgradeStr.includes('兩顆') || upgradeStr.includes('大肉包 2顆') || upgradeStr.includes('大肉包(2顆)')) ? 2 : 1;
+            comboBunQty = qty * bunMultiplier;
+            comboBunLabel = '招牌大肉包 (套餐升級)';
+            const upgradePrice = Number(item.upgradeCombo?.price) || (bunMultiplier === 2 ? 35 : 20);
+            comboBunPrice = upgradePrice * qty;
+            comboBunCost = 15 * comboBunQty;
+          }
         }
-        itemSalesMap[name].qty += qty;
-        itemSalesMap[name].revenue += itemTotal;
-        itemSalesMap[name].cost += itemCost;
+
+        if (comboBunQty > 0) {
+          if (!itemSalesMap[comboBunLabel]) {
+            itemSalesMap[comboBunLabel] = {
+              name: comboBunLabel,
+              qty: 0,
+              revenue: 0,
+              cost: 0,
+              isMeeSua: false
+            };
+          }
+          itemSalesMap[comboBunLabel].qty += comboBunQty;
+          itemSalesMap[comboBunLabel].revenue += comboBunPrice;
+          itemSalesMap[comboBunLabel].cost += comboBunCost;
+
+          const mainRev = Math.max(0, itemTotal - comboBunPrice);
+          const mainCost = Math.max(0, itemCost - comboBunCost);
+          if (!itemSalesMap[name]) {
+            itemSalesMap[name] = {
+              name,
+              qty: 0,
+              revenue: 0,
+              cost: 0,
+              isMeeSua: name.includes('麵線') || name.includes('羹')
+            };
+          }
+          itemSalesMap[name].qty += qty;
+          itemSalesMap[name].revenue += mainRev;
+          itemSalesMap[name].cost += mainCost;
+        } else {
+          if (!itemSalesMap[name]) {
+            itemSalesMap[name] = {
+              name,
+              qty: 0,
+              revenue: 0,
+              cost: 0,
+              isMeeSua: name.includes('麵線') || name.includes('羹')
+            };
+          }
+          itemSalesMap[name].qty += qty;
+          itemSalesMap[name].revenue += itemTotal;
+          itemSalesMap[name].cost += itemCost;
+        }
         totalItemsQty += qty;
         totalItemsRevenue += itemTotal;
         totalItemsCost += itemCost;
@@ -4692,6 +4782,21 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
         const displayName = getItemDisplayNameWithSize(item);
         const q = Number(item.quantity) || 1;
         itemCounts[displayName] = (itemCounts[displayName] || 0) + q;
+
+        // 🔄 統計套餐中包含之肉包 (Meat Buns in Combos)
+        const specs = Array.isArray(item.specs) ? item.specs : (typeof item.specs === 'string' ? [item.specs] : []);
+        const upgradeStr = JSON.stringify(item.upgradeCombo || '') + ' ' + specs.join(' ');
+        const rawName = String(item.name || '').trim();
+
+        if (!rawName.includes('肉包') && !rawName.includes('包子')) {
+          if (upgradeStr.includes('肉包') || upgradeStr.includes('包子')) {
+            const bunMultiplier = (upgradeStr.includes('2顆') || upgradeStr.includes('(2顆)') || upgradeStr.includes('2入') || upgradeStr.includes('兩顆') || upgradeStr.includes('大肉包 2顆') || upgradeStr.includes('大肉包(2顆)')) ? 2 : 1;
+            itemCounts['招牌大肉包 (套餐升級)'] = (itemCounts['招牌大肉包 (套餐升級)'] || 0) + (q * bunMultiplier);
+          }
+        } else if (rawName.includes('+') && (rawName.includes('肉包') || rawName.includes('包子'))) {
+          const bunMultiplier = (rawName.includes('2顆') || rawName.includes('2入') || rawName.includes('(2顆)')) ? 2 : 1;
+          itemCounts['招牌大肉包 (外送套餐組合)'] = (itemCounts['招牌大肉包 (外送套餐組合)'] || 0) + (q * bunMultiplier);
+        }
 
         if (displayName.includes('麵線') || displayName.includes('羹')) {
           if (displayName.includes('(大碗)')) {
