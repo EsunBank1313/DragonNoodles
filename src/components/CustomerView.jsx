@@ -485,11 +485,11 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber: pr
       const savedActiveId = localStorage.getItem('active_customer_order_id');
       const authUserId = customerAuth?.userId;
 
-      // Query recent customer orders
+      // Query recent customer orders using primary key index
       const { data, error } = await supabase
         .from('orders')
         .select('*')
-        .order('created_at', { ascending: false })
+        .order('id', { ascending: false })
         .limit(30);
 
       if (error) throw error;
@@ -1542,15 +1542,15 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber: pr
 
     let maxNum = 0;
     try {
-      const { data: todayOrders } = await supabase
+      const { data: recentOrders } = await supabase
         .from('orders')
-        .select('order_number')
-        .gte('created_at', todayTaipeiISO)
-        .eq('type', orderType);
+        .select('order_number, type, created_at')
+        .order('id', { ascending: false })
+        .limit(60);
 
-      if (todayOrders && todayOrders.length > 0) {
-        todayOrders.forEach(o => {
-          if (o.order_number && o.order_number.startsWith(prefix + '-')) {
+      if (recentOrders && recentOrders.length > 0) {
+        recentOrders.forEach(o => {
+          if (o.created_at >= todayTaipeiISO && o.type === orderType && o.order_number && o.order_number.startsWith(prefix + '-')) {
             const num = parseInt(o.order_number.replace(/[^0-9]/g, ''), 10);
             if (!isNaN(num) && num > maxNum) {
               maxNum = num;

@@ -2107,18 +2107,18 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
         });
       }
 
-      // 2. Only query Supabase if not yet found in memory
+      // 2. Only query Supabase if not yet found in memory (using primary key id.desc index)
       if (maxNum === 0) {
         try {
-          const { data: todayOrders } = await supabase
+          const { data: recentOrders } = await supabase
             .from('orders')
-            .select('order_number')
-            .gte('created_at', todayTaipeiISO)
-            .eq('type', orderType);
+            .select('order_number, type, created_at')
+            .order('id', { ascending: false })
+            .limit(60);
 
-          if (todayOrders && todayOrders.length > 0) {
-            todayOrders.forEach(o => {
-              if (o.order_number && o.order_number.startsWith(prefix + '-')) {
+          if (recentOrders && recentOrders.length > 0) {
+            recentOrders.forEach(o => {
+              if (o.created_at >= todayTaipeiISO && o.type === orderType && o.order_number && o.order_number.startsWith(prefix + '-')) {
                 const num = parseInt(o.order_number.replace(/[^0-9]/g, ''), 10);
                 if (!isNaN(num) && num > maxNum) {
                   maxNum = num;

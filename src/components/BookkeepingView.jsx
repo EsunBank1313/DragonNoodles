@@ -1051,12 +1051,19 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
       (async () => {
         try {
           const settingName = prefixNameForStore('SYSTEM_SETTING_MONTHLY_REPORT_VISIBILITY', storeCode);
-          await supabase.from('menu_items').upsert({
-            name: settingName,
-            category: 'settings',
-            price: 0,
-            description: JSON.stringify(updated)
-          }, { onConflict: 'name' });
+          const { data: exist } = await supabase.from('menu_items').select('id').eq('name', settingName);
+          if (exist && exist.length > 0) {
+            await supabase.from('menu_items').update({
+              description: JSON.stringify(updated)
+            }).eq('id', exist[0].id);
+          } else {
+            await supabase.from('menu_items').insert([{
+              name: settingName,
+              category: 'settings',
+              price: 0,
+              description: JSON.stringify(updated)
+            }]);
+          }
         } catch (err) {
           console.warn("Failed to sync monthly report visibility to cloud:", err);
         }
@@ -2641,7 +2648,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
   // Fetch orders from Supabase (Filtered strictly by storeCode)
   const fetchOrders = async () => {
     try {
-      const { data, error } = await supabase.from('orders').select('*').order('created_at', { ascending: false });
+      const { data, error } = await supabase.from('orders').select('*').order('id', { ascending: false }).limit(1000);
       if (data) {
         const storeOrders = filterOrdersByStore(data, storeCode);
 
@@ -2686,7 +2693,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
   // Fetch purchases from Supabase
   const fetchPurchases = async () => {
     try {
-      const { data, error } = await supabase.from('purchases').select('*').order('created_at', { ascending: false });
+      const { data, error } = await supabase.from('purchases').select('*').order('id', { ascending: false });
       if (error) throw error;
       if (data) {
         const currentCode = (storeCode || 'dragon').toLowerCase();
@@ -2744,7 +2751,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
   // Fetch fixed costs from Supabase
   const fetchFixedCosts = async () => {
     try {
-      const { data, error } = await supabase.from('fixed_costs').select('*').order('created_at', { ascending: false });
+      const { data, error } = await supabase.from('fixed_costs').select('*').order('id', { ascending: false });
       if (error) throw error;
       if (data) {
         const currentCode = (storeCode || 'dragon').toLowerCase();
@@ -3165,9 +3172,9 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
     const syncInv = async () => {
       try {
         const invKey = prefixNameForStore('SYSTEM_SETTING_INVENTORY', storeCode);
-        const { data } = await supabase.from('menu_items').select('*').eq('name', invKey);
+        const { data } = await supabase.from('menu_items').select('id').eq('name', invKey);
         if (data && data.length > 0) {
-          await supabase.from('menu_items').update({ description: JSON.stringify(inventory) }).eq('name', invKey);
+          await supabase.from('menu_items').update({ description: JSON.stringify(inventory) }).eq('id', data[0].id);
         } else {
           await supabase.from('menu_items').insert([{ name: invKey, price: 0, category: 'settings', description: JSON.stringify(inventory) }]);
         }
@@ -3185,9 +3192,9 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
     const syncProcessed = async () => {
       try {
         const procKey = prefixNameForStore('SYSTEM_SETTING_PROCESSED_ORDERS', storeCode);
-        const { data } = await supabase.from('menu_items').select('*').eq('name', procKey);
+        const { data } = await supabase.from('menu_items').select('id').eq('name', procKey);
         if (data && data.length > 0) {
-          await supabase.from('menu_items').update({ description: JSON.stringify(processedOrderIds) }).eq('name', procKey);
+          await supabase.from('menu_items').update({ description: JSON.stringify(processedOrderIds) }).eq('id', data[0].id);
         } else {
           await supabase.from('menu_items').insert([{ name: procKey, price: 0, category: 'settings', description: JSON.stringify(processedOrderIds) }]);
         }
@@ -3205,9 +3212,9 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
     const syncLogs = async () => {
       try {
         const logsKey = prefixNameForStore('SYSTEM_SETTING_INVENTORY_LOGS', storeCode);
-        const { data } = await supabase.from('menu_items').select('*').eq('name', logsKey);
+        const { data } = await supabase.from('menu_items').select('id').eq('name', logsKey);
         if (data && data.length > 0) {
-          await supabase.from('menu_items').update({ description: JSON.stringify(inventoryLogs) }).eq('name', logsKey);
+          await supabase.from('menu_items').update({ description: JSON.stringify(inventoryLogs) }).eq('id', data[0].id);
         } else {
           await supabase.from('menu_items').insert([{ name: logsKey, price: 0, category: 'settings', description: JSON.stringify(inventoryLogs) }]);
         }
@@ -3225,9 +3232,9 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
     const syncConds = async () => {
       try {
         const condKey = prefixNameForStore('SYSTEM_SETTING_CONDIMENTS_AVAILABILITY', storeCode);
-        const { data } = await supabase.from('menu_items').select('*').eq('name', condKey);
+        const { data } = await supabase.from('menu_items').select('id').eq('name', condKey);
         if (data && data.length > 0) {
-          await supabase.from('menu_items').update({ description: JSON.stringify(condimentsAvailability) }).eq('name', condKey);
+          await supabase.from('menu_items').update({ description: JSON.stringify(condimentsAvailability) }).eq('id', data[0].id);
         } else {
           await supabase.from('menu_items').insert([{ name: condKey, price: 0, category: 'settings', description: JSON.stringify(condimentsAvailability) }]);
         }
@@ -3634,10 +3641,6 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
     });
     setInventory(updatedInventory);
     localStorage.setItem(`${storeCode}_restaurant_inventory`, JSON.stringify(updatedInventory));
-    try {
-      const invKey = prefixNameForStore('SYSTEM_SETTING_INVENTORY', storeCode);
-      supabase.from('menu_items').upsert([{ name: invKey, price: 0, category: 'settings', description: JSON.stringify(updatedInventory) }]);
-    } catch(e){}
 
     const newLog = {
       id: `LOG-${Date.now()}`,
@@ -4219,7 +4222,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
         updateClosedDatesOnCloud(updated);
         
         // Also update Supabase orders to sync other devices (RLS-friendly update instead of delete)
-        supabase.from('orders').select('id, created_at, items')
+        supabase.from('orders').select('id, created_at, items').order('id', { ascending: false }).limit(200)
           .then(({ data }) => {
             if (data) {
               const matched = data.find(o => {

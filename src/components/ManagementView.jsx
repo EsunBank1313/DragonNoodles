@@ -841,11 +841,18 @@ const [closedDates, setClosedDates] = useState(() => {
       const tokenKey = prefixNameForStore('SYSTEM_SETTING_STORE_STAFF_TOKEN', cleanCode);
       const pinKey = prefixNameForStore('SYSTEM_SETTING_ADMIN_PIN', cleanCode);
 
-      await supabase.from('menu_items').upsert([
+      for (const sRow of [
         { name: nameKey, price: 0, category: 'settings', description: cleanName },
         { name: tokenKey, price: 0, category: 'settings', description: cleanToken },
         { name: pinKey, price: 0, category: 'settings', description: pin }
-      ], { onConflict: 'name' });
+      ]) {
+        const { data: existRow } = await supabase.from('menu_items').select('id').eq('name', sRow.name);
+        if (existRow && existRow.length > 0) {
+          await supabase.from('menu_items').update({ description: sRow.description }).eq('id', existRow[0].id);
+        } else {
+          await supabase.from('menu_items').insert([sRow]);
+        }
+      }
 
       setRegisteredStores(updatedList);
       syncRegisteredStoresCache(updatedList);
@@ -1026,7 +1033,12 @@ const [closedDates, setClosedDates] = useState(() => {
         { name: prefix + "SYSTEM_SETTING_STORE_STAFF_TOKEN", price: 0, category: 'settings', description: randomStaffToken }
       ];
       for (const tRow of tokenRows) {
-        await supabase.from('menu_items').upsert([tRow], { onConflict: 'name' });
+        const { data: existRow } = await supabase.from('menu_items').select('id').eq('name', tRow.name);
+        if (existRow && existRow.length > 0) {
+          await supabase.from('menu_items').update({ description: tRow.description }).eq('id', existRow[0].id);
+        } else {
+          await supabase.from('menu_items').insert([tRow]);
+        }
       }
 
       // Update registered stores list in cloud
@@ -1379,22 +1391,19 @@ const [closedDates, setClosedDates] = useState(() => {
             console.error("Failed to parse staff list in management:", e);
           }
         }
-// Check if store is closed today
+// Check if store is closed today (using primary key index)
         const todayStart = new Date();
         todayStart.setHours(0,0,0,0);
+        const todayStartISO = todayStart.toISOString();
         supabase.from('orders')
-          .select('*')
-          .gte('created_at', todayStart.toISOString())
-          .eq('table_number', 'CLOSED')
-          .then(({ data: closedOrders }) => {
-            setIsClosedToday(closedOrders && closedOrders.length > 0);
-          });
-
-        // Sync closedDates from cloud
-        supabase.from('orders')
-          .select('created_at, items')
+          .select('id, created_at, table_number, items')
+          .order('id', { ascending: false })
+          .limit(100)
           .then(({ data: ordersData }) => {
             if (ordersData) {
+              const closedToday = ordersData.some(o => o.created_at >= todayStartISO && o.table_number === 'CLOSED');
+              setIsClosedToday(closedToday);
+
               const cloudDates = ordersData
                 .filter(o => {
                   const itemsData = typeof o.items === 'string' ? JSON.parse(o.items) : o.items;
@@ -4309,7 +4318,12 @@ const handleSaveGlobalAddons = async (newAddons) => {
                     }
 
                     const footerKey = prefixNameForStore('SYSTEM_SETTING_RECEIPT_FOOTER', storeCode);
-                    await supabase.from('menu_items').upsert([{ name: footerKey, price: 0, category: 'settings', description: newReceiptFooter.trim() }], { onConflict: 'name' });
+                    const { data: existFooter } = await supabase.from('menu_items').select('id').eq('name', footerKey);
+                    if (existFooter && existFooter.length > 0) {
+                      await supabase.from('menu_items').update({ description: newReceiptFooter.trim() }).eq('id', existFooter[0].id);
+                    } else {
+                      await supabase.from('menu_items').insert([{ name: footerKey, price: 0, category: 'settings', description: newReceiptFooter.trim() }]);
+                    }
                     setReceiptFooter(newReceiptFooter.trim());
 
                     alert("🧾 收據出單設定已成功更新！");
@@ -4417,13 +4431,20 @@ const handleSaveGlobalAddons = async (newAddons) => {
                       await supabase.from('menu_items').insert([{ name: profKey, price: 0, category: 'settings', description: JSON.stringify(profileData) }]);
                     }
 
-                    await supabase.from('menu_items').upsert([
+                    for (const pRow of [
                       { name: prefixNameForStore('SYSTEM_SETTING_STORE_NAME', storeCode), price: 0, category: 'settings', description: profileData.storeName },
                       { name: prefixNameForStore('SYSTEM_SETTING_STORE_TAX_ID', storeCode), price: 0, category: 'settings', description: profileData.storeTaxId },
                       { name: prefixNameForStore('SYSTEM_SETTING_STORE_PHONE', storeCode), price: 0, category: 'settings', description: profileData.storePhone },
                       { name: prefixNameForStore('SYSTEM_SETTING_STORE_ADDRESS', storeCode), price: 0, category: 'settings', description: profileData.storeAddress },
                       { name: prefixNameForStore('SYSTEM_SETTING_STORE_WIFI', storeCode), price: 0, category: 'settings', description: profileData.storeWifi }
-                    ], { onConflict: 'name' });
+                    ]) {
+                      const { data: ex } = await supabase.from('menu_items').select('id').eq('name', pRow.name);
+                      if (ex && ex.length > 0) {
+                        await supabase.from('menu_items').update({ description: pRow.description }).eq('id', ex[0].id);
+                      } else {
+                        await supabase.from('menu_items').insert([pRow]);
+                      }
+                    }
 
                     setStoreName(profileData.storeName);
                     setStoreTaxId(profileData.storeTaxId);
