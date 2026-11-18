@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { supabase } from '../supabaseClient';
 import { formatSupabaseOrder } from './CustomerView';
 import { menuItems as fallbackMenuItems, luzhouFallbackMenuItems, defaultUpgradeCombos, isComboApplicableToItem } from '../data/menuData';
@@ -130,24 +130,28 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
       setKickoutState({ isKickedOut: true, user: otherUser || '其他人員' });
     };
 
+    let cachedSessionRowId = null;
     const checkAndSendHeartbeat = async () => {
       if (isKickedOutRef.current) return;
       try {
-        const { data } = await supabase.from('menu_items').select('description').eq('name', sessionKey);
-        if (data && data.length > 0 && data[0].description) {
-          const cloudSession = JSON.parse(data[0].description);
-          if (cloudSession && cloudSession.sessionId && cloudSession.sessionId !== sessionId && (Date.now() - Number(cloudSession.lastActive || 0) <= 25000)) {
-            handleDeviceKickout(cloudSession.user);
-            return;
+        const { data } = await supabase.from('menu_items').select('id, description').eq('name', sessionKey);
+        if (data && data.length > 0) {
+          cachedSessionRowId = data[0].id;
+          if (data[0].description) {
+            const cloudSession = JSON.parse(data[0].description);
+            if (cloudSession && cloudSession.sessionId && cloudSession.sessionId !== sessionId && (Date.now() - Number(cloudSession.lastActive || 0) <= 90000)) {
+              handleDeviceKickout(cloudSession.user);
+              return;
+            }
           }
         }
 
-        if (!isKickedOutRef.current) {
+        if (!isKickedOutRef.current && cachedSessionRowId) {
           const sessionPayload = { user: cashierName, sessionId, lastActive: Date.now() };
           await supabase
             .from('menu_items')
             .update({ description: JSON.stringify(sessionPayload) })
-            .eq('name', sessionKey);
+            .eq('id', cachedSessionRowId);
         }
       } catch (err) {
         console.warn("Heartbeat error:", err);
@@ -155,7 +159,7 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
     };
 
     checkAndSendHeartbeat();
-    const interval = setInterval(checkAndSendHeartbeat, 6000);
+    const interval = setInterval(checkAndSendHeartbeat, 45000);
 
     const channel = supabase.channel(`pos-active-session-${storeCode}-${Date.now()}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'menu_items', filter: `name=eq.${sessionKey}` }, (payload) => {
@@ -1363,16 +1367,18 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
     }
   };
 
+  const isFetchingOrdersRef = useRef(false);
+
   const fetchOrders = async () => {
+    if (isFetchingOrdersRef.current) return;
+    isFetchingOrdersRef.current = true;
     try {
-      const todayStr = getTodayLocalDate();
-      const todayTaipeiISO = new Date(`${todayStr}T00:00:00+08:00`).toISOString();
+      // 使用主鍵 id 降冪索引查詢 (避免對無索引 created_at 做全表掃描造成雲端資料庫卡頓)
       const { data, error } = await supabase
         .from('orders')
         .select('*')
-        .gte('created_at', todayTaipeiISO)
         .order('id', { ascending: false })
-        .limit(200);
+        .limit(85);
 
       if (error) throw error;
       if (data) {
@@ -1437,10 +1443,90 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
             if (o.id) knownAlertedOrderIds.current.add(String(o.id));
           });
           isInitialOrdersLoaded.current = true;
+        } else {
+          // 1. 若有尚未通知過的顧客手機線上點餐 (received 或 preparing)，強制補發彈窗與鈴聲！
+          const unalertedOnlineOrders = clientOrders.filter(o => {
+            const orderId = String(o.id);
+            if (knownAlertedOrderIds.current.has(orderId)) return false;
+            if (o.status === 'deleted' || o.status === 'cancelled') return false;
+
+            let itemsData = o.items;
+            if (typeof itemsData === 'string') {
+              try { itemsData = JSON.parse(itemsData); } catch (e) { itemsData = {}; }
+            }
+            if (itemsData?.customerName === 'SYSTEM_STORE_CLOSE') return false;
+
+            const orderNumStr = String(o.order_number || '');
+            const isTest = orderNumStr.startsWith('TEST-') || o.type === 'test' || itemsData?.is_test === true;
+            if (isTest) return false;
+
+            // 外送平台（Uber / 熊貓）排除在顧客自取/內用提醒之外
+            const isDelivery = orderNumStr.startsWith('U-') || orderNumStr.startsWith('P-') ||
+              o.type === 'uber' || o.type === 'ubereats' || o.type === 'foodpanda' || o.type === 'panda' || o.type === 'delivery' ||
+              itemsData?.source === 'foodpanda' || itemsData?.source === 'uber' || itemsData?.source === 'uber_sync' ||
+              String(itemsData?.customerName || '').includes('熊貓') || String(itemsData?.customerName || '').includes('Uber');
+            if (isDelivery) return false;
+
+            const isCust = Boolean(
+              itemsData?.source === 'customer' ||
+              o.source === 'customer' ||
+              itemsData?.orderChannel === '線上點餐' ||
+              itemsData?.channel === '線上點餐' ||
+              itemsData?.pickupTime ||
+              (itemsData?.customerPhone && itemsData.customerPhone.length > 0)
+            );
+
+            return isCust && (o.status === 'received' || o.status === 'preparing');
+          });
+
+          for (const order of unalertedOnlineOrders.reverse()) {
+            notifyNewIncomingOrder(order);
+          }
+
+          // 2. 若開啟自動出單功能，針對未列印單據執行出單
+          if (isAutoPrintEnabledRef.current) {
+            const unprintedOrders = clientOrders.filter(o => {
+              const orderId = String(o.id);
+              const orderNum = o.order_number;
+              if (locallyPrintedOrders.current.has(orderId) || (orderNum && locallyPrintedOrders.current.has(orderNum))) {
+                return false;
+              }
+              if (o.status !== 'received' && o.status !== 'preparing') return false;
+              let itemsData = o.items;
+              if (typeof itemsData === 'string') {
+                try { itemsData = JSON.parse(itemsData); } catch (e) { itemsData = {}; }
+              }
+              return !itemsData || !itemsData.is_printed;
+            });
+
+            for (const order of unprintedOrders) {
+              if (!isAutoPrintEnabledRef.current) break;
+              const orderId = String(order.id);
+              const orderNum = order.order_number;
+              locallyPrintedOrders.current.add(orderId);
+              if (orderNum) locallyPrintedOrders.current.add(orderNum);
+
+              const itemsData = typeof order.items === 'string' ? JSON.parse(order.items) : order.items;
+              const updatedItems = { ...itemsData, is_printed: true };
+              supabase
+                .from('orders')
+                .update({ items: updatedItems })
+                .eq('id', order.id)
+                .then(() => {})
+                .catch(() => {});
+
+              const mappedOrder = formatSupabaseOrder(order);
+              if (mappedOrder) {
+                printReceipt(mappedOrder);
+              }
+            }
+          }
         }
       }
     } catch (err) {
       console.error("Failed to load orders in CashierView:", err);
+    } finally {
+      isFetchingOrdersRef.current = false;
     }
   };
 
@@ -1570,109 +1656,11 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
     };
   }, [storeCode]);
 
-  // 🛡️ 背景守護輪詢 (每 4.5 秒主動檢查新單，不論是否開啟自動出單皆能保證彈窗與鈴聲提醒)
+  // 🛡️ 背景守護輪詢 (每 10 秒以主鍵索引輕量檢查新單，搭配 Realtime 雙重保障且不造成資料庫負擔)
   useEffect(() => {
-    const interval = setInterval(async () => {
-      try {
-        const todayStr = getTodayLocalDate();
-        const todayTaipeiISO = new Date(`${todayStr}T00:00:00+08:00`).toISOString();
-        const { data: recentOrders, error } = await supabase
-          .from('orders')
-          .select('*')
-          .gte('created_at', todayTaipeiISO)
-          .order('id', { ascending: false })
-          .limit(50);
-
-        if (error) throw error;
-        if (recentOrders && recentOrders.length > 0) {
-          const storeOrders = filterOrdersByStore(recentOrders, storeCode);
-
-          // 1. 若有尚未通知過的顧客手機線上點餐 (received 或 preparing)，強制補發彈窗與鈴聲！
-          if (isInitialOrdersLoaded.current) {
-            const unalertedOnlineOrders = storeOrders.filter(o => {
-              const orderId = String(o.id);
-              if (knownAlertedOrderIds.current.has(orderId)) return false;
-              if (o.status === 'deleted' || o.status === 'cancelled') return false;
-
-              let itemsData = o.items;
-              if (typeof itemsData === 'string') {
-                try { itemsData = JSON.parse(itemsData); } catch (e) { itemsData = {}; }
-              }
-              if (itemsData?.customerName === 'SYSTEM_STORE_CLOSE') return false;
-
-              const orderNumStr = String(o.order_number || '');
-              const isTest = orderNumStr.startsWith('TEST-') || o.type === 'test' || itemsData.is_test === true;
-              if (isTest) return false;
-
-              // 外送平台（Uber / 熊貓）排除在顧客自取/內用提醒之外
-              const isDelivery = orderNumStr.startsWith('U-') || orderNumStr.startsWith('P-') ||
-                o.type === 'uber' || o.type === 'ubereats' || o.type === 'foodpanda' || o.type === 'panda' || o.type === 'delivery' ||
-                itemsData.source === 'foodpanda' || itemsData.source === 'uber' || itemsData.source === 'uber_sync' ||
-                String(itemsData.customerName || '').includes('熊貓') || String(itemsData.customerName || '').includes('Uber');
-              if (isDelivery) return false;
-
-              const isCust = Boolean(
-                itemsData.source === 'customer' ||
-                o.source === 'customer' ||
-                itemsData.orderChannel === '線上點餐' ||
-                itemsData.channel === '線上點餐' ||
-                itemsData.pickupTime ||
-                (itemsData.customerPhone && itemsData.customerPhone.length > 0)
-              );
-
-              return isCust && (o.status === 'received' || o.status === 'preparing');
-            });
-
-            // 依建立先後順序觸發通知
-            for (const order of unalertedOnlineOrders.reverse()) {
-              notifyNewIncomingOrder(order);
-            }
-          }
-
-          // 2. 若開啟自動出單功能，針對未列印單據執行出單
-          if (isAutoPrintEnabledRef.current) {
-            const unprintedOrders = storeOrders.filter(o => {
-              const orderId = String(o.id);
-              const orderNum = o.order_number;
-              if (locallyPrintedOrders.current.has(orderId) || (orderNum && locallyPrintedOrders.current.has(orderNum))) {
-                return false;
-              }
-              if (o.status !== 'received' && o.status !== 'preparing') return false;
-              let itemsData = o.items;
-              if (typeof itemsData === 'string') {
-                try { itemsData = JSON.parse(itemsData); } catch (e) { itemsData = {}; }
-              }
-              return !itemsData || !itemsData.is_printed;
-            });
-
-            for (const order of unprintedOrders) {
-              if (!isAutoPrintEnabledRef.current) break;
-              const orderId = String(order.id);
-              const orderNum = order.order_number;
-              locallyPrintedOrders.current.add(orderId);
-              if (orderNum) locallyPrintedOrders.current.add(orderNum);
-
-              const itemsData = typeof order.items === 'string' ? JSON.parse(order.items) : order.items;
-              const updatedItems = { ...itemsData, is_printed: true };
-              await supabase
-                .from('orders')
-                .update({ items: updatedItems })
-                .eq('id', order.id);
-
-              const mappedOrder = formatSupabaseOrder(order);
-              if (mappedOrder) {
-                printReceipt(mappedOrder);
-              }
-            }
-          }
-
-          // 定時刷新收銀畫面訂單列表
-          fetchOrders();
-        }
-      } catch (err) {
-        console.warn("Background order polling error:", err);
-      }
-    }, 4500);
+    const interval = setInterval(() => {
+      fetchOrders();
+    }, 10000);
 
     return () => clearInterval(interval);
   }, [storeCode]);

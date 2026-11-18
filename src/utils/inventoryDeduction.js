@@ -5,6 +5,10 @@ import { prefixNameForStore } from './storeContext.js';
 // This strictly prevents historical orders from draining current physical stock!
 export const INVENTORY_DEDUCTION_START_TIMESTAMP = new Date('2026-11-07T00:00:00Z').getTime();
 
+// In-memory session cache & mutex lock to prevent redundant cloud queries or Realtime update loops
+const processedOrderIdsInSession = new Set();
+let isBatchProcessing = false;
+
 /**
  * Parses an order to calculate what inventory items should be deducted and by how much.
  * Supports:
@@ -197,6 +201,10 @@ export function findMatchingInventoryItem(inventory = [], targetName = '') {
  */
 export async function deductInventoryForOrder(order, storeCode = 'dragon') {
   if (!order || !order.id) return { success: false, reason: 'Invalid order' };
+  const orderIdStr = String(order.id);
+  if (processedOrderIdsInSession.has(orderIdStr)) {
+    return { success: false, reason: 'Already processed in session' };
+  }
 
   // 1. Idempotency check: Don't deduct if already deducted
   const rawItems = order.items;
@@ -210,40 +218,45 @@ export async function deductInventoryForOrder(order, storeCode = 'dragon') {
   }
 
   if (itemsObj.inventory_deducted === true) {
+    processedOrderIdsInSession.add(orderIdStr);
     return { success: false, reason: 'Already deducted' };
   }
 
   // 2. Skip test orders
   const isTest = order.type === 'test' || itemsObj.is_test === true || String(order.serialNum || order.order_number || '').startsWith('TEST');
   if (isTest) {
+    processedOrderIdsInSession.add(orderIdStr);
     return { success: false, reason: 'Test order skipped' };
   }
 
   // 3. Skip orders before the feature activation start timestamp
   const orderTime = order.timestamp || (order.created_at ? new Date(order.created_at).getTime() : 0);
   if (orderTime && orderTime < INVENTORY_DEDUCTION_START_TIMESTAMP) {
+    processedOrderIdsInSession.add(orderIdStr);
     return { success: false, reason: 'Historical order skipped' };
   }
 
   // 4. Calculate deductions needed
   const deductions = calculateOrderInventoryDeductions(order);
   if (deductions.length === 0) {
-    // Even if no specific tracked items were in this order, mark order as processed so we don't re-check it
-    try {
-      itemsObj.inventory_deducted = true;
-      await supabase.from('orders').update({ items: itemsObj }).eq('id', order.id);
-    } catch (e) {}
+    // Do NOT fire redundant cloud UPDATE for orders with 0 tracked items — prevents Realtime feedback storm!
+    processedOrderIdsInSession.add(orderIdStr);
     return { success: true, deductions: [], message: 'No tracked inventory in order' };
   }
+
+  // Lock this order ID in session immediately to prevent concurrent/recursive re-entry
+  processedOrderIdsInSession.add(orderIdStr);
 
   // 5. Fetch latest inventory from cloud
   const invKey = prefixNameForStore('SYSTEM_SETTING_INVENTORY', storeCode);
   const logsKey = prefixNameForStore('SYSTEM_SETTING_INVENTORY_LOGS', storeCode);
 
   let currentInventory = [];
+  let invRowId = null;
   try {
-    const { data: invData } = await supabase.from('menu_items').select('*').eq('name', invKey);
+    const { data: invData } = await supabase.from('menu_items').select('id, name, description').eq('name', invKey);
     if (invData && invData.length > 0 && invData[0].description) {
+      invRowId = invData[0].id;
       currentInventory = JSON.parse(invData[0].description);
     } else {
       // Fallback local
@@ -291,31 +304,41 @@ export async function deductInventoryForOrder(order, storeCode = 'dragon') {
 
   // 7. Persist updated inventory and logs to Supabase and localStorage
   try {
-    // Save Inventory
+    // Mark order as deducted in Supabase FIRST so even if log/inventory save has issues, it won't loop
+    itemsObj.inventory_deducted = true;
+    itemsObj.inventory_deductions = deductions;
+    await supabase.from('orders').update({ items: itemsObj }).eq('id', order.id);
+
+    // Save Inventory using indexed primary key id when available
     localStorage.setItem(`${storeCode}_restaurant_inventory`, JSON.stringify(updatedInventory));
-    await supabase.from('menu_items').upsert([
-      { name: invKey, price: 0, category: 'settings', description: JSON.stringify(updatedInventory) }
-    ], { onConflict: 'name' });
+    if (invRowId) {
+      await supabase.from('menu_items').update({ description: JSON.stringify(updatedInventory) }).eq('id', invRowId);
+    } else {
+      await supabase.from('menu_items').insert([
+        { name: invKey, price: 0, category: 'settings', description: JSON.stringify(updatedInventory) }
+      ]);
+    }
 
     // Save Logs
     let existingLogs = [];
+    let logsRowId = null;
     try {
-      const { data: logsData } = await supabase.from('menu_items').select('*').eq('name', logsKey);
+      const { data: logsData } = await supabase.from('menu_items').select('id, name, description').eq('name', logsKey);
       if (logsData && logsData.length > 0 && logsData[0].description) {
+        logsRowId = logsData[0].id;
         existingLogs = JSON.parse(logsData[0].description);
       }
     } catch (e) {}
 
     const combinedLogs = [...newLogs, ...existingLogs].slice(0, 80);
     localStorage.setItem(`${storeCode}_restaurant_inventory_logs`, JSON.stringify(combinedLogs));
-    await supabase.from('menu_items').upsert([
-      { name: logsKey, price: 0, category: 'settings', description: JSON.stringify(combinedLogs) }
-    ], { onConflict: 'name' });
-
-    // Mark order as deducted in Supabase
-    itemsObj.inventory_deducted = true;
-    itemsObj.inventory_deductions = deductions;
-    await supabase.from('orders').update({ items: itemsObj }).eq('id', order.id);
+    if (logsRowId) {
+      await supabase.from('menu_items').update({ description: JSON.stringify(combinedLogs) }).eq('id', logsRowId);
+    } else {
+      await supabase.from('menu_items').insert([
+        { name: logsKey, price: 0, category: 'settings', description: JSON.stringify(combinedLogs) }
+      ]);
+    }
 
     console.log(`[inventoryDeduction] Successfully deducted inventory for Order #${orderNum}:`, deductions);
     return { success: true, deductions, updatedInventory };
@@ -331,28 +354,42 @@ export async function deductInventoryForOrder(order, storeCode = 'dragon') {
  */
 export async function processBatchPendingOrders(orders = [], storeCode = 'dragon') {
   if (!Array.isArray(orders) || orders.length === 0) return 0;
+  if (isBatchProcessing) return 0;
 
+  isBatchProcessing = true;
   let processedCount = 0;
-  for (const o of orders) {
-    if (o.status !== 'completed' && o.status !== 'received') continue;
+  try {
+    for (const o of orders) {
+      if (!o || !o.id) continue;
+      if (processedOrderIdsInSession.has(String(o.id))) continue;
+      if (o.status !== 'completed' && o.status !== 'received') continue;
 
-    const rawItems = o.items;
-    let itemsObj = {};
-    if (rawItems && typeof rawItems === 'object' && !Array.isArray(rawItems)) {
-      itemsObj = rawItems;
-    } else if (typeof rawItems === 'string') {
-      try { itemsObj = JSON.parse(rawItems); } catch (e) {}
+      const rawItems = o.items;
+      let itemsObj = {};
+      if (rawItems && typeof rawItems === 'object' && !Array.isArray(rawItems)) {
+        itemsObj = rawItems;
+      } else if (typeof rawItems === 'string') {
+        try { itemsObj = JSON.parse(rawItems); } catch (e) {}
+      }
+
+      if (itemsObj.inventory_deducted === true) {
+        processedOrderIdsInSession.add(String(o.id));
+        continue;
+      }
+
+      const orderTime = o.timestamp || (o.created_at ? new Date(o.created_at).getTime() : 0);
+      if (orderTime && orderTime < INVENTORY_DEDUCTION_START_TIMESTAMP) {
+        processedOrderIdsInSession.add(String(o.id));
+        continue;
+      }
+
+      const res = await deductInventoryForOrder(o, storeCode);
+      if (res.success && res.deductions && res.deductions.length > 0) {
+        processedCount++;
+      }
     }
-
-    if (itemsObj.inventory_deducted === true) continue;
-
-    const orderTime = o.timestamp || (o.created_at ? new Date(o.created_at).getTime() : 0);
-    if (orderTime && orderTime < INVENTORY_DEDUCTION_START_TIMESTAMP) continue;
-
-    const res = await deductInventoryForOrder(o, storeCode);
-    if (res.success && res.deductions && res.deductions.length > 0) {
-      processedCount++;
-    }
+  } finally {
+    isBatchProcessing = false;
   }
 
   return processedCount;
