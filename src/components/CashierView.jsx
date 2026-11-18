@@ -664,6 +664,91 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
     });
   };
 
+  // 計算今日尚未出單（未列印）之訂單清單 (供頂部出單機狀態與補印使用)
+  const unprintedOrdersList = useMemo(() => {
+    const todayStr = getTodayLocalDate();
+    return orders.filter(o => {
+      const orderDate = (o.created_at || o.createdAt || '').slice(0, 10);
+      if (orderDate && orderDate !== todayStr) return false;
+      if (o.type === 'test' || o.is_test === true || o.isTest === true || o.items?.is_test === true || String(o.serialNum || o.order_number || '').startsWith('TEST-') || String(o.serialNum || o.order_number || '').startsWith('TEST')) return false;
+      if (o.status === 'cancelled') return false;
+      let itemsData = o.items;
+      if (typeof itemsData === 'string') {
+        try { itemsData = JSON.parse(itemsData); } catch (e) { itemsData = {}; }
+      }
+      return !itemsData || !itemsData.is_printed;
+    });
+  }, [orders]);
+
+  // 一鍵依序補印未列印單據
+  const [isReprinting, setIsReprinting] = useState(false);
+  const handleBatchReprintUnprinted = async () => {
+    if (unprintedOrdersList.length === 0) {
+      alert("今日目前沒有未出單之訂單！");
+      return;
+    }
+    const count = unprintedOrdersList.length;
+    const confirmPrint = window.confirm(`即將依序補印今日 ${count} 筆未出單之單據，確定開始列印嗎？`);
+    if (!confirmPrint) return;
+
+    setIsReprinting(true);
+    try {
+      for (let i = 0; i < unprintedOrdersList.length; i++) {
+        const rawOrder = unprintedOrdersList[i];
+        const mappedOrder = formatSupabaseOrder(rawOrder);
+        if (mappedOrder) {
+          printReceipt(mappedOrder);
+        }
+
+        // 標記雲端為已列印
+        try {
+          let itemsData = rawOrder.items;
+          if (typeof itemsData === 'string') {
+            try { itemsData = JSON.parse(itemsData); } catch (e) { itemsData = {}; }
+          }
+          const updatedItems = { ...(itemsData || {}), is_printed: true };
+          await supabase.from('orders').update({ items: updatedItems }).eq('id', rawOrder.id);
+        } catch (e) {
+          console.warn("更新補印狀態失敗:", e);
+        }
+
+        if (i < unprintedOrdersList.length - 1) {
+          await new Promise(r => setTimeout(r, 1200)); // 避免印表機塞車
+        }
+      }
+      await fetchOrders();
+      alert(`✅ 已完成 ${count} 筆單據補印！`);
+    } catch (err) {
+      alert("補印過程發生錯誤: " + err.message);
+    } finally {
+      setIsReprinting(false);
+    }
+  };
+
+  // 測試列印 (吐出測試單以驗證出單機硬體、紙捲與連線)
+  const handleTestPrint = () => {
+    const testOrder = {
+      serialNum: 'TEST-001',
+      order_number: 'TEST-001',
+      type: 'test',
+      is_test: true,
+      customerName: '出單機連線測試',
+      total: 0,
+      createdAt: new Date().toISOString(),
+      items: [
+        {
+          name: '出單機連線測試 (OK)',
+          quantity: 1,
+          price: 0,
+          totalPrice: 0,
+          specs: ['58mm/80mm 熱感應測試'],
+          note: '龍城麵線 POS 系統'
+        }
+      ]
+    };
+    printReceipt(testOrder);
+  };
+
   // Daily Closing Report Printout Handler
   const handlePrintDailyClosing = () => {
     const todayStr = getTodayLocalDate();
@@ -3209,6 +3294,65 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
             ⚡ {isManagingSoldOut ? '結束沽清' : '沽清/售完'}
           </button>
 
+          {/* 🖨️ 出單機連線與自動出單狀態標章 (醒目顯示於頂部) */}
+          <button
+            type="button"
+            onClick={() => {
+              const nextVal = !isAutoPrintEnabled;
+              setIsAutoPrintEnabled(nextVal);
+              isAutoPrintEnabledRef.current = nextVal;
+              localStorage.setItem('is_auto_print_enabled', String(nextVal));
+            }}
+            style={{
+              height: '36px',
+              padding: '0 10px',
+              fontSize: '0.82rem',
+              borderRadius: '6px',
+              border: isAutoPrintEnabled ? '1px solid #16a34a' : '1px solid #d97706',
+              backgroundColor: isAutoPrintEnabled ? 'rgba(22, 163, 74, 0.12)' : 'rgba(217, 119, 6, 0.12)',
+              color: isAutoPrintEnabled ? '#15803d' : '#b45309',
+              cursor: 'pointer',
+              fontWeight: 'bold',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '5px',
+              whiteSpace: 'nowrap'
+            }}
+            title="出單機狀態：點擊可快速切換自動出單（開啟：新單/結帳自動送印；關閉：手動列印）"
+          >
+            <span>🖨️</span>
+            <span>{isAutoPrintEnabled ? '出單機: 🟢 自動出單' : '出單機: 🟡 手動出單'}</span>
+          </button>
+
+          {/* ⚠️ 今日待出單/未列印提醒與一鍵補印按鈕 (若今日有未出單之訂單時醒目顯示) */}
+          {unprintedOrdersList.length > 0 && (
+            <button
+              type="button"
+              disabled={isReprinting}
+              onClick={handleBatchReprintUnprinted}
+              style={{
+                height: '36px',
+                padding: '0 10px',
+                fontSize: '0.8rem',
+                borderRadius: '6px',
+                border: '1px solid #ea580c',
+                backgroundColor: '#ffedd5',
+                color: '#c2410c',
+                cursor: isReprinting ? 'wait' : 'pointer',
+                fontWeight: '900',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '5px',
+                whiteSpace: 'nowrap',
+                boxShadow: '0 2px 6px rgba(234, 88, 12, 0.25)'
+              }}
+              title="今日有未出單單據！點擊可依序一鍵補印全部未出單單據"
+            >
+              <span>⚠️</span>
+              <span>{isReprinting ? '補印中...' : `待出單 (${unprintedOrdersList.length}) 點擊補印`}</span>
+            </button>
+          )}
+
           {/* 3. Uber Eats Quick Launcher */}
           <button
             type="button"
@@ -3451,6 +3595,68 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
                     {isAutoPrintEnabled ? '已開啟' : '已關閉'}
                   </button>
                 </div>
+
+                {/* 🧪 出單機測試列印 */}
+                <button
+                  type="button"
+                  onClick={handleTestPrint}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    padding: '7px 10px',
+                    borderRadius: '6px',
+                    border: '1px solid var(--border)',
+                    backgroundColor: 'var(--bg-body)',
+                    color: 'var(--text-main)',
+                    fontSize: '0.8rem',
+                    fontWeight: 'bold',
+                    cursor: 'pointer',
+                    width: '100%',
+                    textAlign: 'left'
+                  }}
+                  title="點擊吐出一張測試單，以驗證出單機硬體連線、紙捲與切刀"
+                >
+                  <span>🧪</span>
+                  <div style={{ flex: 1 }}>
+                    <div>測試出單機 (列印測試單)</div>
+                    <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: 'normal' }}>
+                      驗證出單機開機、通訊與切刀狀態
+                    </div>
+                  </div>
+                </button>
+
+                {/* ⚠️ 補印今日未列印單據 (若有) */}
+                {unprintedOrdersList.length > 0 && (
+                  <button
+                    type="button"
+                    disabled={isReprinting}
+                    onClick={handleBatchReprintUnprinted}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      padding: '7px 10px',
+                      borderRadius: '6px',
+                      border: '1px solid #ea580c',
+                      backgroundColor: '#ffedd5',
+                      color: '#c2410c',
+                      fontSize: '0.8rem',
+                      fontWeight: 'bold',
+                      cursor: isReprinting ? 'wait' : 'pointer',
+                      width: '100%',
+                      textAlign: 'left'
+                    }}
+                  >
+                    <span>⚠️</span>
+                    <div style={{ flex: 1 }}>
+                      <div>{isReprinting ? '補印中...' : `一鍵補印未出單 (${unprintedOrdersList.length}筆)`}</div>
+                      <div style={{ fontSize: '0.68rem', color: '#c2410c', fontWeight: 'normal' }}>
+                        補印剛才未吐出之訂單
+                      </div>
+                    </div>
+                  </button>
+                )}
 
                 {/* 2. Quick Sound Alert & Voice Toggle */}
                 <div style={{
