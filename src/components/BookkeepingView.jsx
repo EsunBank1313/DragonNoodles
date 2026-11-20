@@ -951,6 +951,13 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
   const [reportRangeType, setReportRangeType] = useState('30days'); // '30days', 'thisMonth', 'lastMonth', '6months', '1year', 'all', 'custom'
   const [reportCustomStartDate, setReportCustomStartDate] = useState('');
   const [reportCustomEndDate, setReportCustomEndDate] = useState(getTodayLocalDate());
+
+  // 📊 食材成本與銷量交叉分析 (Custom Date Range Ingredient Cost & Sales Analysis)
+  const [costAnalysisPreset, setCostAnalysisPreset] = useState('all');
+  const [costAnalysisStartDate, setCostAnalysisStartDate] = useState('2026-07-23');
+  const [costAnalysisEndDate, setCostAnalysisEndDate] = useState(() => getTodayLocalDate());
+  const [expandedCostItem, setExpandedCostItem] = useState(null);
+  const [costItemSearch, setCostItemSearch] = useState('');
   
   // Daily Closing State
   const [localClosedDates, setLocalClosedDates] = useState([]);
@@ -5282,6 +5289,25 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
               🛒 變動成本 (進貨採購)
             </button>
             <button 
+              onClick={() => setActiveTab('cost_analysis')} 
+              style={{
+                padding: '10px 20px',
+                fontSize: '0.85rem',
+                fontWeight: 'bold',
+                border: 'none',
+                borderBottom: activeTab === 'cost_analysis' ? '3px solid #10b981' : '3px solid transparent',
+                backgroundColor: activeTab === 'cost_analysis' ? 'rgba(16, 185, 129, 0.08)' : 'transparent',
+                color: activeTab === 'cost_analysis' ? '#10b981' : 'var(--text-muted)',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                borderRadius: '6px 6px 0 0'
+              }}
+            >
+              📊 食材成本與銷量分析
+            </button>
+            <button 
               onClick={() => setActiveTab('expenses')} 
               style={{
                 padding: '10px 20px',
@@ -9238,6 +9264,903 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
 
               </div>
             )}
+
+            {/* 8. INGREDIENT COST & SALES CROSS-ANALYSIS TAB (📊 食材成本與銷量分析 - 支援自訂日期區間) */}
+            {activeTab === 'cost_analysis' && (() => {
+              const todayStr = getTodayLocalDate();
+              const startStr = costAnalysisStartDate || '2026-07-23';
+              const endStr = costAnalysisEndDate || todayStr;
+
+              const applyPreset = (preset) => {
+                setCostAnalysisPreset(preset);
+                const now = new Date();
+                const y = now.getFullYear();
+                const m = now.getMonth(); // 0-indexed
+                const pad = (n) => String(n).padStart(2, '0');
+                if (preset === 'all') {
+                  setCostAnalysisStartDate('2026-07-23');
+                  setCostAnalysisEndDate(todayStr);
+                } else if (preset === 'thisMonth') {
+                  setCostAnalysisStartDate(`${y}-${pad(m + 1)}-01`);
+                  setCostAnalysisEndDate(todayStr);
+                } else if (preset === 'lastMonth') {
+                  const firstLast = new Date(y, m - 1, 1);
+                  const endLast = new Date(y, m, 0);
+                  setCostAnalysisStartDate(`${firstLast.getFullYear()}-${pad(firstLast.getMonth() + 1)}-01`);
+                  setCostAnalysisEndDate(`${endLast.getFullYear()}-${pad(endLast.getMonth() + 1)}-${pad(endLast.getDate())}`);
+                } else if (preset === 'augOct') {
+                  setCostAnalysisStartDate('2026-08-01');
+                  setCostAnalysisEndDate('2026-10-31');
+                } else if (preset === '30days') {
+                  const d30 = new Date(now.getTime() - 29 * 86400000);
+                  setCostAnalysisStartDate(d30.toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' }));
+                  setCostAnalysisEndDate(todayStr);
+                } else if (preset === '90days') {
+                  const d90 = new Date(now.getTime() - 89 * 86400000);
+                  setCostAnalysisStartDate(d90.toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' }));
+                  setCostAnalysisEndDate(todayStr);
+                }
+              };
+
+              // Calculate exact days & equivalent months in range
+              const startMs = new Date(`${startStr}T00:00:00+08:00`).getTime();
+              const endMs = new Date(`${endStr}T23:59:59+08:00`).getTime();
+              const diffDays = Math.max(1, Math.round((endMs - startMs) / 86400000));
+              let monthsInPeriod = Math.max(0.1, diffDays / 30.4375);
+              if (costAnalysisPreset === 'augOct' || (startStr === '2026-08-01' && endStr === '2026-10-31')) {
+                monthsInPeriod = 3.0;
+              } else if (costAnalysisPreset === 'lastMonth') {
+                monthsInPeriod = 1.0;
+              }
+
+              // Inventory lookup map
+              const invLookup = {};
+              (inventory || []).forEach(it => {
+                if (it && it.name) invLookup[it.name.trim()] = it;
+              });
+
+              // Standard unit costs per pack/unit for remaining stock value calculation
+              const unitCostEstimateMap = {
+                '調味粉(三包)': 200,
+                '紅麵線': 500,
+                '大腸': 240,
+                '小腸': 140,
+                '豬肚': 140,
+                '花枝羹': 600,
+                '肉羹': 650,
+                '貢丸': 600,
+                '泡菜': 125,
+                '蚵仔': 130,
+                '肉包': 15,
+                '鮮肉包(10顆)': 150,
+                '皮蛋': 10,
+                '香菜': 65,
+                '醋': 150,
+                '大紙碗': 140
+              };
+
+              // 1. Filter Purchases in range
+              const rangePurchases = (purchases || []).filter(p => {
+                if (!p || p.status === 'cancelled' || p.status === 'deleted') return false;
+                const d = (p.date || '').slice(0, 10);
+                return d >= startStr && d <= endStr;
+              });
+
+              const itemMap = {};
+              const monthlySummaryMap = {};
+              let totalPurchaseCost = 0;
+
+              rangePurchases.forEach(p => {
+                const name = String(p.itemName || p.item_name || '未知品項').trim();
+                const cost = Number(p.cost) || 0;
+                const d = (p.date || '').slice(0, 10);
+                const m = d.slice(0, 7) || '未知';
+                const qStr = String(p.quantity || p.qty || '1');
+                const qMatch = qStr.match(/(\d+(\.\d+)?)/);
+                const qNum = qMatch ? parseFloat(qMatch[1]) : (qStr.includes('一') ? 1 : 1);
+
+                totalPurchaseCost += cost;
+
+                if (!itemMap[name]) {
+                  itemMap[name] = {
+                    name,
+                    totalCost: 0,
+                    totalQtyNum: 0,
+                    count: 0,
+                    months: {},
+                    records: [],
+                    latestUnitText: qStr,
+                    latestCost: cost
+                  };
+                }
+                itemMap[name].totalCost += cost;
+                itemMap[name].totalQtyNum += qNum;
+                itemMap[name].count += 1;
+                itemMap[name].months[m] = (itemMap[name].months[m] || 0) + cost;
+                itemMap[name].records.push({
+                  date: d,
+                  vendor: p.vendor || '其他',
+                  quantity: qStr,
+                  cost
+                });
+
+                if (!monthlySummaryMap[m]) {
+                  monthlySummaryMap[m] = { month: m, orders: 0, bowls: 0, largeBowls: 0, smallBowls: 0, revenue: 0, purchases: 0, chStore: 0, chUber: 0, chPanda: 0 };
+                }
+                monthlySummaryMap[m].purchases += cost;
+              });
+
+              // 2. Filter Valid Orders in range
+              const rangeOrders = (orders || []).filter(o => {
+                if (!o || ['deleted', 'cancelled', 'refunded', 'void'].includes(o.status)) return false;
+                const rawTs = o.timestamp || o.created_at;
+                if (!rawTs) return false;
+                let dStr = '';
+                try {
+                  dStr = new Date(rawTs).toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' });
+                } catch (e) {
+                  dStr = String(rawTs).slice(0, 10);
+                }
+                return dStr >= startStr && dStr <= endStr;
+              });
+
+              let totalSalesRevenue = 0;
+              let totalNoodleBowls = 0;
+              let totalLargeBowls = 0;
+              let totalSmallBowls = 0;
+
+              let bunSingleQty = 0;
+              let bunSingleRev = 0;
+              let bunUpgradeQty = 0;
+              let bunUpgradeRev = 0;
+              let bunBulkPacks = 0;
+              let bunBulkRev = 0;
+              let bunDeliveryComboQty = 0;
+
+              let addonIntestineCnt = 0;
+              let addonSquidCnt = 0;
+              let addonOysterCnt = 0;
+              let addonPorkBellyCnt = 0;
+              let addonPorkGengCnt = 0;
+              let addonMeatballCnt = 0;
+              let addonCenturyEggCnt = 0;
+
+              const familyStats = {
+                '綜合麵線': { name: '綜合麵線 (含套餐)', qty: 0, large: 0, small: 0, revenue: 0, estUnitBaseCost: 11.5, estUnitToppingCost: 16.5, note: '含雙腸、肉羹、花枝羹、豬肚、貢丸' },
+                '蚵仔麵線': { name: '蚵仔麵線', qty: 0, large: 0, small: 0, revenue: 0, estUnitBaseCost: 11.5, estUnitToppingCost: 20.1, note: '店內第二暢銷，鮮蚵成本佔比較高' },
+                '雙腸麵線': { name: '雙腸麵線', qty: 0, large: 0, small: 0, revenue: 0, estUnitBaseCost: 11.5, estUnitToppingCost: 14.5, note: '大腸+小腸雙拼，點大碗比例逾70%' },
+                '清麵線': { name: '清麵線', qty: 0, large: 0, small: 0, revenue: 0, estUnitBaseCost: 11.5, estUnitToppingCost: 0, note: '純湯底紅麵線，全店毛利率最高' },
+                '肉羹麵線': { name: '肉羹麵線', qty: 0, large: 0, small: 0, revenue: 0, estUnitBaseCost: 11.5, estUnitToppingCost: 13.0, note: '手作肉羹配料' },
+                '花枝羹麵線': { name: '花枝羹麵線', qty: 0, large: 0, small: 0, revenue: 0, estUnitBaseCost: 11.5, estUnitToppingCost: 12.5, note: '10月起改市場採購($600/包)成本降17%' },
+                '豬肚麵線': { name: '豬肚麵線', qty: 0, large: 0, small: 0, revenue: 0, estUnitBaseCost: 11.5, estUnitToppingCost: 12.0, note: '鮮美滷豬肚' },
+                '貢丸麵線': { name: '貢丸麵線', qty: 0, large: 0, small: 0, revenue: 0, estUnitBaseCost: 11.5, estUnitToppingCost: 12.0, note: '貢丸亦大量使用於綜合麵線中' }
+              };
+
+              rangeOrders.forEach(o => {
+                const rawTs = o.timestamp || o.created_at;
+                let dStr = '';
+                try {
+                  dStr = new Date(rawTs).toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' });
+                } catch (e) {
+                  dStr = String(rawTs).slice(0, 10);
+                }
+                const m = dStr.slice(0, 7) || '未知';
+                const ordTotal = Number(o.total) || 0;
+                totalSalesRevenue += ordTotal;
+
+                if (!monthlySummaryMap[m]) {
+                  monthlySummaryMap[m] = { month: m, orders: 0, bowls: 0, largeBowls: 0, smallBowls: 0, revenue: 0, purchases: 0, chStore: 0, chUber: 0, chPanda: 0 };
+                }
+                monthlySummaryMap[m].orders += 1;
+                monthlySummaryMap[m].revenue += ordTotal;
+
+                const onum = String(o.orderNumber || o.order_number || '').toLowerCase();
+                const otype = String(o.type || '').toLowerCase();
+                const tnum = String(o.tableNumber || o.table_number || '').toLowerCase();
+                if (onum.includes('uber') || otype.includes('uber') || tnum.includes('uber')) {
+                  monthlySummaryMap[m].chUber += ordTotal;
+                } else if (onum.includes('fp') || onum.includes('panda') || otype.includes('panda') || tnum.includes('panda')) {
+                  monthlySummaryMap[m].chPanda += ordTotal;
+                } else {
+                  monthlySummaryMap[m].chStore += ordTotal;
+                }
+
+                const itemsList = Array.isArray(o.items) ? o.items : (o.items?.cart || o.items?.items || []);
+                itemsList.forEach(it => {
+                  if (!it) return;
+                  const name = String(it.name || '').trim();
+                  const qty = Number(it.quantity || it.qty) || 1;
+                  const price = Number(it.totalPrice) || ((Number(it.price) || 0) * qty);
+                  const specs = Array.isArray(it.specs) ? it.specs : (typeof it.specs === 'string' ? [it.specs] : []);
+                  const specsStr = specs.join(' ') + ' ' + JSON.stringify(it.upgradeCombo || '');
+
+                  // Track Addons in specs
+                  if (specsStr.includes('雙腸') || specsStr.includes('大腸') || specsStr.includes('小腸')) addonIntestineCnt += qty;
+                  if (specsStr.includes('花枝')) addonSquidCnt += qty;
+                  if (specsStr.includes('蚵仔')) addonOysterCnt += qty;
+                  if (specsStr.includes('豬肚')) addonPorkBellyCnt += qty;
+                  if (specsStr.includes('肉羹')) addonPorkGengCnt += qty;
+                  if (specsStr.includes('貢丸')) addonMeatballCnt += qty;
+                  if (specsStr.includes('皮蛋')) addonCenturyEggCnt += qty;
+
+                  const isLarge = name.includes('大') || specsStr.includes('大碗') || name.includes('大份');
+
+                  // Track Noodles
+                  if (name.includes('麵線')) {
+                    totalNoodleBowls += qty;
+                    monthlySummaryMap[m].bowls += qty;
+                    if (isLarge) {
+                      totalLargeBowls += qty;
+                      monthlySummaryMap[m].largeBowls += qty;
+                    } else {
+                      totalSmallBowls += qty;
+                      monthlySummaryMap[m].smallBowls += qty;
+                    }
+
+                    let famKey = null;
+                    if (name.includes('綜合麵線')) famKey = '綜合麵線';
+                    else if (name.includes('蚵仔麵線')) famKey = '蚵仔麵線';
+                    else if (name.includes('雙腸麵線')) famKey = '雙腸麵線';
+                    else if (name.includes('清麵線')) famKey = '清麵線';
+                    else if (name.includes('肉羹麵線')) famKey = '肉羹麵線';
+                    else if (name.includes('花枝羹麵線')) famKey = '花枝羹麵線';
+                    else if (name.includes('豬肚麵線')) famKey = '豬肚麵線';
+                    else if (name.includes('貢丸麵線')) famKey = '貢丸麵線';
+
+                    if (famKey && familyStats[famKey]) {
+                      familyStats[famKey].qty += qty;
+                      if (isLarge) familyStats[famKey].large += qty;
+                      else familyStats[famKey].small += qty;
+                      familyStats[famKey].revenue += price;
+                    }
+                  }
+
+                  // Track Meat Buns
+                  if (name.includes('肉包(量販包)')) {
+                    bunBulkPacks += qty;
+                    bunBulkRev += price;
+                  } else if ((name === '肉包' || name.endsWith('肉包')) && !name.includes('麵線')) {
+                    bunSingleQty += qty;
+                    bunSingleRev += price;
+                  } else if ((name.includes('肉包') || name.includes('鮮肉包')) && name.includes('麵線')) {
+                    bunDeliveryComboQty += qty;
+                  }
+
+                  if (!name.includes('肉包') && (specsStr.includes('肉包') || specsStr.includes('包子'))) {
+                    const mult = (specsStr.includes('2顆') || specsStr.includes('兩顆')) ? 2 : 1;
+                    bunUpgradeQty += qty * mult;
+                    bunUpgradeRev += qty * (mult === 2 ? 35 : 20);
+                  }
+                });
+              });
+
+              const totalBunsSold = bunSingleQty + (bunBulkPacks * 10) + bunUpgradeQty + bunDeliveryComboQty;
+              const totalBunsEstimatedRev = bunSingleRev + bunBulkRev + bunUpgradeRev + (bunDeliveryComboQty * 25);
+
+              // Helper to get purchase stats for an item name
+              const getItemStat = (key) => itemMap[key] || { name: key, totalCost: 0, totalQtyNum: 0, count: 0, months: {}, records: [] };
+
+              const largeIntestineStat = getItemStat('大腸');
+              const smallIntestineStat = getItemStat('小腸');
+              const doubleIntestineCost = largeIntestineStat.totalCost + smallIntestineStat.totalCost;
+              const largeIntestineStock = Number(invLookup['大腸']?.qty) || 0;
+              const smallIntestineStock = Number(invLookup['小腸']?.qty) || 0;
+              const doubleIntestineStockVal = (largeIntestineStock * 240) + (smallIntestineStock * 140);
+              const doubleIntestineConsumedCost = Math.max(0, doubleIntestineCost - doubleIntestineStockVal);
+              const doubleIntestineBowlsUsed = familyStats['綜合麵線'].qty + familyStats['雙腸麵線'].qty + addonIntestineCnt;
+
+              const squidStat = getItemStat('花枝羹');
+              const squidStock = Number(invLookup['花枝羹']?.qty) || 0;
+              const squidBowlsUsed = familyStats['綜合麵線'].qty + familyStats['花枝羹麵線'].qty + addonSquidCnt;
+
+              const oysterStat = getItemStat('蚵仔');
+              const oysterBowlsUsed = familyStats['蚵仔麵線'].qty + addonOysterCnt;
+
+              const powderStat = getItemStat('調味粉(三包)');
+              const redNoodleStat = getItemStat('紅麵線');
+              const baseSoupNoodleCost = powderStat.totalCost + redNoodleStat.totalCost;
+              const powderStock = Number(invLookup['調味粉(三包)']?.qty) || 0;
+              const powderConsumedSets = Math.max(1, powderStat.totalQtyNum - powderStock);
+              const powderConsumedCost = Math.max(0, powderStat.totalCost - (powderStock * 200));
+
+              const bunPurchaseStat = getItemStat('鮮肉包(10顆)');
+              const kimchiStat = getItemStat('泡菜');
+              const kimchiStock = Number(invLookup['泡菜']?.qty) || 0;
+              const kimchiConsumedCost = Math.max(0, kimchiStat.totalCost - (kimchiStock * 125));
+
+              const condimentsCost = getItemStat('香菜').totalCost + getItemStat('大蒜').totalCost + getItemStat('蒜末').totalCost + getItemStat('醋').totalCost;
+
+              // Total remaining inventory value across watched items that have purchases in this range
+              let estimatedRemainingStockValue = 0;
+              Object.keys(unitCostEstimateMap).forEach(k => {
+                if (itemMap[k] && invLookup[k]) {
+                  const q = Number(invLookup[k].qty) || 0;
+                  // Skip red noodles raw stock if exceeds purchased packs in range
+                  const cappedQ = Math.min(q, itemMap[k].totalQtyNum);
+                  estimatedRemainingStockValue += cappedQ * unitCostEstimateMap[k];
+                }
+              });
+
+              const actualConsumedTotalCost = Math.max(0, totalPurchaseCost - estimatedRemainingStockValue);
+              const bookCostRatio = totalSalesRevenue > 0 ? (totalPurchaseCost / totalSalesRevenue * 100) : 0;
+              const actualCostRatio = totalSalesRevenue > 0 ? (actualConsumedTotalCost / totalSalesRevenue * 100) : 0;
+
+              const sortedItemsList = Object.values(itemMap)
+                .filter(it => !costItemSearch.trim() || it.name.toLowerCase().includes(costItemSearch.trim().toLowerCase()))
+                .sort((a, b) => b.totalCost - a.totalCost);
+
+              const sortedMonths = Object.values(monthlySummaryMap).sort((a, b) => a.month.localeCompare(b.month));
+
+              return (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                  {/* HEADER & DATE RANGE FILTER BAR */}
+                  <div style={{
+                    backgroundColor: 'var(--bg-body)',
+                    border: '1px solid var(--border)',
+                    borderRadius: '10px',
+                    padding: '16px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '14px'
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
+                      <div>
+                        <h4 style={{ fontSize: '1.05rem', fontWeight: '900', margin: '0 0 4px 0', color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          📊 食材進貨成本、月均花費與銷售毛利交叉分析報告
+                          <span style={{ fontSize: '0.72rem', padding: '2px 8px', borderRadius: '12px', backgroundColor: 'rgba(16, 185, 129, 0.15)', color: '#10b981', fontWeight: 'bold' }}>
+                            本地即時運算・0雲端流量
+                          </span>
+                        </h4>
+                        <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', margin: 0 }}>
+                          自由選擇任何日期區間，系統自動從進貨單、訂單銷量與目前庫存交叉算出「雙腸、花枝羹、蚵仔、湯底、肉包」等每月平均花費與每碗成本。
+                        </p>
+                      </div>
+
+                      {/* Custom Date Pickers */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', backgroundColor: 'var(--bg-card)', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                        <span style={{ fontSize: '0.78rem', fontWeight: 'bold', color: 'var(--text-muted)' }}>📅 自訂區間：</span>
+                        <input
+                          type="date"
+                          value={startStr}
+                          onChange={(e) => {
+                            setCostAnalysisPreset('custom');
+                            setCostAnalysisStartDate(e.target.value);
+                          }}
+                          style={{ padding: '5px 8px', fontSize: '0.8rem', borderRadius: '4px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-body)', color: 'var(--text-main)', fontWeight: 'bold' }}
+                        />
+                        <span style={{ fontWeight: 'bold', color: 'var(--text-muted)' }}>～</span>
+                        <input
+                          type="date"
+                          value={endStr}
+                          onChange={(e) => {
+                            setCostAnalysisPreset('custom');
+                            setCostAnalysisEndDate(e.target.value);
+                          }}
+                          style={{ padding: '5px 8px', fontSize: '0.8rem', borderRadius: '4px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-body)', color: 'var(--text-main)', fontWeight: 'bold' }}
+                        />
+                        <span style={{ fontSize: '0.75rem', color: '#10b981', fontWeight: 'bold', marginLeft: '4px' }}>
+                          ({diffDays} 天 / 折算 {monthsInPeriod.toFixed(2)} 個月)
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Quick Preset Buttons */}
+                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                      <span style={{ fontSize: '0.75rem', fontWeight: 'bold', color: 'var(--text-muted)' }}>⚡ 快速切換區間：</span>
+                      {[
+                        { id: 'all', label: '🔥 開業至今全期 (7/23~今日)' },
+                        { id: 'augOct', label: '📊 8~10月 (三個完整營運月)' },
+                        { id: 'thisMonth', label: '🗓️ 本月累計' },
+                        { id: 'lastMonth', label: '⏮️ 上個月 (10月)' },
+                        { id: '30days', label: '⏳ 近 30 天' },
+                        { id: '90days', label: '⏳ 近 90 天' }
+                      ].map(btn => (
+                        <button
+                          key={btn.id}
+                          type="button"
+                          onClick={() => applyPreset(btn.id)}
+                          style={{
+                            padding: '5px 12px',
+                            fontSize: '0.76rem',
+                            fontWeight: 'bold',
+                            borderRadius: '16px',
+                            border: costAnalysisPreset === btn.id ? '1.5px solid #10b981' : '1px solid var(--border)',
+                            backgroundColor: costAnalysisPreset === btn.id ? 'rgba(16, 185, 129, 0.15)' : 'var(--bg-card)',
+                            color: costAnalysisPreset === btn.id ? '#10b981' : 'var(--text-main)',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          {btn.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* SECTION 1: TOP KPI OVERVIEW CARDS */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
+                    <div style={{ backgroundColor: 'var(--bg-body)', border: '1px solid var(--border)', borderRadius: '10px', padding: '14px' }}>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 'bold' }}>💰 區間總營業額 ({rangeOrders.length.toLocaleString()} 單)</div>
+                      <div style={{ fontSize: '1.45rem', fontWeight: '900', color: 'var(--primary)', margin: '4px 0' }}>
+                        NT$ {Math.round(totalSalesRevenue).toLocaleString()}
+                      </div>
+                      <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+                        折算月均營收：<strong style={{ color: 'var(--text-main)' }}>NT$ {Math.round(totalSalesRevenue / monthsInPeriod).toLocaleString()} / 月</strong>
+                      </div>
+                      <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                        售出麵線：<strong style={{ color: 'var(--text-main)' }}>{totalNoodleBowls.toLocaleString()} 碗</strong> (大:{totalLargeBowls} / 小:{totalSmallBowls})
+                      </div>
+                    </div>
+
+                    <div style={{ backgroundColor: 'var(--bg-body)', border: '1px solid var(--border)', borderRadius: '10px', padding: '14px' }}>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 'bold' }}>🛒 區間進貨總支出 ({rangePurchases.length} 筆)</div>
+                      <div style={{ fontSize: '1.45rem', fontWeight: '900', color: '#ef4444', margin: '4px 0' }}>
+                        NT$ {Math.round(totalPurchaseCost).toLocaleString()}
+                      </div>
+                      <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+                        折算月均進貨：<strong style={{ color: '#ef4444' }}>NT$ {Math.round(totalPurchaseCost / monthsInPeriod).toLocaleString()} / 月</strong>
+                      </div>
+                      <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                        帳面進貨佔營收比：<strong>{bookCostRatio.toFixed(1)}%</strong> (毛利 NT$ {Math.round(totalSalesRevenue - totalPurchaseCost).toLocaleString()})
+                      </div>
+                    </div>
+
+                    <div style={{ backgroundColor: 'var(--bg-body)', border: '1px solid rgba(16, 185, 129, 0.35)', borderRadius: '10px', padding: '14px' }}>
+                      <div style={{ fontSize: '0.75rem', color: '#10b981', fontWeight: 'bold' }}>📦 扣除現有庫存後「實際已消耗成本」</div>
+                      <div style={{ fontSize: '1.45rem', fontWeight: '900', color: '#10b981', margin: '4px 0' }}>
+                        NT$ {Math.round(actualConsumedTotalCost).toLocaleString()}
+                      </div>
+                      <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+                        實際月均消耗：<strong style={{ color: '#10b981' }}>NT$ {Math.round(actualConsumedTotalCost / monthsInPeriod).toLocaleString()} / 月</strong>
+                      </div>
+                      <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                        真實食材成本率：<strong style={{ color: '#10b981' }}>{actualCostRatio.toFixed(1)}%</strong> (真實毛利率 <strong>{(100 - actualCostRatio).toFixed(1)}%</strong>)
+                      </div>
+                    </div>
+
+                    <div style={{ backgroundColor: 'var(--bg-body)', border: '1px solid var(--border)', borderRadius: '10px', padding: '14px' }}>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 'bold' }}>🍲 湯底產能與單碗基礎成本</div>
+                      <div style={{ fontSize: '1.45rem', fontWeight: '900', color: '#3b82f6', margin: '4px 0' }}>
+                        {totalNoodleBowls > 0 ? (totalNoodleBowls / powderConsumedSets).toFixed(1) : '0.0'} 碗 / 套調味粉
+                      </div>
+                      <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+                        調味粉實際消耗：<strong>{powderConsumedSets.toFixed(1)} 套</strong> (剩餘庫存 {powderStock} 套)
+                      </div>
+                      <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                        每碗基礎湯麵成本：<strong>NT$ {totalNoodleBowls > 0 ? ((powderConsumedCost + redNoodleStat.totalCost) / totalNoodleBowls).toFixed(2) : '0'} / 碗</strong>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* SECTION 2: 6 CORE INGREDIENT SPOTLIGHT CARDS (雙腸、花枝羹、蚵仔、湯底麵線、鮮肉包、泡菜佐料) */}
+                  <div>
+                    <h5 style={{ fontSize: '0.95rem', fontWeight: '900', margin: '0 0 10px 0', color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      🎯 核心食材組合點名深度剖析（區間總額、月均花費、剩餘庫存與每碗分攤成本）
+                    </h5>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '14px' }}>
+                      {/* Card 1: 雙腸 (大腸 + 小腸) */}
+                      <div style={{ backgroundColor: 'var(--bg-body)', border: '1px solid var(--border)', borderRadius: '10px', padding: '14px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <strong style={{ fontSize: '0.95rem', color: 'var(--primary)' }}>① 【雙腸組合（大腸 + 小腸）】</strong>
+                          <span style={{ fontSize: '0.72rem', padding: '2px 8px', borderRadius: '10px', backgroundColor: 'rgba(234, 88, 12, 0.12)', color: 'var(--primary)', fontWeight: 'bold' }}>
+                            佔總進貨 {totalPurchaseCost > 0 ? (doubleIntestineCost / totalPurchaseCost * 100).toFixed(1) : 0}%
+                          </span>
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', backgroundColor: 'var(--bg-card)', padding: '10px', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.78rem' }}>
+                          <div>
+                            <div style={{ color: 'var(--text-muted)' }}>區間進貨總花費</div>
+                            <div style={{ fontSize: '1.15rem', fontWeight: '900', color: 'var(--text-main)' }}>NT$ {doubleIntestineCost.toLocaleString()}</div>
+                            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                              大腸 ${largeIntestineStat.totalCost.toLocaleString()} + 小腸 ${smallIntestineStat.totalCost.toLocaleString()}
+                            </div>
+                          </div>
+                          <div>
+                            <div style={{ color: 'var(--text-muted)' }}>折算平均每月進貨</div>
+                            <div style={{ fontSize: '1.15rem', fontWeight: '900', color: '#ea580c' }}>NT$ {Math.round(doubleIntestineCost / monthsInPeriod).toLocaleString()} / 月</div>
+                            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                              大腸 ${Math.round(largeIntestineStat.totalCost / monthsInPeriod).toLocaleString()} + 小腸 ${Math.round(smallIntestineStat.totalCost / monthsInPeriod).toLocaleString()}
+                            </div>
+                          </div>
+                        </div>
+                        <div style={{ fontSize: '0.76rem', color: 'var(--text-main)', lineHeight: '1.5' }}>
+                          <div>📦 <strong>目前剩餘庫存</strong>：大腸 <strong>{largeIntestineStock} 包</strong> + 小腸 <strong>{smallIntestineStock} 包</strong> (庫存價值 NT$ {doubleIntestineStockVal.toLocaleString()})</div>
+                          <div>🔥 <strong>扣除庫存實際已消耗</strong>：<strong style={{ color: '#10b981' }}>NT$ {doubleIntestineConsumedCost.toLocaleString()}</strong> (實際月耗 <strong>NT$ {Math.round(doubleIntestineConsumedCost / monthsInPeriod).toLocaleString()} / 月</strong>)</div>
+                          <div>🍜 <strong>銷售連動</strong>：雙腸麵線 <strong>{familyStats['雙腸麵線'].qty} 碗</strong> (${Math.round(familyStats['雙腸麵線'].revenue).toLocaleString()}) + 綜合麵線 <strong>{familyStats['綜合麵線'].qty} 碗</strong> + 單點加雙腸 <strong>{addonIntestineCnt} 次</strong> = 共 <strong>{doubleIntestineBowlsUsed} 碗</strong>使用</div>
+                          <div>💡 <strong>每碗雙腸成本</strong>：實際消耗約 <strong style={{ color: '#10b981' }}>NT$ {doubleIntestineBowlsUsed > 0 ? (doubleIntestineConsumedCost / doubleIntestineBowlsUsed).toFixed(2) : '0'} / 碗</strong> (進貨帳面 NT$ {doubleIntestineBowlsUsed > 0 ? (doubleIntestineCost / doubleIntestineBowlsUsed).toFixed(2) : '0'} / 碗)</div>
+                        </div>
+                      </div>
+
+                      {/* Card 2: 花枝 (花枝羹) */}
+                      <div style={{ backgroundColor: 'var(--bg-body)', border: '1px solid var(--border)', borderRadius: '10px', padding: '14px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <strong style={{ fontSize: '0.95rem', color: '#0ea5e9' }}>② 【花枝（花枝羹）】</strong>
+                          <span style={{ fontSize: '0.72rem', padding: '2px 8px', borderRadius: '10px', backgroundColor: 'rgba(14, 165, 233, 0.12)', color: '#0ea5e9', fontWeight: 'bold' }}>
+                            佔總進貨 {totalPurchaseCost > 0 ? (squidStat.totalCost / totalPurchaseCost * 100).toFixed(1) : 0}%
+                          </span>
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', backgroundColor: 'var(--bg-card)', padding: '10px', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.78rem' }}>
+                          <div>
+                            <div style={{ color: 'var(--text-muted)' }}>區間進貨總花費</div>
+                            <div style={{ fontSize: '1.15rem', fontWeight: '900', color: 'var(--text-main)' }}>NT$ {squidStat.totalCost.toLocaleString()}</div>
+                            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                              共進貨 {squidStat.count} 次 (累計數量 {squidStat.totalQtyNum})
+                            </div>
+                          </div>
+                          <div>
+                            <div style={{ color: 'var(--text-muted)' }}>折算平均每月花費</div>
+                            <div style={{ fontSize: '1.15rem', fontWeight: '900', color: '#0ea5e9' }}>NT$ {Math.round(squidStat.totalCost / monthsInPeriod).toLocaleString()} / 月</div>
+                            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                              目前市場採購價：$600 / 包 (省 17.2%)
+                            </div>
+                          </div>
+                        </div>
+                        <div style={{ fontSize: '0.76rem', color: 'var(--text-main)', lineHeight: '1.5' }}>
+                          <div>📦 <strong>目前帳面庫存</strong>：花枝羹 <strong>{squidStock} 包</strong></div>
+                          <div>🍜 <strong>銷售連動</strong>：花枝羹麵線 <strong>{familyStats['花枝羹麵線'].qty} 碗</strong> (營收 ${Math.round(familyStats['花枝羹麵線'].revenue).toLocaleString()}) + 綜合麵線 <strong>{familyStats['綜合麵線'].qty} 碗</strong> + 單點加花枝羹 <strong>{addonSquidCnt} 次</strong> = 共 <strong>{squidBowlsUsed} 碗</strong>使用</div>
+                          <div>💡 <strong>每碗花枝羹分攤成本</strong>：約 <strong style={{ color: '#0ea5e9' }}>NT$ {squidBowlsUsed > 0 ? (squidStat.totalCost / squidBowlsUsed).toFixed(2) : '0'} / 碗</strong></div>
+                        </div>
+                      </div>
+
+                      {/* Card 3: 蚵仔 (鮮蚵) */}
+                      <div style={{ backgroundColor: 'var(--bg-body)', border: '1px solid var(--border)', borderRadius: '10px', padding: '14px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <strong style={{ fontSize: '0.95rem', color: '#e11d48' }}>③ 【蚵仔（鮮蚵）】</strong>
+                          <span style={{ fontSize: '0.72rem', padding: '2px 8px', borderRadius: '10px', backgroundColor: 'rgba(225, 29, 72, 0.12)', color: '#e11d48', fontWeight: 'bold' }}>
+                            佔總進貨 {totalPurchaseCost > 0 ? (oysterStat.totalCost / totalPurchaseCost * 100).toFixed(1) : 0}%
+                          </span>
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', backgroundColor: 'var(--bg-card)', padding: '10px', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.78rem' }}>
+                          <div>
+                            <div style={{ color: 'var(--text-muted)' }}>區間進貨總花費</div>
+                            <div style={{ fontSize: '1.15rem', fontWeight: '900', color: 'var(--text-main)' }}>NT$ {oysterStat.totalCost.toLocaleString()}</div>
+                            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                              共進貨 {oysterStat.count} 次 (約 {oysterStat.totalQtyNum} 斤/包)
+                            </div>
+                          </div>
+                          <div>
+                            <div style={{ color: 'var(--text-muted)' }}>折算平均每月花費</div>
+                            <div style={{ fontSize: '1.15rem', fontWeight: '900', color: '#e11d48' }}>NT$ {Math.round(oysterStat.totalCost / monthsInPeriod).toLocaleString()} / 月</div>
+                            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                              濱江市場進價：$130 / 斤 (每次 6 斤 $780)
+                            </div>
+                          </div>
+                        </div>
+                        <div style={{ fontSize: '0.76rem', color: 'var(--text-main)', lineHeight: '1.5' }}>
+                          <div>🍜 <strong>銷售連動</strong>：蚵仔麵線 <strong>{familyStats['蚵仔麵線'].qty} 碗</strong> (營收 ${Math.round(familyStats['蚵仔麵線'].revenue).toLocaleString()}) + 單點加蚵仔 <strong>{addonOysterCnt} 次</strong> = 共 <strong>{oysterBowlsUsed} 份</strong>使用 (綜合麵線預設不含蚵仔)</div>
+                          <div>⚠️ <strong>每碗鮮蚵分攤成本</strong>：高達 <strong style={{ color: '#e11d48' }}>NT$ {oysterBowlsUsed > 0 ? (oysterStat.totalCost / oysterBowlsUsed).toFixed(2) : '0'} / 碗</strong> (全店單碗成本最高配料，建議留意每勺出餐份量)</div>
+                        </div>
+                      </div>
+
+                      {/* Card 4: 湯底與麵體 (調味粉 + 紅麵線) */}
+                      <div style={{ backgroundColor: 'var(--bg-body)', border: '1px solid var(--border)', borderRadius: '10px', padding: '14px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <strong style={{ fontSize: '0.95rem', color: '#8b5cf6' }}>④ 【湯底與麵體（調味粉 + 紅麵線）】</strong>
+                          <span style={{ fontSize: '0.72rem', padding: '2px 8px', borderRadius: '10px', backgroundColor: 'rgba(139, 92, 246, 0.12)', color: '#8b5cf6', fontWeight: 'bold' }}>
+                            佔總進貨 {totalPurchaseCost > 0 ? (baseSoupNoodleCost / totalPurchaseCost * 100).toFixed(1) : 0}%
+                          </span>
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', backgroundColor: 'var(--bg-card)', padding: '10px', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.78rem' }}>
+                          <div>
+                            <div style={{ color: 'var(--text-muted)' }}>區間進貨總花費</div>
+                            <div style={{ fontSize: '1.15rem', fontWeight: '900', color: 'var(--text-main)' }}>NT$ {baseSoupNoodleCost.toLocaleString()}</div>
+                            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                              調味粉 ${powderStat.totalCost.toLocaleString()} + 紅麵線 ${redNoodleStat.totalCost.toLocaleString()}
+                            </div>
+                          </div>
+                          <div>
+                            <div style={{ color: 'var(--text-muted)' }}>折算平均每月進貨</div>
+                            <div style={{ fontSize: '1.15rem', fontWeight: '900', color: '#8b5cf6' }}>NT$ {Math.round(baseSoupNoodleCost / monthsInPeriod).toLocaleString()} / 月</div>
+                            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                              調味粉 ${Math.round(powderStat.totalCost / monthsInPeriod).toLocaleString()} + 紅麵線 ${Math.round(redNoodleStat.totalCost / monthsInPeriod).toLocaleString()}
+                            </div>
+                          </div>
+                        </div>
+                        <div style={{ fontSize: '0.76rem', color: 'var(--text-main)', lineHeight: '1.5' }}>
+                          <div>📦 <strong>調味粉庫存與實際消耗</strong>：進貨 {powderStat.totalQtyNum} 套，目前庫存剩 <strong>{powderStock} 套</strong> (價值 ${(powderStock * 200).toLocaleString()})，實際消耗 <strong>{powderConsumedSets.toFixed(1)} 套 (${powderConsumedCost.toLocaleString()})</strong></div>
+                          <div>💡 <strong>每碗麵線基礎成本</strong>：調味粉約 <strong>NT$ {totalNoodleBowls > 0 ? (powderConsumedCost / totalNoodleBowls).toFixed(2) : '0'}</strong> + 紅麵線約 <strong>NT$ {totalNoodleBowls > 0 ? (redNoodleStat.totalCost / totalNoodleBowls).toFixed(2) : '0'}</strong> = <strong style={{ color: '#8b5cf6' }}>NT$ {totalNoodleBowls > 0 ? ((powderConsumedCost + redNoodleStat.totalCost) / totalNoodleBowls).toFixed(2) : '0'} / 碗</strong></div>
+                        </div>
+                      </div>
+
+                      {/* Card 5: 鮮肉包 */}
+                      <div style={{ backgroundColor: 'var(--bg-body)', border: '1px solid var(--border)', borderRadius: '10px', padding: '14px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <strong style={{ fontSize: '0.95rem', color: '#10b981' }}>⑤ 【鮮肉包（單點 / 套餐升級 / 量販包）】</strong>
+                          <span style={{ fontSize: '0.72rem', padding: '2px 8px', borderRadius: '10px', backgroundColor: 'rgba(16, 185, 129, 0.12)', color: '#10b981', fontWeight: 'bold' }}>
+                            高毛利加購王牌
+                          </span>
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', backgroundColor: 'var(--bg-card)', padding: '10px', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.78rem' }}>
+                          <div>
+                            <div style={{ color: 'var(--text-muted)' }}>區間進貨總花費</div>
+                            <div style={{ fontSize: '1.15rem', fontWeight: '900', color: 'var(--text-main)' }}>NT$ {bunPurchaseStat.totalCost.toLocaleString()}</div>
+                            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                              進貨 {bunPurchaseStat.totalQtyNum} 包 ({bunPurchaseStat.totalQtyNum * 10} 顆，$15/顆)
+                            </div>
+                          </div>
+                          <div>
+                            <div style={{ color: 'var(--text-muted)' }}>折算平均每月花費</div>
+                            <div style={{ fontSize: '1.15rem', fontWeight: '900', color: '#10b981' }}>NT$ {Math.round(bunPurchaseStat.totalCost / monthsInPeriod).toLocaleString()} / 月</div>
+                            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                              目前帳面庫存：{invLookup['肉包']?.qty ?? 0} 顆
+                            </div>
+                          </div>
+                        </div>
+                        <div style={{ fontSize: '0.76rem', color: 'var(--text-main)', lineHeight: '1.5' }}>
+                          <div>🥟 <strong>區間實際總售出</strong>：共 <strong style={{ color: '#10b981' }}>{totalBunsSold.toLocaleString()} 顆</strong> (單點 <strong>{bunSingleQty} 顆</strong> + B/C套餐升級 <strong>{bunUpgradeQty} 顆</strong> + 量販包 <strong>{bunBulkPacks * 10} 顆</strong> + 外送套餐 <strong>{bunDeliveryComboQty} 顆</strong>)</div>
+                          <div>💰 <strong>創造總營收與毛利</strong>：約 <strong>NT$ {Math.round(totalBunsEstimatedRev).toLocaleString()}</strong> (預估毛利率高達 <strong style={{ color: '#10b981' }}>{totalBunsEstimatedRev > 0 ? ((1 - (totalBunsSold * 15) / totalBunsEstimatedRev) * 100).toFixed(1) : 0}%</strong>)</div>
+                        </div>
+                      </div>
+
+                      {/* Card 6: 泡菜 & 辛香佐料 */}
+                      <div style={{ backgroundColor: 'var(--bg-body)', border: '1px solid var(--border)', borderRadius: '10px', padding: '14px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <strong style={{ fontSize: '0.95rem', color: '#f59e0b' }}>⑥ 【泡菜 & 免費辛香佐料（香菜/蒜/醋）】</strong>
+                          <span style={{ fontSize: '0.72rem', padding: '2px 8px', borderRadius: '10px', backgroundColor: 'rgba(245, 158, 11, 0.12)', color: '#f59e0b', fontWeight: 'bold' }}>
+                            佔總進貨 {totalPurchaseCost > 0 ? ((kimchiStat.totalCost + condimentsCost) / totalPurchaseCost * 100).toFixed(1) : 0}%
+                          </span>
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', backgroundColor: 'var(--bg-card)', padding: '10px', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.78rem' }}>
+                          <div>
+                            <div style={{ color: 'var(--text-muted)' }}>泡菜區間進貨 (月均)</div>
+                            <div style={{ fontSize: '1.15rem', fontWeight: '900', color: 'var(--text-main)' }}>
+                              NT$ {kimchiStat.totalCost.toLocaleString()} <span style={{ fontSize: '0.78rem', color: '#f59e0b' }}>(${Math.round(kimchiStat.totalCost / monthsInPeriod).toLocaleString()}/月)</span>
+                            </div>
+                            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                              進貨 {kimchiStat.totalQtyNum} 包 ($125/包)，庫存剩 {kimchiStock} 包
+                            </div>
+                          </div>
+                          <div>
+                            <div style={{ color: 'var(--text-muted)' }}>香菜/蒜/醋合計 (月均)</div>
+                            <div style={{ fontSize: '1.15rem', fontWeight: '900', color: 'var(--text-main)' }}>
+                              NT$ {condimentsCost.toLocaleString()} <span style={{ fontSize: '0.78rem', color: '#f59e0b' }}>(${Math.round(condimentsCost / monthsInPeriod).toLocaleString()}/月)</span>
+                            </div>
+                            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                              香菜 ${getItemStat('香菜').totalCost} / 蒜 ${(getItemStat('大蒜').totalCost + getItemStat('蒜末').totalCost)} / 醋 ${getItemStat('醋').totalCost}
+                            </div>
+                          </div>
+                        </div>
+                        <div style={{ fontSize: '0.76rem', color: 'var(--text-main)', lineHeight: '1.5' }}>
+                          <div>🔥 <strong>泡菜扣除庫存實際消耗</strong>：<strong>NT$ {kimchiConsumedCost.toLocaleString()}</strong> (實際月耗 <strong>NT$ {Math.round(kimchiConsumedCost / monthsInPeriod).toLocaleString()} / 月</strong>)</div>
+                          <div>💡 <strong>每碗麵線分攤免費佐料成本</strong>：泡菜約 <strong>NT$ {totalNoodleBowls > 0 ? (kimchiConsumedCost / totalNoodleBowls).toFixed(2) : '0'} / 碗</strong> ＋ 香菜蒜醋約 <strong>NT$ {totalNoodleBowls > 0 ? (condimentsCost / totalNoodleBowls).toFixed(2) : '0'} / 碗</strong></div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* SECTION 3: MONTHLY BREAKDOWN TABLE IN SELECTED RANGE */}
+                  {sortedMonths.length > 0 && (
+                    <div style={{ backgroundColor: 'var(--bg-body)', border: '1px solid var(--border)', borderRadius: '10px', padding: '16px' }}>
+                      <h5 style={{ fontSize: '0.92rem', fontWeight: '900', margin: '0 0 12px 0', color: 'var(--text-main)' }}>
+                        📅 區間各月份營業額 vs 食材進貨支出對照表
+                      </h5>
+                      <div style={{ overflowX: 'auto' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem', textAlign: 'left' }}>
+                          <thead>
+                            <tr style={{ backgroundColor: 'var(--bg-card)', borderBottom: '2px solid var(--border)', color: 'var(--text-muted)' }}>
+                              <th style={{ padding: '10px 12px' }}>月份</th>
+                              <th style={{ padding: '10px 12px' }}>有效訂單</th>
+                              <th style={{ padding: '10px 12px' }}>麵線總碗數 (大 / 小)</th>
+                              <th style={{ padding: '10px 12px' }}>當月營業額 (A)</th>
+                              <th style={{ padding: '10px 12px' }}>當月進貨支出 (B)</th>
+                              <th style={{ padding: '10px 12px' }}>進貨佔營收比 (B/A)</th>
+                              <th style={{ padding: '10px 12px' }}>當月食材毛利 (A-B)</th>
+                              <th style={{ padding: '10px 12px' }}>通路營收拆解</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {sortedMonths.map(mRow => {
+                              const ratio = mRow.revenue > 0 ? (mRow.purchases / mRow.revenue * 100) : 0;
+                              const gross = mRow.revenue - mRow.purchases;
+                              return (
+                                <tr key={mRow.month} style={{ borderBottom: '1px solid var(--border)' }}>
+                                  <td style={{ padding: '10px 12px', fontWeight: '900' }}>{mRow.month}</td>
+                                  <td style={{ padding: '10px 12px' }}>{mRow.orders.toLocaleString()} 單</td>
+                                  <td style={{ padding: '10px 12px' }}>
+                                    <strong>{mRow.bowls.toLocaleString()} 碗</strong> <span style={{ color: 'var(--text-muted)', fontSize: '0.74rem' }}>({mRow.largeBowls}大 / {mRow.smallBowls}小)</span>
+                                  </td>
+                                  <td style={{ padding: '10px 12px', fontWeight: 'bold', color: 'var(--primary)' }}>NT$ {Math.round(mRow.revenue).toLocaleString()}</td>
+                                  <td style={{ padding: '10px 12px', fontWeight: 'bold', color: '#ef4444' }}>NT$ {Math.round(mRow.purchases).toLocaleString()}</td>
+                                  <td style={{ padding: '10px 12px', fontWeight: 'bold', color: ratio > 65 ? '#ef4444' : '#10b981' }}>
+                                    {ratio.toFixed(1)}%
+                                  </td>
+                                  <td style={{ padding: '10px 12px', fontWeight: '900', color: gross >= 0 ? '#10b981' : '#ef4444' }}>
+                                    {gross >= 0 ? '+' : ''}NT$ {Math.round(gross).toLocaleString()}
+                                  </td>
+                                  <td style={{ padding: '10px 12px', fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+                                    現場/LINE: ${Math.round(mRow.chStore).toLocaleString()}
+                                    {mRow.chUber > 0 ? ` ｜ Uber: $${Math.round(mRow.chUber).toLocaleString()}` : ''}
+                                    {mRow.chPanda > 0 ? ` ｜ Panda: $${Math.round(mRow.chPanda).toLocaleString()}` : ''}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* SECTION 4: MAIN MENU PRODUCT SALES & GROSS MARGIN TABLE */}
+                  <div style={{ backgroundColor: 'var(--bg-body)', border: '1px solid var(--border)', borderRadius: '10px', padding: '16px' }}>
+                    <h5 style={{ fontSize: '0.92rem', fontWeight: '900', margin: '0 0 12px 0', color: 'var(--text-main)' }}>
+                      🍜 各主餐品項區間銷量 vs 對應配料成本與預估毛利率排行
+                    </h5>
+                    <div style={{ overflowX: 'auto' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem', textAlign: 'left' }}>
+                        <thead>
+                          <tr style={{ backgroundColor: 'var(--bg-card)', borderBottom: '2px solid var(--border)', color: 'var(--text-muted)' }}>
+                            <th style={{ padding: '10px 12px' }}>主餐品項系列</th>
+                            <th style={{ padding: '10px 12px' }}>區間總銷量 (大碗 / 小碗)</th>
+                            <th style={{ padding: '10px 12px' }}>佔麵線總銷量比</th>
+                            <th style={{ padding: '10px 12px' }}>折算月均銷量</th>
+                            <th style={{ padding: '10px 12px' }}>區間累計營收</th>
+                            <th style={{ padding: '10px 12px' }}>平均每碗售價</th>
+                            <th style={{ padding: '10px 12px' }}>每碗預估食材成本</th>
+                            <th style={{ padding: '10px 12px' }}>預估毛利率</th>
+                            <th style={{ padding: '10px 12px' }}>配料結構說明</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {Object.values(familyStats)
+                            .sort((a, b) => b.qty - a.qty)
+                            .map(fam => {
+                              const share = totalNoodleBowls > 0 ? (fam.qty / totalNoodleBowls * 100) : 0;
+                              const avgPrice = fam.qty > 0 ? (fam.revenue / fam.qty) : 0;
+                              const estCost = fam.estUnitBaseCost + fam.estUnitToppingCost;
+                              const margin = avgPrice > 0 ? ((avgPrice - estCost) / avgPrice * 100) : 0;
+                              return (
+                                <tr key={fam.name} style={{ borderBottom: '1px solid var(--border)' }}>
+                                  <td style={{ padding: '10px 12px', fontWeight: '900' }}>{fam.name}</td>
+                                  <td style={{ padding: '10px 12px' }}>
+                                    <strong>{fam.qty.toLocaleString()} 碗</strong>{' '}
+                                    <span style={{ fontSize: '0.73rem', color: 'var(--text-muted)' }}>({fam.large}大 / {fam.small}小)</span>
+                                  </td>
+                                  <td style={{ padding: '10px 12px', fontWeight: 'bold' }}>{share.toFixed(1)}%</td>
+                                  <td style={{ padding: '10px 12px' }}>{Math.round(fam.qty / monthsInPeriod).toLocaleString()} 碗/月</td>
+                                  <td style={{ padding: '10px 12px', fontWeight: 'bold', color: 'var(--primary)' }}>NT$ {Math.round(fam.revenue).toLocaleString()}</td>
+                                  <td style={{ padding: '10px 12px' }}>NT$ {avgPrice.toFixed(1)}</td>
+                                  <td style={{ padding: '10px 12px', color: '#ef4444', fontWeight: 'bold' }}>
+                                    ~NT$ {estCost.toFixed(1)} <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 'normal' }}>(湯麵${fam.estUnitBaseCost}+料${fam.estUnitToppingCost})</span>
+                                  </td>
+                                  <td style={{ padding: '10px 12px', fontWeight: '900', color: margin >= 68 ? '#10b981' : '#f59e0b' }}>
+                                    {fam.qty > 0 ? `~${margin.toFixed(1)}%` : '-'}
+                                  </td>
+                                  <td style={{ padding: '10px 12px', fontSize: '0.74rem', color: 'var(--text-muted)' }}>{fam.note}</td>
+                                </tr>
+                              );
+                            })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* SECTION 5: COMPLETE INGREDIENT PURCHASE RANKING TABLE (CLICK TO EXPAND RECORDS) */}
+                  <div style={{ backgroundColor: 'var(--bg-body)', border: '1px solid var(--border)', borderRadius: '10px', padding: '16px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '10px' }}>
+                      <div>
+                        <h5 style={{ fontSize: '0.92rem', fontWeight: '900', margin: '0 0 2px 0', color: 'var(--text-main)' }}>
+                          📋 區間全店進貨食材排行榜 ({sortedItemsList.length} 項食材・點擊任一列可展開進貨明細)
+                        </h5>
+                        <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+                          自動列出區間內每一項進貨食材的累計花費、佔總成本比例、折算月均花費與目前庫存水位。
+                        </span>
+                      </div>
+                      <input
+                        type="text"
+                        placeholder="🔍 搜尋食材名稱 (例: 腸、花枝、蚵仔、要你命)..."
+                        value={costItemSearch}
+                        onChange={(e) => setCostItemSearch(e.target.value)}
+                        style={{
+                          padding: '6px 12px',
+                          fontSize: '0.8rem',
+                          borderRadius: '6px',
+                          border: '1px solid var(--border)',
+                          backgroundColor: 'var(--bg-card)',
+                          color: 'var(--text-main)',
+                          minWidth: '240px'
+                        }}
+                      />
+                    </div>
+
+                    <div style={{ overflowX: 'auto' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem', textAlign: 'left' }}>
+                        <thead>
+                          <tr style={{ backgroundColor: 'var(--bg-card)', borderBottom: '2px solid var(--border)', color: 'var(--text-muted)' }}>
+                            <th style={{ padding: '10px 12px' }}>排名</th>
+                            <th style={{ padding: '10px 12px' }}>食材 / 品項名稱</th>
+                            <th style={{ padding: '10px 12px' }}>區間進貨總額</th>
+                            <th style={{ padding: '10px 12px' }}>佔總進貨比</th>
+                            <th style={{ padding: '10px 12px' }}>進貨次數 (累計數量)</th>
+                            <th style={{ padding: '10px 12px' }}>折算月均花費</th>
+                            <th style={{ padding: '10px 12px' }}>目前剩餘庫存</th>
+                            <th style={{ padding: '10px 12px' }}>各月份進貨分佈</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {sortedItemsList.map((item, idx) => {
+                            const share = totalPurchaseCost > 0 ? (item.totalCost / totalPurchaseCost * 100) : 0;
+                            const monthlyAvg = item.totalCost / monthsInPeriod;
+                            const invInfo = invLookup[item.name] || (item.name === '鮮肉包(10顆)' ? invLookup['肉包'] : null);
+                            const isExpanded = expandedCostItem === item.name;
+                            const monthTags = Object.entries(item.months).sort((a, b) => a[0].localeCompare(b[0]));
+
+                            return (
+                              <React.Fragment key={item.name}>
+                                <tr
+                                  onClick={() => setExpandedCostItem(isExpanded ? null : item.name)}
+                                  style={{
+                                    borderBottom: '1px solid var(--border)',
+                                    cursor: 'pointer',
+                                    backgroundColor: isExpanded ? 'rgba(16, 185, 129, 0.06)' : 'transparent'
+                                  }}
+                                  title="點擊展開/收起此食材的進貨明細"
+                                >
+                                  <td style={{ padding: '10px 12px', fontWeight: 'bold', color: 'var(--text-muted)' }}>#{idx + 1}</td>
+                                  <td style={{ padding: '10px 12px', fontWeight: '900', color: 'var(--text-main)' }}>
+                                    {item.name} <span style={{ fontSize: '0.7rem', color: '#10b981' }}>{isExpanded ? '▴' : '▾'}</span>
+                                  </td>
+                                  <td style={{ padding: '10px 12px', fontWeight: '900', color: '#ef4444' }}>
+                                    NT$ {Math.round(item.totalCost).toLocaleString()}
+                                  </td>
+                                  <td style={{ padding: '10px 12px', fontWeight: 'bold' }}>{share.toFixed(1)}%</td>
+                                  <td style={{ padding: '10px 12px' }}>
+                                    {item.count} 次 <span style={{ color: 'var(--text-muted)', fontSize: '0.74rem' }}>(累計 {item.totalQtyNum})</span>
+                                  </td>
+                                  <td style={{ padding: '10px 12px', fontWeight: '900', color: 'var(--primary)' }}>
+                                    NT$ {Math.round(monthlyAvg).toLocaleString()} / 月
+                                  </td>
+                                  <td style={{ padding: '10px 12px' }}>
+                                    {invInfo ? (
+                                      <span style={{
+                                        padding: '2px 8px',
+                                        borderRadius: '10px',
+                                        fontSize: '0.74rem',
+                                        fontWeight: 'bold',
+                                        backgroundColor: Number(invInfo.qty) <= Number(invInfo.minStock) ? 'rgba(239, 68, 68, 0.15)' : 'rgba(16, 185, 129, 0.15)',
+                                        color: Number(invInfo.qty) <= Number(invInfo.minStock) ? '#ef4444' : '#10b981'
+                                      }}>
+                                        {invInfo.qty} {invInfo.unit}
+                                      </span>
+                                    ) : (
+                                      <span style={{ color: 'var(--text-muted)', fontSize: '0.74rem' }}>-</span>
+                                    )}
+                                  </td>
+                                  <td style={{ padding: '10px 12px' }}>
+                                    <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                                      {monthTags.map(([mKey, mVal]) => (
+                                        <span key={mKey} style={{ fontSize: '0.7rem', padding: '1px 6px', borderRadius: '4px', backgroundColor: 'var(--bg-card)', border: '1px solid var(--border)', color: 'var(--text-muted)' }}>
+                                          {mKey}: ${Math.round(mVal).toLocaleString()}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  </td>
+                                </tr>
+                                {isExpanded && (
+                                  <tr style={{ backgroundColor: 'var(--bg-card)', borderBottom: '2px solid var(--border)' }}>
+                                    <td colSpan="8" style={{ padding: '12px 20px' }}>
+                                      <div style={{ fontSize: '0.76rem', fontWeight: 'bold', marginBottom: '6px', color: '#10b981' }}>
+                                        📄 【{item.name}】於 {startStr} ～ {endStr} 區間內之進貨明細 ({item.records.length} 筆)：
+                                      </div>
+                                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: '6px' }}>
+                                        {item.records.map((rec, rIdx) => (
+                                          <div key={rIdx} style={{ padding: '6px 10px', borderRadius: '6px', backgroundColor: 'var(--bg-body)', border: '1px solid var(--border)', fontSize: '0.75rem', display: 'flex', justifyContent: 'space-between' }}>
+                                            <span>📅 {rec.date} ｜ {rec.vendor}</span>
+                                            <strong>{rec.quantity} — <span style={{ color: '#ef4444' }}>${Math.round(rec.cost).toLocaleString()}</span></strong>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </td>
+                                  </tr>
+                                )}
+                              </React.Fragment>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         </main>
 
