@@ -1632,7 +1632,6 @@ const handleSaveGlobalAddons = async (newAddons) => {
 
   useEffect(() => {
     fetchMenuItems();
-    fetchStaffList();
   }, []);
 
   // Sort menu items based on setting
@@ -1650,18 +1649,19 @@ const handleSaveGlobalAddons = async (newAddons) => {
     const targetIndex = index + direction;
     if (targetIndex < 0 || targetIndex >= currentOrder.length) return;
     
-    // Swap
+    // Swap & Optimistic UI update (0ms)
     const temp = currentOrder[index];
     currentOrder[index] = currentOrder[targetIndex];
     currentOrder[targetIndex] = temp;
+    setMenuOrder(currentOrder);
     
     try {
       const orderKey = prefixNameForStore('SYSTEM_SETTING_MENU_ORDER', storeCode);
-      const { data: exist } = await supabase.from('menu_items').select('*').eq('name', orderKey);
+      const { data: exist } = await supabase.from('menu_items').select('id').eq('name', orderKey);
       if (exist && exist.length > 0) {
         const { error } = await supabase.from('menu_items').update({
           description: JSON.stringify(currentOrder)
-        }).eq('name', orderKey);
+        }).eq('id', exist[0].id);
         if (error) throw error;
       } else {
         const { error } = await supabase.from('menu_items').insert([{
@@ -1673,8 +1673,6 @@ const handleSaveGlobalAddons = async (newAddons) => {
         }]);
         if (error) throw error;
       }
-      setMenuOrder(currentOrder);
-      fetchMenuItems();
     } catch (err) {
       alert("儲存排序失敗：" + err.message);
     }
@@ -1912,7 +1910,11 @@ const handleSaveGlobalAddons = async (newAddons) => {
           .select();
         if (error) throw error;
         if (data && data.length > 0) {
-          setMenuItems(prev => [...prev, data[0]]);
+          setMenuItems(prev => {
+            const next = [...prev, data[0]];
+            try { localStorage.setItem(`${storeCode}_management_menu_items`, JSON.stringify(next)); } catch (e) {}
+            return next;
+          });
         }
         alert("商品新增成功並已發布至雲端！");
       } else {
@@ -1921,12 +1923,14 @@ const handleSaveGlobalAddons = async (newAddons) => {
           .update(updatedItem)
           .eq('id', editingItem.id);
         if (error) throw error;
-        setMenuItems(prev => prev.map(m => m.id === editingItem.id ? { ...m, ...updatedItem } : m));
+        setMenuItems(prev => {
+          const next = prev.map(m => m.id === editingItem.id ? { ...m, ...updatedItem } : m);
+          try { localStorage.setItem(`${storeCode}_management_menu_items`, JSON.stringify(next)); } catch (e) {}
+          return next;
+        });
         alert("商品修改成功並已同步雲端！");
       }
       setEditingItem(null);
-      // 背景非同步重整，不卡住目前編輯畫面
-      setTimeout(() => fetchMenuItems(), 100);
     } catch (err) {
       alert("儲存商品失敗：" + err.message);
     }

@@ -209,7 +209,9 @@ export async function deductInventoryForOrder(order, storeCode = 'dragon') {
   // 1. Idempotency check: Don't deduct if already deducted
   const rawItems = order.items;
   let itemsObj = {};
-  if (rawItems && typeof rawItems === 'object' && !Array.isArray(rawItems)) {
+  if (order.rawItemsObj && typeof order.rawItemsObj === 'object') {
+    itemsObj = { ...order.rawItemsObj };
+  } else if (rawItems && typeof rawItems === 'object' && !Array.isArray(rawItems)) {
     itemsObj = { ...rawItems };
   } else if (Array.isArray(rawItems)) {
     itemsObj = { cart: rawItems };
@@ -217,7 +219,7 @@ export async function deductInventoryForOrder(order, storeCode = 'dragon') {
     try { itemsObj = JSON.parse(rawItems); } catch (e) { itemsObj = {}; }
   }
 
-  if (itemsObj.inventory_deducted === true) {
+  if (order.inventory_deducted === true || itemsObj.inventory_deducted === true) {
     processedOrderIdsInSession.add(orderIdStr);
     return { success: false, reason: 'Already deducted' };
   }
@@ -358,27 +360,32 @@ export async function processBatchPendingOrders(orders = [], storeCode = 'dragon
 
   isBatchProcessing = true;
   let processedCount = 0;
+  // Only scan recent orders (within the last 24 hours, max 40 orders) to avoid historical scan loops
+  const cutoff24h = Date.now() - 24 * 60 * 60 * 1000;
+  const recentSlice = orders.slice(0, 40);
   try {
-    for (const o of orders) {
+    for (const o of recentSlice) {
       if (!o || !o.id) continue;
       if (processedOrderIdsInSession.has(String(o.id))) continue;
       if (o.status !== 'completed' && o.status !== 'received') continue;
 
       const rawItems = o.items;
       let itemsObj = {};
-      if (rawItems && typeof rawItems === 'object' && !Array.isArray(rawItems)) {
+      if (o.rawItemsObj && typeof o.rawItemsObj === 'object') {
+        itemsObj = o.rawItemsObj;
+      } else if (rawItems && typeof rawItems === 'object' && !Array.isArray(rawItems)) {
         itemsObj = rawItems;
       } else if (typeof rawItems === 'string') {
         try { itemsObj = JSON.parse(rawItems); } catch (e) {}
       }
 
-      if (itemsObj.inventory_deducted === true) {
+      if (o.inventory_deducted === true || itemsObj.inventory_deducted === true) {
         processedOrderIdsInSession.add(String(o.id));
         continue;
       }
 
       const orderTime = o.timestamp || (o.created_at ? new Date(o.created_at).getTime() : 0);
-      if (orderTime && orderTime < INVENTORY_DEDUCTION_START_TIMESTAMP) {
+      if (orderTime && (orderTime < INVENTORY_DEDUCTION_START_TIMESTAMP || orderTime < cutoff24h)) {
         processedOrderIdsInSession.add(String(o.id));
         continue;
       }

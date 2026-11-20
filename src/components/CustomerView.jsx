@@ -115,7 +115,9 @@ export const formatSupabaseOrder = (dbOrder) => {
     lineUser: itemsData.lineUser || null,
     authUser: authUser || null,
     is_test: isTest,
-    isTest: isTest
+    isTest: isTest,
+    inventory_deducted: Boolean(itemsData?.inventory_deducted),
+    rawItemsObj: (itemsData && typeof itemsData === 'object' && !Array.isArray(itemsData)) ? itemsData : null
   };
 };
 

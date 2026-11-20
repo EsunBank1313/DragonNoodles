@@ -2928,9 +2928,17 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
     }
   };
 
+  const lastCloudInvJsonRef = useRef('');
+  const lastCloudLogsJsonRef = useRef('');
+  const lastCloudProcJsonRef = useRef('');
+  const lastCloudCondsJsonRef = useRef('');
+
   const fetchInventoryFromCloud = async () => {
     try {
-      const { data, error } = await supabase.from('menu_items').select('*');
+      const { data, error } = await supabase
+        .from('menu_items')
+        .select('id, name, description')
+        .like('name', '%SYSTEM_SETTING_%');
       if (error) throw error;
       if (data) {
         const storeItems = filterItemsByStore(data, storeCode);
@@ -2967,6 +2975,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
           try {
             const parsed = JSON.parse(invItem.description);
             if (Array.isArray(parsed) && parsed.length > 0) {
+              lastCloudInvJsonRef.current = JSON.stringify(parsed);
               setInventory(parsed);
             } else if (storeCode === 'dragon') {
               setInventory(defaultInventory);
@@ -3010,7 +3019,9 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
         const logsItem = storeItems.find(i => i.name === 'SYSTEM_SETTING_INVENTORY_LOGS');
         if (logsItem && logsItem.description) {
           try {
-            setInventoryLogs(JSON.parse(logsItem.description));
+            const parsedLogs = JSON.parse(logsItem.description);
+            lastCloudLogsJsonRef.current = JSON.stringify(parsedLogs);
+            setInventoryLogs(parsedLogs);
           } catch (e) { setInventoryLogs([]); }
         } else {
           setInventoryLogs([]);
@@ -3019,7 +3030,9 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
         const processedItem = storeItems.find(i => i.name === 'SYSTEM_SETTING_PROCESSED_ORDERS');
         if (processedItem && processedItem.description) {
           try {
-            setProcessedOrderIds(JSON.parse(processedItem.description));
+            const parsedProc = JSON.parse(processedItem.description);
+            lastCloudProcJsonRef.current = JSON.stringify(parsedProc);
+            setProcessedOrderIds(parsedProc);
           } catch (e) { setProcessedOrderIds([]); }
         } else {
           setProcessedOrderIds([]);
@@ -3028,7 +3041,9 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
         const condsItem = storeItems.find(i => i.name === 'SYSTEM_SETTING_CONDIMENTS_AVAILABILITY');
         if (condsItem && condsItem.description) {
           try {
-            setCondimentsAvailability(JSON.parse(condsItem.description));
+            const parsedConds = JSON.parse(condsItem.description);
+            lastCloudCondsJsonRef.current = JSON.stringify(parsedConds);
+            setCondimentsAvailability(parsedConds);
           } catch (e) { setCondimentsAvailability({}); }
         }
 
@@ -3164,19 +3179,22 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
     setPurchaseDate(selectedBookkeepingDate);
   }, [selectedBookkeepingDate]);
 
-  // Save inventory to local storage & cloud on changes
+  // Save inventory to local storage & cloud on changes (skipping initial load & realtime echo)
   useEffect(() => {
     if (!isInventoryLoaded) return;
-    localStorage.setItem(`${storeCode}_restaurant_inventory`, JSON.stringify(inventory));
     if (!inventory || inventory.length === 0) return;
+    const invJson = JSON.stringify(inventory);
+    localStorage.setItem(`${storeCode}_restaurant_inventory`, invJson);
+    if (invJson === lastCloudInvJsonRef.current) return;
+    lastCloudInvJsonRef.current = invJson;
     const syncInv = async () => {
       try {
         const invKey = prefixNameForStore('SYSTEM_SETTING_INVENTORY', storeCode);
         const { data } = await supabase.from('menu_items').select('id').eq('name', invKey);
         if (data && data.length > 0) {
-          await supabase.from('menu_items').update({ description: JSON.stringify(inventory) }).eq('id', data[0].id);
+          await supabase.from('menu_items').update({ description: invJson }).eq('id', data[0].id);
         } else {
-          await supabase.from('menu_items').insert([{ name: invKey, price: 0, category: 'settings', description: JSON.stringify(inventory) }]);
+          await supabase.from('menu_items').insert([{ name: invKey, price: 0, category: 'settings', description: invJson }]);
         }
       } catch (e) {
         console.error("Failed to sync inventory to cloud:", e);
@@ -3185,18 +3203,21 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
     syncInv();
   }, [inventory, isInventoryLoaded, storeCode]);
 
-  // Save processed order IDs to local storage & cloud on changes
+  // Save processed order IDs to local storage & cloud on changes (skipping initial load & realtime echo)
   useEffect(() => {
     if (!isInventoryLoaded) return;
-    localStorage.setItem(`${storeCode}_restaurant_processed_orders`, JSON.stringify(processedOrderIds));
+    const procJson = JSON.stringify(processedOrderIds);
+    localStorage.setItem(`${storeCode}_restaurant_processed_orders`, procJson);
+    if (procJson === lastCloudProcJsonRef.current) return;
+    lastCloudProcJsonRef.current = procJson;
     const syncProcessed = async () => {
       try {
         const procKey = prefixNameForStore('SYSTEM_SETTING_PROCESSED_ORDERS', storeCode);
         const { data } = await supabase.from('menu_items').select('id').eq('name', procKey);
         if (data && data.length > 0) {
-          await supabase.from('menu_items').update({ description: JSON.stringify(processedOrderIds) }).eq('id', data[0].id);
+          await supabase.from('menu_items').update({ description: procJson }).eq('id', data[0].id);
         } else {
-          await supabase.from('menu_items').insert([{ name: procKey, price: 0, category: 'settings', description: JSON.stringify(processedOrderIds) }]);
+          await supabase.from('menu_items').insert([{ name: procKey, price: 0, category: 'settings', description: procJson }]);
         }
       } catch (e) {
         console.error("Failed to sync processed orders to cloud:", e);
@@ -3205,18 +3226,21 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
     syncProcessed();
   }, [processedOrderIds, isInventoryLoaded, storeCode]);
 
-  // Save inventory logs to local storage & cloud on changes
+  // Save inventory logs to local storage & cloud on changes (skipping initial load & realtime echo)
   useEffect(() => {
     if (!isInventoryLoaded) return;
-    localStorage.setItem(`${storeCode}_restaurant_inventory_logs`, JSON.stringify(inventoryLogs));
+    const logsJson = JSON.stringify(inventoryLogs);
+    localStorage.setItem(`${storeCode}_restaurant_inventory_logs`, logsJson);
+    if (logsJson === lastCloudLogsJsonRef.current) return;
+    lastCloudLogsJsonRef.current = logsJson;
     const syncLogs = async () => {
       try {
         const logsKey = prefixNameForStore('SYSTEM_SETTING_INVENTORY_LOGS', storeCode);
         const { data } = await supabase.from('menu_items').select('id').eq('name', logsKey);
         if (data && data.length > 0) {
-          await supabase.from('menu_items').update({ description: JSON.stringify(inventoryLogs) }).eq('id', data[0].id);
+          await supabase.from('menu_items').update({ description: logsJson }).eq('id', data[0].id);
         } else {
-          await supabase.from('menu_items').insert([{ name: logsKey, price: 0, category: 'settings', description: JSON.stringify(inventoryLogs) }]);
+          await supabase.from('menu_items').insert([{ name: logsKey, price: 0, category: 'settings', description: logsJson }]);
         }
       } catch (e) {
         console.error("Failed to sync logs to cloud:", e);
@@ -3225,18 +3249,21 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
     syncLogs();
   }, [inventoryLogs, isInventoryLoaded, storeCode]);
 
-  // Save condiments availability to local storage & cloud on changes
+  // Save condiments availability to local storage & cloud on changes (skipping initial load & realtime echo)
   useEffect(() => {
     if (!isInventoryLoaded) return;
-    localStorage.setItem('condiments_availability', JSON.stringify(condimentsAvailability));
+    const condsJson = JSON.stringify(condimentsAvailability);
+    localStorage.setItem('condiments_availability', condsJson);
+    if (condsJson === lastCloudCondsJsonRef.current) return;
+    lastCloudCondsJsonRef.current = condsJson;
     const syncConds = async () => {
       try {
         const condKey = prefixNameForStore('SYSTEM_SETTING_CONDIMENTS_AVAILABILITY', storeCode);
         const { data } = await supabase.from('menu_items').select('id').eq('name', condKey);
         if (data && data.length > 0) {
-          await supabase.from('menu_items').update({ description: JSON.stringify(condimentsAvailability) }).eq('id', data[0].id);
+          await supabase.from('menu_items').update({ description: condsJson }).eq('id', data[0].id);
         } else {
-          await supabase.from('menu_items').insert([{ name: condKey, price: 0, category: 'settings', description: JSON.stringify(condimentsAvailability) }]);
+          await supabase.from('menu_items').insert([{ name: condKey, price: 0, category: 'settings', description: condsJson }]);
         }
       } catch (e) {
         console.error("Failed to sync condiments to cloud:", e);
@@ -3305,11 +3332,29 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
     }
   }, [inventory]);
 
-  // Listen for PostgreSQL database changes in real-time
+  // Listen for PostgreSQL database changes in real-time (incremental updates to avoid 700KB full table reloads & ping-pong loops)
   useEffect(() => {
     const ordersChannel = supabase.channel('bookkeeping-orders')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => {
-        fetchOrders();
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, (payload) => {
+        if (payload.eventType === 'UPDATE' && payload.new) {
+          const storeNew = filterOrdersByStore([payload.new], storeCode);
+          if (storeNew.length > 0) {
+            const mapped = formatSupabaseOrder(payload.new);
+            if (mapped) {
+              setOrders(prev => prev.map(o => String(o.id) === String(mapped.id) ? mapped : o));
+            }
+          }
+        } else if (payload.eventType === 'INSERT' && payload.new) {
+          const storeNew = filterOrdersByStore([payload.new], storeCode);
+          if (storeNew.length > 0) {
+            const mapped = formatSupabaseOrder(payload.new);
+            if (mapped && !mapped.is_test) {
+              setOrders(prev => [mapped, ...prev.filter(o => String(o.id) !== String(mapped.id))]);
+            }
+          }
+        } else if (payload.eventType === 'DELETE') {
+          fetchOrders();
+        }
       })
       .subscribe();
 
@@ -3332,7 +3377,13 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
         if (payload?.new?.description) {
           try {
             const parsed = JSON.parse(payload.new.description);
-            if (Array.isArray(parsed)) setInventory(parsed);
+            if (Array.isArray(parsed)) {
+              const jsonStr = JSON.stringify(parsed);
+              if (jsonStr !== lastCloudInvJsonRef.current) {
+                lastCloudInvJsonRef.current = jsonStr;
+                setInventory(parsed);
+              }
+            }
           } catch (e) {}
         }
       })
@@ -3340,7 +3391,13 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
         if (payload?.new?.description) {
           try {
             const parsed = JSON.parse(payload.new.description);
-            if (Array.isArray(parsed)) setInventoryLogs(parsed);
+            if (Array.isArray(parsed)) {
+              const jsonStr = JSON.stringify(parsed);
+              if (jsonStr !== lastCloudLogsJsonRef.current) {
+                lastCloudLogsJsonRef.current = jsonStr;
+                setInventoryLogs(parsed);
+              }
+            }
           } catch (e) {}
         }
       })
