@@ -3279,59 +3279,6 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
     processBatchPendingOrders(orders, storeCode);
   }, [orders, isInventoryLoaded, storeCode]);
 
-  // One-time sync of 7/23 purchases into inventory status
-  useEffect(() => {
-    if (inventory.length === 0) return;
-    const isSynced = localStorage.getItem('is_723_purchases_synced_v3');
-    if (!isSynced) {
-      // 7/23 purchases details
-      const purchases723 = [
-        { name: '洗衣粉', qty: 1, unit: '包', minStock: 1 },
-        { name: '大瓷碗', qty: 4, unit: '個', minStock: 2 },
-        { name: '小瓷碗', qty: 2, unit: '個', minStock: 2 },
-        { name: '拖鞋', qty: 2, unit: '組', minStock: 1 },
-        { name: '手套', qty: 2, unit: '組', minStock: 1 }
-      ];
-
-      setInventory(prev => {
-        let updated = [...prev];
-        purchases723.forEach(p => {
-          const idx = updated.findIndex(item => item.name === p.name);
-          if (idx !== -1) {
-            // We set it to the purchased quantity if it was 0, or add it
-            updated[idx] = { ...updated[idx], qty: updated[idx].qty + p.qty };
-          } else {
-            updated.push(p);
-          }
-        });
-        localStorage.setItem('restaurant_inventory', JSON.stringify(updated));
-        return updated;
-      });
-
-      // Insert matching logs
-      const time = "09:00";
-      const date = "2026-07-23";
-      const newLogs = purchases723.map((p, idx) => ({
-        id: `LOG-PUR-723-SYNC-${idx}-${Date.now()}`,
-        time,
-        date,
-        itemName: p.name,
-        type: '採購進貨(聯動)',
-        change: `+${p.qty}`,
-        unit: p.unit,
-        remarks: '7/23 補登進貨聯動'
-      }));
-
-      setInventoryLogs(prev => {
-        const updatedLogs = [...newLogs, ...prev].slice(0, 50);
-        localStorage.setItem('restaurant_inventory_logs', JSON.stringify(updatedLogs));
-        return updatedLogs;
-      });
-
-      localStorage.setItem('is_723_purchases_synced_v3', 'true');
-    }
-  }, [inventory]);
-
   // Listen for PostgreSQL database changes in real-time (incremental updates to avoid 700KB full table reloads & ping-pong loops)
   useEffect(() => {
     const ordersChannel = supabase.channel('bookkeeping-orders')

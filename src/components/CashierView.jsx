@@ -75,18 +75,22 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
   const [showStockAlertModal, setShowStockAlertModal] = useState(false);
 
   useEffect(() => {
+    let lastInvJson = '';
     const fetchInventory = async () => {
       try {
         const invKey = prefixNameForStore('SYSTEM_SETTING_INVENTORY', storeCode);
-        let { data } = await supabase.from('menu_items').select('*').eq('name', invKey);
+        let { data } = await supabase.from('menu_items').select('id, description').eq('name', invKey);
         if ((!data || data.length === 0) && storeCode !== 'dragon') {
-          const fallbackRes = await supabase.from('menu_items').select('*').eq('name', 'SYSTEM_SETTING_INVENTORY');
+          const fallbackRes = await supabase.from('menu_items').select('id, description').eq('name', 'SYSTEM_SETTING_INVENTORY');
           data = fallbackRes.data;
         }
-        if (data && data.length > 0) {
-          const parsed = JSON.parse(data[0].description);
-          if (Array.isArray(parsed)) {
-            setInventory(parsed);
+        if (data && data.length > 0 && data[0].description) {
+          if (data[0].description !== lastInvJson) {
+            lastInvJson = data[0].description;
+            const parsed = JSON.parse(data[0].description);
+            if (Array.isArray(parsed)) {
+              setInventory(parsed);
+            }
           }
         }
       } catch (err) {
@@ -97,8 +101,16 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
 
     const invKey = prefixNameForStore('SYSTEM_SETTING_INVENTORY', storeCode);
     const channel = supabase.channel(`pos-inventory-realtime-${storeCode}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'menu_items', filter: `name=eq.${invKey}` }, () => {
-        fetchInventory();
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'menu_items', filter: `name=eq.${invKey}` }, (payload) => {
+        if (payload?.new?.description) {
+          if (payload.new.description !== lastInvJson) {
+            lastInvJson = payload.new.description;
+            try {
+              const parsed = JSON.parse(payload.new.description);
+              if (Array.isArray(parsed)) setInventory(parsed);
+            } catch (e) {}
+          }
+        }
       })
       .subscribe();
 
