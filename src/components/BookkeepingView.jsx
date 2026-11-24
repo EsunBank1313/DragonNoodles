@@ -2652,10 +2652,26 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
     window.open(url, '_blank');
   };
 
-  // Fetch orders from Supabase (Filtered strictly by storeCode)
+  // Fetch orders from Supabase (Filtered strictly by storeCode, paginated via primary key index id.desc to load full history beyond 1,000 rows)
   const fetchOrders = async () => {
     try {
-      const { data, error } = await supabase.from('orders').select('*').order('id', { ascending: false }).limit(1000);
+      let allData = [];
+      const pageSize = 1000;
+      const maxPages = 10; // Up to 10,000 orders via indexed id.desc pagination
+      for (let pageIdx = 0; pageIdx < maxPages; pageIdx++) {
+        const from = pageIdx * pageSize;
+        const to = from + pageSize - 1;
+        const { data: pageData, error } = await supabase
+          .from('orders')
+          .select('*')
+          .order('id', { ascending: false })
+          .range(from, to);
+        if (error) throw error;
+        if (!pageData || pageData.length === 0) break;
+        allData = allData.concat(pageData);
+        if (pageData.length < pageSize) break;
+      }
+      const data = allData;
       if (data) {
         const storeOrders = filterOrdersByStore(data, storeCode);
 
