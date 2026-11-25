@@ -9654,6 +9654,9 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
               let addonMeatballCnt = 0;
               let addonCenturyEggCnt = 0;
 
+              let kimchiSoldQty = 0;
+              let kimchiSoldRev = 0;
+
               const familyStats = {
                 '綜合麵線': { name: '綜合麵線 (含套餐)', qty: 0, large: 0, small: 0, revenue: 0, estUnitBaseCost: 11.5, estUnitToppingCost: 16.5, note: '含雙腸、肉羹、花枝羹、豬肚、貢丸' },
                 '蚵仔麵線': { name: '蚵仔麵線', qty: 0, large: 0, small: 0, revenue: 0, estUnitBaseCost: 11.5, estUnitToppingCost: 20.1, note: '店內第二暢銷，鮮蚵成本佔比較高' },
@@ -9711,6 +9714,12 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                   if (specsStr.includes('肉羹')) addonPorkGengCnt += qty;
                   if (specsStr.includes('貢丸')) addonMeatballCnt += qty;
                   if (specsStr.includes('皮蛋')) addonCenturyEggCnt += qty;
+
+                  // Track Standalone Kimchi Sales (單獨販售之泡菜/辣泡菜，不含麵線)
+                  if (name.includes('泡菜') && !name.includes('麵線')) {
+                    kimchiSoldQty += qty;
+                    kimchiSoldRev += price;
+                  }
 
                   const isLarge = name.includes('大') || specsStr.includes('大碗') || name.includes('大份');
 
@@ -9794,6 +9803,11 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
 
               const bunPurchaseStat = getItemStat('鮮肉包(10顆)');
               const kimchiStat = getItemStat('泡菜');
+              const kimchiUnitCost = kimchiStat.totalQtyNum > 0 ? (kimchiStat.totalCost / kimchiStat.totalQtyNum) : 125;
+              const kimchiRetailPacks = kimchiSoldQty;
+              const kimchiRetailCost = Math.min(kimchiStat.totalCost, Math.round(kimchiRetailPacks * kimchiUnitCost));
+              const kimchiForNoodlesPacks = Math.max(0, kimchiStat.totalQtyNum - kimchiRetailPacks);
+              const kimchiForNoodlesCost = Math.max(0, kimchiStat.totalCost - kimchiRetailCost);
 
               const condimentsCost = getItemStat('香菜').totalCost + getItemStat('大蒜').totalCost + getItemStat('蒜末').totalCost + getItemStat('醋').totalCost;
 
@@ -9926,11 +9940,13 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                       <div style={{ fontSize: '1.45rem', fontWeight: '900', color: '#ef4444', margin: '4px 0' }}>
                         NT$ {Math.round(totalPurchaseCost).toLocaleString()}
                       </div>
-                      <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
-                        折算月均進貨：<strong style={{ color: '#ef4444' }}>NT$ {Math.round(totalPurchaseCost / monthsInPeriod).toLocaleString()} / 月</strong>
-                      </div>
-                      <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: '2px' }}>
-                        平均每碗總進貨成本：<strong>NT$ {avgPurchaseCostPerBowl.toFixed(1)} / 碗</strong> (每碗均收 ${avgRevenuePerBowl.toFixed(1)})
+                      <div>
+                        <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+                          折算月均進貨：<strong style={{ color: '#ef4444' }}>NT$ {Math.round(totalPurchaseCost / monthsInPeriod).toLocaleString()} / 月</strong>
+                        </div>
+                        <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                          進貨佔營收比：<strong>{bookCostRatio.toFixed(1)}%</strong> {kimchiRetailCost > 0 ? `(含單售泡菜成本 $${kimchiRetailCost})` : ''}
+                        </div>
                       </div>
                     </div>
 
@@ -10150,8 +10166,8 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                           </div>
                         </div>
                         <div style={{ fontSize: '0.76rem', color: 'var(--text-main)', lineHeight: '1.5' }}>
-                          <div>📦 <strong>泡菜進貨與產能估算</strong>：區間共進貨 <strong>{kimchiStat.totalQtyNum} 包</strong> (NT$ {kimchiStat.totalCost.toLocaleString()}) {kimchiStat.totalQtyNum > 0 ? `，平均每包泡菜約搭配 ${(totalNoodleBowls / kimchiStat.totalQtyNum).toFixed(1)} 碗麵線售出` : ''}</div>
-                          <div>💡 <strong>依進貨估算每碗麵線分攤佐料成本</strong>：泡菜約 <strong>NT$ {totalNoodleBowls > 0 ? (kimchiStat.totalCost / totalNoodleBowls).toFixed(2) : '0'} / 碗</strong> ＋ 香菜蒜醋約 <strong>NT$ {totalNoodleBowls > 0 ? (condimentsCost / totalNoodleBowls).toFixed(2) : '0'} / 碗</strong></div>
+                          <div>📦 <strong>泡菜進貨與單獨販售扣除</strong>：區間共進貨 <strong>{kimchiStat.totalQtyNum} 包</strong> (NT$ {kimchiStat.totalCost.toLocaleString()})，扣除單獨販售 <strong>{kimchiRetailPacks} 包</strong> (成本 <strong>NT$ {kimchiRetailCost.toLocaleString()}</strong>、創造營收 <strong>NT$ {Math.round(kimchiSoldRev).toLocaleString()}</strong>) 後，實際用於麵線免費佐料共 <strong style={{ color: '#f59e0b' }}>{kimchiForNoodlesPacks} 包 (NT$ {kimchiForNoodlesCost.toLocaleString()})</strong> {kimchiForNoodlesPacks > 0 ? `，平均每包搭配 ${(totalNoodleBowls / kimchiForNoodlesPacks).toFixed(1)} 碗麵線` : ''}</div>
+                          <div>💡 <strong>依進貨估算每碗麵線分攤佐料成本 (已排除單獨販售泡菜)</strong>：麵線用泡菜約 <strong style={{ color: '#f59e0b' }}>NT$ {totalNoodleBowls > 0 ? (kimchiForNoodlesCost / totalNoodleBowls).toFixed(2) : '0'} / 碗</strong> ＋ 香菜蒜醋約 <strong>NT$ {totalNoodleBowls > 0 ? (condimentsCost / totalNoodleBowls).toFixed(2) : '0'} / 碗</strong></div>
                         </div>
                       </div>
                     </div>
