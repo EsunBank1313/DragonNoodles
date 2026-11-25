@@ -9772,14 +9772,10 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
               const largeIntestineStat = getItemStat('大腸');
               const smallIntestineStat = getItemStat('小腸');
               const doubleIntestineCost = largeIntestineStat.totalCost + smallIntestineStat.totalCost;
-              const largeIntestineStock = Number(invLookup['大腸']?.qty) || 0;
-              const smallIntestineStock = Number(invLookup['小腸']?.qty) || 0;
-              const doubleIntestineStockVal = (largeIntestineStock * 240) + (smallIntestineStock * 140);
-              const doubleIntestineConsumedCost = Math.max(0, doubleIntestineCost - doubleIntestineStockVal);
+              const doubleIntestineQty = largeIntestineStat.totalQtyNum + smallIntestineStat.totalQtyNum;
               const doubleIntestineBowlsUsed = familyStats['綜合麵線'].qty + familyStats['雙腸麵線'].qty + addonIntestineCnt;
 
               const squidStat = getItemStat('花枝羹');
-              const squidStock = Number(invLookup['花枝羹']?.qty) || 0;
               const squidBowlsUsed = familyStats['綜合麵線'].qty + familyStats['花枝羹麵線'].qty + addonSquidCnt;
 
               const oysterStat = getItemStat('蚵仔');
@@ -9788,31 +9784,23 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
               const powderStat = getItemStat('調味粉(三包)');
               const redNoodleStat = getItemStat('紅麵線');
               const baseSoupNoodleCost = powderStat.totalCost + redNoodleStat.totalCost;
-              const powderStock = Number(invLookup['調味粉(三包)']?.qty) || 0;
-              const powderConsumedSets = Math.max(1, powderStat.totalQtyNum - powderStock);
-              const powderConsumedCost = Math.max(0, powderStat.totalCost - (powderStock * 200));
+              const powderPurchasedSets = powderStat.totalQtyNum;
+              const redNoodlePurchasedPacks = redNoodleStat.totalQtyNum;
+              const bowlsPerPowderSet = (totalNoodleBowls > 0 && powderPurchasedSets > 0) ? (totalNoodleBowls / powderPurchasedSets) : 0;
+              const bowlsPerRedNoodlePack = (totalNoodleBowls > 0 && redNoodlePurchasedPacks > 0) ? (totalNoodleBowls / redNoodlePurchasedPacks) : 0;
+              const powderCostPerBowl = totalNoodleBowls > 0 ? (powderStat.totalCost / totalNoodleBowls) : 0;
+              const redNoodleCostPerBowl = totalNoodleBowls > 0 ? (redNoodleStat.totalCost / totalNoodleBowls) : 0;
+              const baseSoupNoodleCostPerBowl = powderCostPerBowl + redNoodleCostPerBowl;
 
               const bunPurchaseStat = getItemStat('鮮肉包(10顆)');
               const kimchiStat = getItemStat('泡菜');
-              const kimchiStock = Number(invLookup['泡菜']?.qty) || 0;
-              const kimchiConsumedCost = Math.max(0, kimchiStat.totalCost - (kimchiStock * 125));
 
               const condimentsCost = getItemStat('香菜').totalCost + getItemStat('大蒜').totalCost + getItemStat('蒜末').totalCost + getItemStat('醋').totalCost;
 
-              // Total remaining inventory value across watched items that have purchases in this range
-              let estimatedRemainingStockValue = 0;
-              Object.keys(unitCostEstimateMap).forEach(k => {
-                if (itemMap[k] && invLookup[k]) {
-                  const q = Number(invLookup[k].qty) || 0;
-                  // Skip red noodles raw stock if exceeds purchased packs in range
-                  const cappedQ = Math.min(q, itemMap[k].totalQtyNum);
-                  estimatedRemainingStockValue += cappedQ * unitCostEstimateMap[k];
-                }
-              });
-
-              const actualConsumedTotalCost = Math.max(0, totalPurchaseCost - estimatedRemainingStockValue);
+              const grossProfitInRange = totalSalesRevenue - totalPurchaseCost;
               const bookCostRatio = totalSalesRevenue > 0 ? (totalPurchaseCost / totalSalesRevenue * 100) : 0;
-              const actualCostRatio = totalSalesRevenue > 0 ? (actualConsumedTotalCost / totalSalesRevenue * 100) : 0;
+              const avgRevenuePerBowl = totalNoodleBowls > 0 ? (totalSalesRevenue / totalNoodleBowls) : 0;
+              const avgPurchaseCostPerBowl = totalNoodleBowls > 0 ? (totalPurchaseCost / totalNoodleBowls) : 0;
 
               const sortedItemsList = Object.values(itemMap)
                 .filter(it => !costItemSearch.trim() || it.name.toLowerCase().includes(costItemSearch.trim().toLowerCase()))
@@ -9837,7 +9825,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                         <h4 style={{ fontSize: '1.05rem', fontWeight: '900', margin: '0 0 4px 0', color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                           📊 食材進貨成本、月均花費與銷售毛利交叉分析報告
                           <span style={{ fontSize: '0.72rem', padding: '2px 8px', borderRadius: '12px', backgroundColor: 'rgba(16, 185, 129, 0.15)', color: '#10b981', fontWeight: 'bold' }}>
-                            按需智慧載入・省流量
+                            依區間進貨量精準估算・省流量
                           </span>
                           {isLoadingMoreOrders ? (
                             <span style={{ fontSize: '0.72rem', padding: '2px 8px', borderRadius: '12px', backgroundColor: 'rgba(245, 158, 11, 0.15)', color: '#f59e0b', fontWeight: 'bold' }}>
@@ -9854,7 +9842,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                           )}
                         </h4>
                         <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', margin: 0 }}>
-                          自由選擇任何日期區間，系統自動從進貨單、訂單銷量與目前庫存交叉算出「雙腸、花枝羹、蚵仔、湯底、肉包」等每月平均花費與每碗成本。
+                          自由選擇任何日期區間，系統直接根據「實際進貨數量與進貨金額」與「訂單銷售碗數」交叉估算雙腸、花枝羹、蚵仔、湯底、肉包之產能與每碗分攤成本。
                         </p>
                       </div>
 
@@ -9942,33 +9930,34 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                         折算月均進貨：<strong style={{ color: '#ef4444' }}>NT$ {Math.round(totalPurchaseCost / monthsInPeriod).toLocaleString()} / 月</strong>
                       </div>
                       <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: '2px' }}>
-                        帳面進貨佔營收比：<strong>{bookCostRatio.toFixed(1)}%</strong> (毛利 NT$ {Math.round(totalSalesRevenue - totalPurchaseCost).toLocaleString()})
+                        平均每碗總進貨成本：<strong>NT$ {avgPurchaseCostPerBowl.toFixed(1)} / 碗</strong> (每碗均收 ${avgRevenuePerBowl.toFixed(1)})
                       </div>
                     </div>
 
                     <div style={{ backgroundColor: 'var(--bg-body)', border: '1px solid rgba(16, 185, 129, 0.35)', borderRadius: '10px', padding: '14px' }}>
-                      <div style={{ fontSize: '0.75rem', color: '#10b981', fontWeight: 'bold' }}>📦 扣除現有庫存後「實際已消耗成本」</div>
-                      <div style={{ fontSize: '1.45rem', fontWeight: '900', color: '#10b981', margin: '4px 0' }}>
-                        NT$ {Math.round(actualConsumedTotalCost).toLocaleString()}
+                      <div style={{ fontSize: '0.75rem', color: '#10b981', fontWeight: 'bold' }}>📊 區間食材毛利（依進貨金額核算）</div>
+                      <div style={{ fontSize: '1.45rem', fontWeight: '900', color: grossProfitInRange >= 0 ? '#10b981' : '#ef4444', margin: '4px 0' }}>
+                        {grossProfitInRange >= 0 ? '+' : ''}NT$ {Math.round(grossProfitInRange).toLocaleString()}
                       </div>
                       <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
-                        實際月均消耗：<strong style={{ color: '#10b981' }}>NT$ {Math.round(actualConsumedTotalCost / monthsInPeriod).toLocaleString()} / 月</strong>
+                        折算月均食材毛利：<strong style={{ color: '#10b981' }}>NT$ {Math.round(grossProfitInRange / monthsInPeriod).toLocaleString()} / 月</strong>
                       </div>
                       <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: '2px' }}>
-                        真實食材成本率：<strong style={{ color: '#10b981' }}>{actualCostRatio.toFixed(1)}%</strong> (真實毛利率 <strong>{(100 - actualCostRatio).toFixed(1)}%</strong>)
+                        進貨食材成本率：<strong style={{ color: '#10b981' }}>{bookCostRatio.toFixed(1)}%</strong> (食材毛利率 <strong>{(100 - bookCostRatio).toFixed(1)}%</strong>)
                       </div>
                     </div>
 
                     <div style={{ backgroundColor: 'var(--bg-body)', border: '1px solid var(--border)', borderRadius: '10px', padding: '14px' }}>
-                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 'bold' }}>🍲 湯底產能與單碗基礎成本</div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 'bold' }}>🍲 湯底產能與單碗基礎成本 (依進貨量估算)</div>
                       <div style={{ fontSize: '1.45rem', fontWeight: '900', color: '#3b82f6', margin: '4px 0' }}>
-                        {totalNoodleBowls > 0 ? (totalNoodleBowls / powderConsumedSets).toFixed(1) : '0.0'} 碗 / 套調味粉
+                        {bowlsPerPowderSet > 0 ? `${bowlsPerPowderSet.toFixed(1)} 碗 / 套調味粉` : (bowlsPerRedNoodlePack > 0 ? `${bowlsPerRedNoodlePack.toFixed(1)} 碗 / 包紅麵線` : '區間無進貨紀錄')}
                       </div>
                       <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
-                        調味粉實際消耗：<strong>{powderConsumedSets.toFixed(1)} 套</strong> (剩餘庫存 {powderStock} 套)
+                        區間進貨量：<strong>調味粉 {powderPurchasedSets} 套</strong> + <strong>紅麵線 {redNoodlePurchasedPacks} 包</strong>
+                        {bowlsPerRedNoodlePack > 0 ? ` (${bowlsPerRedNoodlePack.toFixed(1)}碗/包)` : ''}
                       </div>
                       <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: '2px' }}>
-                        每碗基礎湯麵成本：<strong>NT$ {totalNoodleBowls > 0 ? ((powderConsumedCost + redNoodleStat.totalCost) / totalNoodleBowls).toFixed(2) : '0'} / 碗</strong>
+                        每碗基礎湯麵成本：<strong>NT$ {baseSoupNoodleCostPerBowl.toFixed(2)} / 碗</strong> (粉 ${powderCostPerBowl.toFixed(2)} + 麵 ${redNoodleCostPerBowl.toFixed(2)})
                       </div>
                     </div>
                   </div>
@@ -9976,7 +9965,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                   {/* SECTION 2: 6 CORE INGREDIENT SPOTLIGHT CARDS (雙腸、花枝羹、蚵仔、湯底麵線、鮮肉包、泡菜佐料) */}
                   <div>
                     <h5 style={{ fontSize: '0.95rem', fontWeight: '900', margin: '0 0 10px 0', color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      🎯 核心食材組合點名深度剖析（區間總額、月均花費、剩餘庫存與每碗分攤成本）
+                      🎯 核心食材組合點名深度剖析（依區間進貨數量、進貨總額、月均花費與銷售碗數交叉估算）
                     </h5>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '14px' }}>
                       {/* Card 1: 雙腸 (大腸 + 小腸) */}
@@ -10004,10 +9993,9 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                           </div>
                         </div>
                         <div style={{ fontSize: '0.76rem', color: 'var(--text-main)', lineHeight: '1.5' }}>
-                          <div>📦 <strong>目前剩餘庫存</strong>：大腸 <strong>{largeIntestineStock} 包</strong> + 小腸 <strong>{smallIntestineStock} 包</strong> (庫存價值 NT$ {doubleIntestineStockVal.toLocaleString()})</div>
-                          <div>🔥 <strong>扣除庫存實際已消耗</strong>：<strong style={{ color: '#10b981' }}>NT$ {doubleIntestineConsumedCost.toLocaleString()}</strong> (實際月耗 <strong>NT$ {Math.round(doubleIntestineConsumedCost / monthsInPeriod).toLocaleString()} / 月</strong>)</div>
+                          <div>📦 <strong>區間進貨總數量</strong>：大腸 <strong>{largeIntestineStat.totalQtyNum} 包/斤</strong> ({largeIntestineStat.count}次) + 小腸 <strong>{smallIntestineStat.totalQtyNum} 包/斤</strong> ({smallIntestineStat.count}次) ＝ 共 <strong>{doubleIntestineQty} 包/斤</strong> (月均 <strong>{(doubleIntestineQty / monthsInPeriod).toFixed(1)} 包/月</strong>)</div>
                           <div>🍜 <strong>銷售連動</strong>：雙腸麵線 <strong>{familyStats['雙腸麵線'].qty} 碗</strong> (${Math.round(familyStats['雙腸麵線'].revenue).toLocaleString()}) + 綜合麵線 <strong>{familyStats['綜合麵線'].qty} 碗</strong> + 單點加雙腸 <strong>{addonIntestineCnt} 次</strong> = 共 <strong>{doubleIntestineBowlsUsed} 碗</strong>使用</div>
-                          <div>💡 <strong>每碗雙腸成本</strong>：實際消耗約 <strong style={{ color: '#10b981' }}>NT$ {doubleIntestineBowlsUsed > 0 ? (doubleIntestineConsumedCost / doubleIntestineBowlsUsed).toFixed(2) : '0'} / 碗</strong> (進貨帳面 NT$ {doubleIntestineBowlsUsed > 0 ? (doubleIntestineCost / doubleIntestineBowlsUsed).toFixed(2) : '0'} / 碗)</div>
+                          <div>💡 <strong>依進貨量估算產能與每碗成本</strong>：平均每碗雙腸成本約 <strong style={{ color: '#ea580c' }}>NT$ {doubleIntestineBowlsUsed > 0 ? (doubleIntestineCost / doubleIntestineBowlsUsed).toFixed(2) : '0'} / 碗</strong> {doubleIntestineQty > 0 ? `(每包/斤雙腸平均供應 ${(doubleIntestineBowlsUsed / doubleIntestineQty).toFixed(1)} 碗)` : ''}</div>
                         </div>
                       </div>
 
@@ -10024,21 +10012,21 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                             <div style={{ color: 'var(--text-muted)' }}>區間進貨總花費</div>
                             <div style={{ fontSize: '1.15rem', fontWeight: '900', color: 'var(--text-main)' }}>NT$ {squidStat.totalCost.toLocaleString()}</div>
                             <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                              共進貨 {squidStat.count} 次 (累計數量 {squidStat.totalQtyNum})
+                              共進貨 {squidStat.count} 次 (累計數量 {squidStat.totalQtyNum} 包)
                             </div>
                           </div>
                           <div>
-                            <div style={{ color: 'var(--text-muted)' }}>折算平均每月花費</div>
+                            <div style={{ color: 'var(--text-muted)' }}>折算平均每月進貨</div>
                             <div style={{ fontSize: '1.15rem', fontWeight: '900', color: '#0ea5e9' }}>NT$ {Math.round(squidStat.totalCost / monthsInPeriod).toLocaleString()} / 月</div>
                             <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                              目前市場採購價：$600 / 包 (省 17.2%)
+                              月均進貨 {(squidStat.totalQtyNum / monthsInPeriod).toFixed(1)} 包/月 ($600/包)
                             </div>
                           </div>
                         </div>
                         <div style={{ fontSize: '0.76rem', color: 'var(--text-main)', lineHeight: '1.5' }}>
-                          <div>📦 <strong>目前帳面庫存</strong>：花枝羹 <strong>{squidStock} 包</strong></div>
+                          <div>📦 <strong>區間進貨與產能估算</strong>：共進貨 <strong>{squidStat.totalQtyNum} 包</strong> {squidStat.totalQtyNum > 0 ? `，平均每包花枝羹可供應 ${(squidBowlsUsed / squidStat.totalQtyNum).toFixed(1)} 碗使用` : ''}</div>
                           <div>🍜 <strong>銷售連動</strong>：花枝羹麵線 <strong>{familyStats['花枝羹麵線'].qty} 碗</strong> (營收 ${Math.round(familyStats['花枝羹麵線'].revenue).toLocaleString()}) + 綜合麵線 <strong>{familyStats['綜合麵線'].qty} 碗</strong> + 單點加花枝羹 <strong>{addonSquidCnt} 次</strong> = 共 <strong>{squidBowlsUsed} 碗</strong>使用</div>
-                          <div>💡 <strong>每碗花枝羹分攤成本</strong>：約 <strong style={{ color: '#0ea5e9' }}>NT$ {squidBowlsUsed > 0 ? (squidStat.totalCost / squidBowlsUsed).toFixed(2) : '0'} / 碗</strong></div>
+                          <div>💡 <strong>依進貨估算每碗花枝羹成本</strong>：約 <strong style={{ color: '#0ea5e9' }}>NT$ {squidBowlsUsed > 0 ? (squidStat.totalCost / squidBowlsUsed).toFixed(2) : '0'} / 碗</strong></div>
                         </div>
                       </div>
 
@@ -10055,20 +10043,21 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                             <div style={{ color: 'var(--text-muted)' }}>區間進貨總花費</div>
                             <div style={{ fontSize: '1.15rem', fontWeight: '900', color: 'var(--text-main)' }}>NT$ {oysterStat.totalCost.toLocaleString()}</div>
                             <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                              共進貨 {oysterStat.count} 次 (約 {oysterStat.totalQtyNum} 斤/包)
+                              共進貨 {oysterStat.count} 次 (累計 {oysterStat.totalQtyNum} 斤/包)
                             </div>
                           </div>
                           <div>
-                            <div style={{ color: 'var(--text-muted)' }}>折算平均每月花費</div>
+                            <div style={{ color: 'var(--text-muted)' }}>折算平均每月進貨</div>
                             <div style={{ fontSize: '1.15rem', fontWeight: '900', color: '#e11d48' }}>NT$ {Math.round(oysterStat.totalCost / monthsInPeriod).toLocaleString()} / 月</div>
                             <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                              濱江市場進價：$130 / 斤 (每次 6 斤 $780)
+                              月均進貨 {(oysterStat.totalQtyNum / monthsInPeriod).toFixed(1)} 斤/月 ($130/斤)
                             </div>
                           </div>
                         </div>
                         <div style={{ fontSize: '0.76rem', color: 'var(--text-main)', lineHeight: '1.5' }}>
+                          <div>📦 <strong>區間進貨與產能估算</strong>：共進貨 <strong>{oysterStat.totalQtyNum} 斤/包</strong> {oysterStat.totalQtyNum > 0 ? `，平均每斤鮮蚵約供應 ${(oysterBowlsUsed / oysterStat.totalQtyNum).toFixed(1)} 碗蚵仔麵線` : ''}</div>
                           <div>🍜 <strong>銷售連動</strong>：蚵仔麵線 <strong>{familyStats['蚵仔麵線'].qty} 碗</strong> (營收 ${Math.round(familyStats['蚵仔麵線'].revenue).toLocaleString()}) + 單點加蚵仔 <strong>{addonOysterCnt} 次</strong> = 共 <strong>{oysterBowlsUsed} 份</strong>使用 (綜合麵線預設不含蚵仔)</div>
-                          <div>⚠️ <strong>每碗鮮蚵分攤成本</strong>：高達 <strong style={{ color: '#e11d48' }}>NT$ {oysterBowlsUsed > 0 ? (oysterStat.totalCost / oysterBowlsUsed).toFixed(2) : '0'} / 碗</strong> (全店單碗成本最高配料，建議留意每勺出餐份量)</div>
+                          <div>⚠️ <strong>依進貨估算每碗鮮蚵成本</strong>：約 <strong style={{ color: '#e11d48' }}>NT$ {oysterBowlsUsed > 0 ? (oysterStat.totalCost / oysterBowlsUsed).toFixed(2) : '0'} / 碗</strong> (全店單碗成本最高配料，建議留意每勺出餐份量)</div>
                         </div>
                       </div>
 
@@ -10085,20 +10074,20 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                             <div style={{ color: 'var(--text-muted)' }}>區間進貨總花費</div>
                             <div style={{ fontSize: '1.15rem', fontWeight: '900', color: 'var(--text-main)' }}>NT$ {baseSoupNoodleCost.toLocaleString()}</div>
                             <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                              調味粉 ${powderStat.totalCost.toLocaleString()} + 紅麵線 ${redNoodleStat.totalCost.toLocaleString()}
+                              調味粉 ${powderStat.totalCost.toLocaleString()} ({powderPurchasedSets}套) + 紅麵線 ${redNoodleStat.totalCost.toLocaleString()} ({redNoodlePurchasedPacks}包)
                             </div>
                           </div>
                           <div>
                             <div style={{ color: 'var(--text-muted)' }}>折算平均每月進貨</div>
                             <div style={{ fontSize: '1.15rem', fontWeight: '900', color: '#8b5cf6' }}>NT$ {Math.round(baseSoupNoodleCost / monthsInPeriod).toLocaleString()} / 月</div>
                             <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                              調味粉 ${Math.round(powderStat.totalCost / monthsInPeriod).toLocaleString()} + 紅麵線 ${Math.round(redNoodleStat.totalCost / monthsInPeriod).toLocaleString()}
+                              月均調味粉 {(powderPurchasedSets / monthsInPeriod).toFixed(1)} 套 + 紅麵線 {(redNoodlePurchasedPacks / monthsInPeriod).toFixed(1)} 包
                             </div>
                           </div>
                         </div>
                         <div style={{ fontSize: '0.76rem', color: 'var(--text-main)', lineHeight: '1.5' }}>
-                          <div>📦 <strong>調味粉庫存與實際消耗</strong>：進貨 {powderStat.totalQtyNum} 套，目前庫存剩 <strong>{powderStock} 套</strong> (價值 ${(powderStock * 200).toLocaleString()})，實際消耗 <strong>{powderConsumedSets.toFixed(1)} 套 (${powderConsumedCost.toLocaleString()})</strong></div>
-                          <div>💡 <strong>每碗麵線基礎成本</strong>：調味粉約 <strong>NT$ {totalNoodleBowls > 0 ? (powderConsumedCost / totalNoodleBowls).toFixed(2) : '0'}</strong> + 紅麵線約 <strong>NT$ {totalNoodleBowls > 0 ? (redNoodleStat.totalCost / totalNoodleBowls).toFixed(2) : '0'}</strong> = <strong style={{ color: '#8b5cf6' }}>NT$ {totalNoodleBowls > 0 ? ((powderConsumedCost + redNoodleStat.totalCost) / totalNoodleBowls).toFixed(2) : '0'} / 碗</strong></div>
+                          <div>📦 <strong>依進貨數量估算產能</strong>：區間共售出 <strong>{totalNoodleBowls.toLocaleString()} 碗</strong>麵線 — 平均每套調味粉產出 <strong style={{ color: '#8b5cf6' }}>{bowlsPerPowderSet > 0 ? `${bowlsPerPowderSet.toFixed(1)} 碗/套` : '無進貨'}</strong>，平均每包紅麵線產出 <strong style={{ color: '#8b5cf6' }}>{bowlsPerRedNoodlePack > 0 ? `${bowlsPerRedNoodlePack.toFixed(1)} 碗/包` : '無進貨'}</strong></div>
+                          <div>💡 <strong>依進貨估算每碗基礎湯麵成本</strong>：調味粉約 <strong>NT$ {powderCostPerBowl.toFixed(2)}</strong> + 紅麵線約 <strong>NT$ {redNoodleCostPerBowl.toFixed(2)}</strong> = <strong style={{ color: '#8b5cf6' }}>NT$ {baseSoupNoodleCostPerBowl.toFixed(2)} / 碗</strong></div>
                         </div>
                       </div>
 
@@ -10119,16 +10108,16 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                             </div>
                           </div>
                           <div>
-                            <div style={{ color: 'var(--text-muted)' }}>折算平均每月花費</div>
+                            <div style={{ color: 'var(--text-muted)' }}>折算平均每月進貨</div>
                             <div style={{ fontSize: '1.15rem', fontWeight: '900', color: '#10b981' }}>NT$ {Math.round(bunPurchaseStat.totalCost / monthsInPeriod).toLocaleString()} / 月</div>
                             <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                              目前帳面庫存：{invLookup['肉包']?.qty ?? 0} 顆
+                              月均進貨 {(bunPurchaseStat.totalQtyNum / monthsInPeriod).toFixed(1)} 包 ({Math.round(bunPurchaseStat.totalQtyNum * 10 / monthsInPeriod)} 顆/月)
                             </div>
                           </div>
                         </div>
                         <div style={{ fontSize: '0.76rem', color: 'var(--text-main)', lineHeight: '1.5' }}>
-                          <div>🥟 <strong>區間實際總售出</strong>：共 <strong style={{ color: '#10b981' }}>{totalBunsSold.toLocaleString()} 顆</strong> (單點 <strong>{bunSingleQty} 顆</strong> + B/C套餐升級 <strong>{bunUpgradeQty} 顆</strong> + 量販包 <strong>{bunBulkPacks * 10} 顆</strong> + 外送套餐 <strong>{bunDeliveryComboQty} 顆</strong>)</div>
-                          <div>💰 <strong>創造總營收與毛利</strong>：約 <strong>NT$ {Math.round(totalBunsEstimatedRev).toLocaleString()}</strong> (預估毛利率高達 <strong style={{ color: '#10b981' }}>{totalBunsEstimatedRev > 0 ? ((1 - (totalBunsSold * 15) / totalBunsEstimatedRev) * 100).toFixed(1) : 0}%</strong>)</div>
+                          <div>🥟 <strong>區間進貨 vs 實際總售出</strong>：進貨 <strong>{(bunPurchaseStat.totalQtyNum * 10).toLocaleString()} 顆</strong>，售出共 <strong style={{ color: '#10b981' }}>{totalBunsSold.toLocaleString()} 顆</strong> (單點 <strong>{bunSingleQty} 顆</strong> + B/C套餐升級 <strong>{bunUpgradeQty} 顆</strong> + 量販包 <strong>{bunBulkPacks * 10} 顆</strong> + 外送套餐 <strong>{bunDeliveryComboQty} 顆</strong>)</div>
+                          <div>💰 <strong>創造總營收與毛利</strong>：約 <strong>NT$ {Math.round(totalBunsEstimatedRev).toLocaleString()}</strong> (以進貨單價 $15/顆核算毛利率高達 <strong style={{ color: '#10b981' }}>{totalBunsEstimatedRev > 0 ? ((1 - (totalBunsSold * 15) / totalBunsEstimatedRev) * 100).toFixed(1) : 0}%</strong>)</div>
                         </div>
                       </div>
 
@@ -10147,7 +10136,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                               NT$ {kimchiStat.totalCost.toLocaleString()} <span style={{ fontSize: '0.78rem', color: '#f59e0b' }}>(${Math.round(kimchiStat.totalCost / monthsInPeriod).toLocaleString()}/月)</span>
                             </div>
                             <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                              進貨 {kimchiStat.totalQtyNum} 包 ($125/包)，庫存剩 {kimchiStock} 包
+                              進貨 {kimchiStat.totalQtyNum} 包 ($125/包，月均 {(kimchiStat.totalQtyNum / monthsInPeriod).toFixed(1)} 包/月)
                             </div>
                           </div>
                           <div>
@@ -10161,8 +10150,8 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                           </div>
                         </div>
                         <div style={{ fontSize: '0.76rem', color: 'var(--text-main)', lineHeight: '1.5' }}>
-                          <div>🔥 <strong>泡菜扣除庫存實際消耗</strong>：<strong>NT$ {kimchiConsumedCost.toLocaleString()}</strong> (實際月耗 <strong>NT$ {Math.round(kimchiConsumedCost / monthsInPeriod).toLocaleString()} / 月</strong>)</div>
-                          <div>💡 <strong>每碗麵線分攤免費佐料成本</strong>：泡菜約 <strong>NT$ {totalNoodleBowls > 0 ? (kimchiConsumedCost / totalNoodleBowls).toFixed(2) : '0'} / 碗</strong> ＋ 香菜蒜醋約 <strong>NT$ {totalNoodleBowls > 0 ? (condimentsCost / totalNoodleBowls).toFixed(2) : '0'} / 碗</strong></div>
+                          <div>📦 <strong>泡菜進貨與產能估算</strong>：區間共進貨 <strong>{kimchiStat.totalQtyNum} 包</strong> (NT$ {kimchiStat.totalCost.toLocaleString()}) {kimchiStat.totalQtyNum > 0 ? `，平均每包泡菜約搭配 ${(totalNoodleBowls / kimchiStat.totalQtyNum).toFixed(1)} 碗麵線售出` : ''}</div>
+                          <div>💡 <strong>依進貨估算每碗麵線分攤佐料成本</strong>：泡菜約 <strong>NT$ {totalNoodleBowls > 0 ? (kimchiStat.totalCost / totalNoodleBowls).toFixed(2) : '0'} / 碗</strong> ＋ 香菜蒜醋約 <strong>NT$ {totalNoodleBowls > 0 ? (condimentsCost / totalNoodleBowls).toFixed(2) : '0'} / 碗</strong></div>
                         </div>
                       </div>
                     </div>
@@ -10283,7 +10272,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                           📋 區間全店進貨食材排行榜 ({sortedItemsList.length} 項食材・點擊任一列可展開進貨明細)
                         </h5>
                         <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
-                          自動列出區間內每一項進貨食材的累計花費、佔總成本比例、折算月均花費與目前庫存水位。
+                          自動列出區間內每一項進貨食材的累計花費、佔總成本比例、進貨數量、折算月均進貨量與月均花費。
                         </span>
                       </div>
                       <input
@@ -10312,8 +10301,8 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                             <th style={{ padding: '10px 12px' }}>區間進貨總額</th>
                             <th style={{ padding: '10px 12px' }}>佔總進貨比</th>
                             <th style={{ padding: '10px 12px' }}>進貨次數 (累計數量)</th>
+                            <th style={{ padding: '10px 12px' }}>折算月均進貨量</th>
                             <th style={{ padding: '10px 12px' }}>折算月均花費</th>
-                            <th style={{ padding: '10px 12px' }}>目前剩餘庫存</th>
                             <th style={{ padding: '10px 12px' }}>各月份進貨分佈</th>
                           </tr>
                         </thead>
@@ -10321,7 +10310,7 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                           {sortedItemsList.map((item, idx) => {
                             const share = totalPurchaseCost > 0 ? (item.totalCost / totalPurchaseCost * 100) : 0;
                             const monthlyAvg = item.totalCost / monthsInPeriod;
-                            const invInfo = invLookup[item.name] || (item.name === '鮮肉包(10顆)' ? invLookup['肉包'] : null);
+                            const monthlyAvgQty = item.totalQtyNum / monthsInPeriod;
                             const isExpanded = expandedCostItem === item.name;
                             const monthTags = Object.entries(item.months).sort((a, b) => a[0].localeCompare(b[0]));
 
@@ -10347,24 +10336,11 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                                   <td style={{ padding: '10px 12px' }}>
                                     {item.count} 次 <span style={{ color: 'var(--text-muted)', fontSize: '0.74rem' }}>(累計 {item.totalQtyNum})</span>
                                   </td>
+                                  <td style={{ padding: '10px 12px', fontWeight: 'bold', color: '#10b981' }}>
+                                    {monthlyAvgQty >= 0.1 ? `${monthlyAvgQty.toFixed(1)} / 月` : '-'}
+                                  </td>
                                   <td style={{ padding: '10px 12px', fontWeight: '900', color: 'var(--primary)' }}>
                                     NT$ {Math.round(monthlyAvg).toLocaleString()} / 月
-                                  </td>
-                                  <td style={{ padding: '10px 12px' }}>
-                                    {invInfo ? (
-                                      <span style={{
-                                        padding: '2px 8px',
-                                        borderRadius: '10px',
-                                        fontSize: '0.74rem',
-                                        fontWeight: 'bold',
-                                        backgroundColor: Number(invInfo.qty) <= Number(invInfo.minStock) ? 'rgba(239, 68, 68, 0.15)' : 'rgba(16, 185, 129, 0.15)',
-                                        color: Number(invInfo.qty) <= Number(invInfo.minStock) ? '#ef4444' : '#10b981'
-                                      }}>
-                                        {invInfo.qty} {invInfo.unit}
-                                      </span>
-                                    ) : (
-                                      <span style={{ color: 'var(--text-muted)', fontSize: '0.74rem' }}>-</span>
-                                    )}
                                   </td>
                                   <td style={{ padding: '10px 12px' }}>
                                     <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
