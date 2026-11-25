@@ -959,13 +959,17 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
   const [expandedCostItem, setExpandedCostItem] = useState(null);
   const [costItemSearch, setCostItemSearch] = useState('');
 
-  // ⚡ 按需歷史訂單分批載入狀態 (On-Demand Lazy Order History Loading)
+  // ⚡ 按需歷史訂單與進貨單分批載入狀態 (On-Demand Lazy History Loading with Explicit Time Ranges)
   const oldestLoadedOrderIdRef = useRef(null);
   const oldestLoadedOrderDateRef = useRef('');
   const isFetchingMoreOrdersRef = useRef(false);
   const [oldestLoadedOrderDate, setOldestLoadedOrderDate] = useState('');
   const [isAllHistoryLoaded, setIsAllHistoryLoaded] = useState(false);
   const [isLoadingMoreOrders, setIsLoadingMoreOrders] = useState(false);
+
+  const oldestLoadedPurchaseDateRef = useRef('');
+  const isFetchingMorePurchasesRef = useRef(false);
+  const [isAllPurchasesLoaded, setIsAllPurchasesLoaded] = useState(false);
   
   // Daily Closing State
   const [localClosedDates, setLocalClosedDates] = useState([]);
@@ -2694,13 +2698,16 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
     return clientOrders.map(formatSupabaseOrder).filter(Boolean);
   };
 
-  // Initial lightweight fetch on page open: only load latest 600 orders (~35 days, covering today, this month & last 30 days)
+  // Initial lightweight fetch on page open: explicit 35-day time range + limit 600 (covering today, this month & last 30 days)
   const fetchOrders = async () => {
     try {
       const initialLimit = 600;
+      const initialStartDate = new Date(Date.now() - 35 * 86400000).toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' });
+      const initialStartISO = new Date(`${initialStartDate}T00:00:00+08:00`).toISOString();
       const { data, error } = await supabase
         .from('orders')
         .select('*')
+        .gte('created_at', initialStartISO)
         .order('id', { ascending: false })
         .limit(initialLimit);
       if (error) throw error;
@@ -2708,14 +2715,13 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
         const lastRow = data[data.length - 1];
         oldestLoadedOrderIdRef.current = lastRow.id;
         const oldestDate = new Date(lastRow.created_at || lastRow.timestamp).toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' });
-        oldestLoadedOrderDateRef.current = oldestDate;
-        setOldestLoadedOrderDate(oldestDate);
-        if (data.length < initialLimit) {
-          setIsAllHistoryLoaded(true);
-        }
+        const effectiveOldest = data.length < initialLimit ? (initialStartDate < oldestDate ? initialStartDate : oldestDate) : oldestDate;
+        oldestLoadedOrderDateRef.current = effectiveOldest;
+        setOldestLoadedOrderDate(effectiveOldest);
         setOrders(processAndFilterRawOrders(data));
       } else {
-        setIsAllHistoryLoaded(true);
+        oldestLoadedOrderDateRef.current = initialStartDate;
+        setOldestLoadedOrderDate(initialStartDate);
         setOrders([]);
       }
     } catch (err) {
@@ -2724,31 +2730,39 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
     }
   };
 
-  // ⚡ 按需增量載入更早的歷史訂單 (只在切換到上個月/近半年/全部歷史或更早日期時才往回補抓未載入的區段)
-  const ensureOrdersLoadedUntil = useCallback(async (targetDateStr = '2026-01-01') => {
+  // ⚡ 按需增量載入更早的歷史訂單 (帶入明確的 created_at >= targetDateStr 時間區間與 id < currentOldestId 條件)
+  const ensureOrdersLoadedUntil = useCallback(async (targetDateStr = '2026-07-01') => {
     if (isAllHistoryLoaded || isFetchingMoreOrdersRef.current) return;
     if (oldestLoadedOrderDateRef.current && oldestLoadedOrderDateRef.current <= targetDateStr) return;
-    if (!oldestLoadedOrderIdRef.current) return;
 
     isFetchingMoreOrdersRef.current = true;
     setIsLoadingMoreOrders(true);
     try {
       let currentOldestId = oldestLoadedOrderIdRef.current;
       let currentOldestDate = oldestLoadedOrderDateRef.current;
+      const targetStartISO = new Date(`${targetDateStr}T00:00:00+08:00`).toISOString();
       let newlyFetchedRaw = [];
       const chunkSize = 800;
       const maxChunks = 12;
 
       for (let i = 0; i < maxChunks; i++) {
-        const { data: chunk, error } = await supabase
+        let query = supabase
           .from('orders')
           .select('*')
-          .lt('id', currentOldestId)
+          .gte('created_at', targetStartISO)
           .order('id', { ascending: false })
           .limit(chunkSize);
+        if (currentOldestId) {
+          query = query.lt('id', currentOldestId);
+        }
+        const { data: chunk, error } = await query;
         if (error) throw error;
         if (!chunk || chunk.length === 0) {
-          setIsAllHistoryLoaded(true);
+          oldestLoadedOrderDateRef.current = targetDateStr;
+          setOldestLoadedOrderDate(targetDateStr);
+          if (targetDateStr <= '2026-07-23') {
+            setIsAllHistoryLoaded(true);
+          }
           break;
         }
         newlyFetchedRaw = newlyFetchedRaw.concat(chunk);
@@ -2756,12 +2770,18 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
         currentOldestId = lastRow.id;
         currentOldestDate = new Date(lastRow.created_at || lastRow.timestamp).toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' });
         oldestLoadedOrderIdRef.current = currentOldestId;
-        oldestLoadedOrderDateRef.current = currentOldestDate;
-        setOldestLoadedOrderDate(currentOldestDate);
 
         if (chunk.length < chunkSize) {
-          setIsAllHistoryLoaded(true);
+          const finalDate = targetDateStr < currentOldestDate ? targetDateStr : currentOldestDate;
+          oldestLoadedOrderDateRef.current = finalDate;
+          setOldestLoadedOrderDate(finalDate);
+          if (targetDateStr <= '2026-07-23') {
+            setIsAllHistoryLoaded(true);
+          }
           break;
+        } else {
+          oldestLoadedOrderDateRef.current = currentOldestDate;
+          setOldestLoadedOrderDate(currentOldestDate);
         }
         if (currentOldestDate <= targetDateStr) {
           break;
@@ -2784,9 +2804,73 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
     }
   }, [isAllHistoryLoaded, storeCode]);
 
-  // 監聽使用者選擇的日期或報表區間，若需要更早的歷史訂單則自動按需補抓
+  const mapRawPurchasesForStore = (rawRows) => {
+    const currentCode = (storeCode || 'dragon').toLowerCase();
+    const storePurchases = (rawRows || []).filter(p => {
+      if (currentCode === 'dragon') {
+        return !p.item_name?.startsWith('[') || p.item_name?.startsWith('[dragon] ');
+      }
+      if (currentCode === 'luzhou' || currentCode === 'luzhou7') {
+        return p.item_name?.startsWith('[luzhou] ') || p.item_name?.startsWith('[luzhou7] ');
+      }
+      return p.item_name?.startsWith(`[${currentCode}] `);
+    });
+
+    return storePurchases.map(p => ({
+      id: String(p.id),
+      date: p.date,
+      time: p.time,
+      vendor: p.vendor,
+      itemName: stripNameForStore(p.item_name, storeCode),
+      quantity: p.quantity,
+      cost: Number(p.cost),
+      status: p.status,
+      rating: p.rating,
+      tags: p.evaluation_tags,
+      qualityNote: p.quality_note
+    }));
+  };
+
+  // ⚡ 按需增量載入更早的進貨紀錄 (帶入明確的 date >= targetDateStr 與 date < oldestLoadedPurchaseDate 時間區間)
+  const ensurePurchasesLoadedUntil = useCallback(async (targetDateStr = '2026-07-01') => {
+    if (isAllPurchasesLoaded || isFetchingMorePurchasesRef.current) return;
+    if (oldestLoadedPurchaseDateRef.current && oldestLoadedPurchaseDateRef.current <= targetDateStr) return;
+    if (!oldestLoadedPurchaseDateRef.current) return;
+
+    isFetchingMorePurchasesRef.current = true;
+    try {
+      const prevOldestDate = oldestLoadedPurchaseDateRef.current;
+      const { data: moreData, error } = await supabase
+        .from('purchases')
+        .select('*')
+        .gte('date', targetDateStr)
+        .lt('date', prevOldestDate)
+        .order('id', { ascending: false })
+        .limit(500);
+      if (error) throw error;
+
+      oldestLoadedPurchaseDateRef.current = targetDateStr;
+      if (targetDateStr <= '2026-07-23') {
+        setIsAllPurchasesLoaded(true);
+      }
+
+      if (moreData && moreData.length > 0) {
+        const mappedMore = mapRawPurchasesForStore(moreData);
+        setPurchases(prev => {
+          const existingIds = new Set(prev.map(p => String(p.id)));
+          const uniqueMore = mappedMore.filter(p => !existingIds.has(String(p.id)));
+          return [...prev, ...uniqueMore];
+        });
+      }
+    } catch (err) {
+      console.warn("Failed to lazy-load older purchases:", err);
+    } finally {
+      isFetchingMorePurchasesRef.current = false;
+    }
+  }, [isAllPurchasesLoaded, storeCode]);
+
+  // 監聽使用者選擇的日期或報表區間，若需要更早的歷史訂單或進貨單則自動按需補抓
   useEffect(() => {
-    if (!oldestLoadedOrderIdRef.current || isAllHistoryLoaded) return;
     const now = new Date();
     const y = now.getFullYear();
     const m = now.getMonth();
@@ -2809,17 +2893,24 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
       const d = `${d6.getFullYear()}-${pad(d6.getMonth() + 1)}-01`;
       if (d < neededStartDate) neededStartDate = d;
     } else if (reportRangeType === '1year' || reportRangeType === 'all') {
-      neededStartDate = '2026-01-01';
+      neededStartDate = '2026-07-01';
     } else if (reportRangeType === 'custom' && reportCustomStartDate) {
       if (reportCustomStartDate < neededStartDate) neededStartDate = reportCustomStartDate;
+    }
+
+    if (activeTab === 'variable' && variableCostRange === 'all') {
+      neededStartDate = '2026-07-01';
     }
 
     if (activeTab === 'cost_analysis' && costAnalysisStartDate) {
       if (costAnalysisStartDate < neededStartDate) neededStartDate = costAnalysisStartDate;
     }
 
-    if (oldestLoadedOrderDateRef.current && neededStartDate < oldestLoadedOrderDateRef.current) {
+    if (!isAllHistoryLoaded && oldestLoadedOrderDateRef.current && neededStartDate < oldestLoadedOrderDateRef.current) {
       ensureOrdersLoadedUntil(neededStartDate);
+    }
+    if (!isAllPurchasesLoaded && oldestLoadedPurchaseDateRef.current && neededStartDate < oldestLoadedPurchaseDateRef.current) {
+      ensurePurchasesLoadedUntil(neededStartDate);
     }
   }, [
     selectedBookkeepingDate,
@@ -2827,40 +2918,29 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
     reportRangeType,
     reportCustomStartDate,
     activeTab,
+    variableCostRange,
     costAnalysisStartDate,
     oldestLoadedOrderDate,
     isAllHistoryLoaded,
-    ensureOrdersLoadedUntil
+    isAllPurchasesLoaded,
+    ensureOrdersLoadedUntil,
+    ensurePurchasesLoadedUntil
   ]);
 
-  // Fetch purchases from Supabase
+  // Fetch purchases from Supabase (Initial lightweight load: explicit 35-day time range + limit 300)
   const fetchPurchases = async () => {
     try {
-      const { data, error } = await supabase.from('purchases').select('*').order('id', { ascending: false });
+      const initialStartDate = new Date(Date.now() - 35 * 86400000).toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' });
+      const { data, error } = await supabase
+        .from('purchases')
+        .select('*')
+        .gte('date', initialStartDate)
+        .order('id', { ascending: false })
+        .limit(300);
       if (error) throw error;
       if (data) {
-        const currentCode = (storeCode || 'dragon').toLowerCase();
-        const storePurchases = data.filter(p => {
-          if (currentCode === 'dragon') {
-            return !p.item_name?.startsWith('[') || p.item_name?.startsWith('[dragon] ');
-          }
-          if (currentCode === 'luzhou' || currentCode === 'luzhou7') {
-            return p.item_name?.startsWith('[luzhou] ') || p.item_name?.startsWith('[luzhou7] ');
-          }
-          return p.item_name?.startsWith(`[${currentCode}] `);
-        });
-
-        const mapped = storePurchases.map(p => ({
-          id: String(p.id),
-          date: p.date,
-          time: p.time,
-          vendor: p.vendor,
-          itemName: stripNameForStore(p.item_name, storeCode),
-          quantity: p.quantity,
-          cost: Number(p.cost),
-          status: p.status
-        }));
-        setPurchases(mapped);
+        oldestLoadedPurchaseDateRef.current = initialStartDate;
+        setPurchases(mapRawPurchasesForStore(data));
         setIsPurchasesOnCloud(true);
       }
     } catch (err) {

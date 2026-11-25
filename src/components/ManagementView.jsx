@@ -1397,6 +1397,7 @@ const [closedDates, setClosedDates] = useState(() => {
         const todayStartISO = todayStart.toISOString();
         supabase.from('orders')
           .select('id, created_at, table_number, items')
+          .gte('created_at', todayStartISO)
           .order('id', { ascending: false })
           .limit(100)
           .then(({ data: ordersData }) => {
@@ -1774,9 +1775,12 @@ const handleSaveGlobalAddons = async (newAddons) => {
   const handleReconcileDeliveryOrders = async () => {
     setIsReconcilingOrders(true);
     try {
+      const todayStr = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' });
+      const todayStartISO = new Date(`${todayStr}T00:00:00+08:00`).toISOString();
       const { data: todayOrders, error } = await supabase
         .from('orders')
         .select('*')
+        .gte('created_at', todayStartISO)
         .order('id', { ascending: false })
         .limit(100);
       if (error) throw error;

@@ -37,7 +37,8 @@ export default function UnifiedLoginScreen({
       try {
         const { data, error } = await supabase
           .from('menu_items')
-          .select('*');
+          .select('id, name, description')
+          .like('name', '%SYSTEM_SETTING_%');
         if (error) throw error;
 
         if (data && data.length > 0) {

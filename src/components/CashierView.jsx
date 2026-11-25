@@ -1385,16 +1385,18 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
     if (isFetchingOrdersRef.current) return;
     isFetchingOrdersRef.current = true;
     try {
-      // 使用主鍵 id 降冪索引查詢 (避免對無索引 created_at 做全表掃描造成雲端資料庫卡頓)
+      // 加上今日時間區間 (created_at >= todayStartISO) 搭配主鍵 id 降冪索引，只抓取今日訂單不浪費流量載入跨日舊單
+      const todayStr = getTodayLocalDate();
+      const todayStartISO = new Date(`${todayStr}T00:00:00+08:00`).toISOString();
       const { data, error } = await supabase
         .from('orders')
         .select('*')
+        .gte('created_at', todayStartISO)
         .order('id', { ascending: false })
-        .limit(85);
+        .limit(100);
 
       if (error) throw error;
       if (data) {
-        const todayStr = getTodayLocalDate();
         const storeOrders = filterOrdersByStore(data, storeCode);
         const clientOrders = storeOrders.filter(o => {
           const orderDate = new Date(o.created_at).toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' });
@@ -2125,6 +2127,7 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
           const { data: recentOrders } = await supabase
             .from('orders')
             .select('order_number, type, created_at')
+            .gte('created_at', todayTaipeiISO)
             .order('id', { ascending: false })
             .limit(60);
 
@@ -3407,9 +3410,12 @@ export default function CashierView({ storeCode: propStoreCode, cashierName, ses
             type="button"
             onClick={async () => {
               try {
+                const todayStr = getTodayLocalDate();
+                const todayStartISO = new Date(`${todayStr}T00:00:00+08:00`).toISOString();
                 const { data: todayOrders } = await supabase
                   .from('orders')
                   .select('*')
+                  .gte('created_at', todayStartISO)
                   .order('id', { ascending: false })
                   .limit(100);
                 const deliveryOrders = (todayOrders || []).filter(o => o.type === 'uber' || o.type === 'panda' || o.order_number?.startsWith('U-') || o.order_number?.startsWith('P-'));

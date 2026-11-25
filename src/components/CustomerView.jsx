@@ -487,10 +487,12 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber: pr
       const savedActiveId = localStorage.getItem('active_customer_order_id');
       const authUserId = customerAuth?.userId;
 
-      // Query recent customer orders using primary key index
+      // Query recent customer orders within last 7 days using time range + primary key index
+      const sevenDaysAgoISO = new Date(Date.now() - 7 * 86400000).toISOString();
       const { data, error } = await supabase
         .from('orders')
         .select('*')
+        .gte('created_at', sevenDaysAgoISO)
         .order('id', { ascending: false })
         .limit(30);
 
@@ -1547,6 +1549,7 @@ export default function CustomerView({ storeCode: propStoreCode, tableNumber: pr
       const { data: recentOrders } = await supabase
         .from('orders')
         .select('order_number, type, created_at')
+        .gte('created_at', todayTaipeiISO)
         .order('id', { ascending: false })
         .limit(60);
 
