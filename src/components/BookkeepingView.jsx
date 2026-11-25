@@ -953,11 +953,19 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
   const [reportCustomEndDate, setReportCustomEndDate] = useState(getTodayLocalDate());
 
   // 📊 食材成本與銷量交叉分析 (Custom Date Range Ingredient Cost & Sales Analysis)
-  const [costAnalysisPreset, setCostAnalysisPreset] = useState('all');
-  const [costAnalysisStartDate, setCostAnalysisStartDate] = useState('2026-07-23');
+  const [costAnalysisPreset, setCostAnalysisPreset] = useState('thisMonth');
+  const [costAnalysisStartDate, setCostAnalysisStartDate] = useState(() => `${getTodayLocalDate().slice(0, 7)}-01`);
   const [costAnalysisEndDate, setCostAnalysisEndDate] = useState(() => getTodayLocalDate());
   const [expandedCostItem, setExpandedCostItem] = useState(null);
   const [costItemSearch, setCostItemSearch] = useState('');
+
+  // ⚡ 按需歷史訂單分批載入狀態 (On-Demand Lazy Order History Loading)
+  const oldestLoadedOrderIdRef = useRef(null);
+  const oldestLoadedOrderDateRef = useRef('');
+  const isFetchingMoreOrdersRef = useRef(false);
+  const [oldestLoadedOrderDate, setOldestLoadedOrderDate] = useState('');
+  const [isAllHistoryLoaded, setIsAllHistoryLoaded] = useState(false);
+  const [isLoadingMoreOrders, setIsLoadingMoreOrders] = useState(false);
   
   // Daily Closing State
   const [localClosedDates, setLocalClosedDates] = useState([]);
@@ -2652,66 +2660,178 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
     window.open(url, '_blank');
   };
 
-  // Fetch orders from Supabase (Filtered strictly by storeCode, paginated via primary key index id.desc to load full history beyond 1,000 rows)
+  // Helper: Parse raw DB rows into formatted clientOrders and merge SYSTEM_STORE_CLOSE dates
+  const processAndFilterRawOrders = (rawRows) => {
+    const storeOrders = filterOrdersByStore(rawRows, storeCode);
+    const clientOrders = storeOrders.filter(o => {
+      let itemsData = o.items;
+      if (typeof itemsData === 'string') {
+        try { itemsData = JSON.parse(itemsData); } catch (e) { itemsData = {}; }
+      }
+      if (itemsData?.customerName === 'SYSTEM_STORE_CLOSE') return false;
+      const orderNumStr = String(o.order_number || '');
+      const isTest = o.type === 'test' || itemsData?.is_test === true || orderNumStr.startsWith('TEST-') || orderNumStr.startsWith('TEST');
+      return !isTest;
+    });
+
+    const cloudClosedDates = storeOrders
+      .filter(o => {
+        let itemsData = o.items;
+        if (typeof itemsData === 'string') {
+          try { itemsData = JSON.parse(itemsData); } catch (e) { itemsData = {}; }
+        }
+        return itemsData?.customerName === 'SYSTEM_STORE_CLOSE';
+      })
+      .map(o => new Date(o.created_at).toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' }));
+
+    if (cloudClosedDates.length > 0) {
+      const local = JSON.parse(localStorage.getItem(`${storeCode}_restaurant_closed_dates`) || localStorage.getItem('restaurant_closed_dates') || '[]');
+      const merged = Array.from(new Set([...local, ...cloudClosedDates]));
+      setClosedDates(merged);
+      localStorage.setItem(`${storeCode}_restaurant_closed_dates`, JSON.stringify(merged));
+    }
+
+    return clientOrders.map(formatSupabaseOrder).filter(Boolean);
+  };
+
+  // Initial lightweight fetch on page open: only load latest 600 orders (~35 days, covering today, this month & last 30 days)
   const fetchOrders = async () => {
     try {
-      let allData = [];
-      const pageSize = 1000;
-      const maxPages = 10; // Up to 10,000 orders via indexed id.desc pagination
-      for (let pageIdx = 0; pageIdx < maxPages; pageIdx++) {
-        const from = pageIdx * pageSize;
-        const to = from + pageSize - 1;
-        const { data: pageData, error } = await supabase
-          .from('orders')
-          .select('*')
-          .order('id', { ascending: false })
-          .range(from, to);
-        if (error) throw error;
-        if (!pageData || pageData.length === 0) break;
-        allData = allData.concat(pageData);
-        if (pageData.length < pageSize) break;
-      }
-      const data = allData;
-      if (data) {
-        const storeOrders = filterOrdersByStore(data, storeCode);
-
-        // Filter out SYSTEM_STORE_CLOSE and test orders
-        const clientOrders = storeOrders.filter(o => {
-          let itemsData = o.items;
-          if (typeof itemsData === 'string') {
-            try { itemsData = JSON.parse(itemsData); } catch (e) { itemsData = {}; }
-          }
-          if (itemsData?.customerName === 'SYSTEM_STORE_CLOSE') return false;
-          
-          // Exclude sandbox / test orders from bookkeeping so financial accounts stay clean
-          const orderNumStr = String(o.order_number || '');
-          const isTest = o.type === 'test' || itemsData?.is_test === true || orderNumStr.startsWith('TEST-') || orderNumStr.startsWith('TEST');
-          return !isTest;
-        });
-        setOrders(clientOrders.map(formatSupabaseOrder).filter(Boolean));
-        
-        // Extract SYSTEM_STORE_CLOSE dates
-        const cloudClosedDates = storeOrders
-          .filter(o => {
-            let itemsData = o.items;
-            if (typeof itemsData === 'string') {
-              try { itemsData = JSON.parse(itemsData); } catch (e) { itemsData = {}; }
-            }
-            return itemsData?.customerName === 'SYSTEM_STORE_CLOSE';
-          })
-          .map(o => new Date(o.created_at).toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' }));
-          
-        // Merge cloud closed dates into closedDates state
-        const local = JSON.parse(localStorage.getItem(`${storeCode}_restaurant_closed_dates`) || localStorage.getItem('restaurant_closed_dates') || '[]');
-        const merged = Array.from(new Set([...local, ...cloudClosedDates]));
-        setClosedDates(merged);
-        localStorage.setItem(`${storeCode}_restaurant_closed_dates`, JSON.stringify(merged));
+      const initialLimit = 600;
+      const { data, error } = await supabase
+        .from('orders')
+        .select('*')
+        .order('id', { ascending: false })
+        .limit(initialLimit);
+      if (error) throw error;
+      if (data && data.length > 0) {
+        const lastRow = data[data.length - 1];
+        oldestLoadedOrderIdRef.current = lastRow.id;
+        const oldestDate = new Date(lastRow.created_at || lastRow.timestamp).toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' });
+        oldestLoadedOrderDateRef.current = oldestDate;
+        setOldestLoadedOrderDate(oldestDate);
+        if (data.length < initialLimit) {
+          setIsAllHistoryLoaded(true);
+        }
+        setOrders(processAndFilterRawOrders(data));
+      } else {
+        setIsAllHistoryLoaded(true);
+        setOrders([]);
       }
     } catch (err) {
       console.error("Failed to load orders in BookkeepingView:", err);
       setOrders([]);
     }
   };
+
+  // ⚡ 按需增量載入更早的歷史訂單 (只在切換到上個月/近半年/全部歷史或更早日期時才往回補抓未載入的區段)
+  const ensureOrdersLoadedUntil = useCallback(async (targetDateStr = '2026-01-01') => {
+    if (isAllHistoryLoaded || isFetchingMoreOrdersRef.current) return;
+    if (oldestLoadedOrderDateRef.current && oldestLoadedOrderDateRef.current <= targetDateStr) return;
+    if (!oldestLoadedOrderIdRef.current) return;
+
+    isFetchingMoreOrdersRef.current = true;
+    setIsLoadingMoreOrders(true);
+    try {
+      let currentOldestId = oldestLoadedOrderIdRef.current;
+      let currentOldestDate = oldestLoadedOrderDateRef.current;
+      let newlyFetchedRaw = [];
+      const chunkSize = 800;
+      const maxChunks = 12;
+
+      for (let i = 0; i < maxChunks; i++) {
+        const { data: chunk, error } = await supabase
+          .from('orders')
+          .select('*')
+          .lt('id', currentOldestId)
+          .order('id', { ascending: false })
+          .limit(chunkSize);
+        if (error) throw error;
+        if (!chunk || chunk.length === 0) {
+          setIsAllHistoryLoaded(true);
+          break;
+        }
+        newlyFetchedRaw = newlyFetchedRaw.concat(chunk);
+        const lastRow = chunk[chunk.length - 1];
+        currentOldestId = lastRow.id;
+        currentOldestDate = new Date(lastRow.created_at || lastRow.timestamp).toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' });
+        oldestLoadedOrderIdRef.current = currentOldestId;
+        oldestLoadedOrderDateRef.current = currentOldestDate;
+        setOldestLoadedOrderDate(currentOldestDate);
+
+        if (chunk.length < chunkSize) {
+          setIsAllHistoryLoaded(true);
+          break;
+        }
+        if (currentOldestDate <= targetDateStr) {
+          break;
+        }
+      }
+
+      if (newlyFetchedRaw.length > 0) {
+        const formattedMore = processAndFilterRawOrders(newlyFetchedRaw);
+        setOrders(prev => {
+          const existingIds = new Set(prev.map(o => String(o.id)));
+          const uniqueMore = formattedMore.filter(o => !existingIds.has(String(o.id)));
+          return [...prev, ...uniqueMore];
+        });
+      }
+    } catch (err) {
+      console.error("Failed to lazy-load older orders:", err);
+    } finally {
+      isFetchingMoreOrdersRef.current = false;
+      setIsLoadingMoreOrders(false);
+    }
+  }, [isAllHistoryLoaded, storeCode]);
+
+  // 監聽使用者選擇的日期或報表區間，若需要更早的歷史訂單則自動按需補抓
+  useEffect(() => {
+    if (!oldestLoadedOrderIdRef.current || isAllHistoryLoaded) return;
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = now.getMonth();
+    const pad = (n) => String(n).padStart(2, '0');
+
+    let neededStartDate = getTodayLocalDate();
+    if (selectedBookkeepingDate && selectedBookkeepingDate < neededStartDate) {
+      neededStartDate = selectedBookkeepingDate;
+    }
+    if (selectedMonthlyReportMonth && selectedMonthlyReportMonth !== 'all') {
+      const mStart = `${selectedMonthlyReportMonth}-01`;
+      if (mStart < neededStartDate) neededStartDate = mStart;
+    }
+    if (reportRangeType === 'lastMonth') {
+      const firstLast = new Date(y, m - 1, 1);
+      const d = `${firstLast.getFullYear()}-${pad(firstLast.getMonth() + 1)}-01`;
+      if (d < neededStartDate) neededStartDate = d;
+    } else if (reportRangeType === '6months') {
+      const d6 = new Date(y, m - 5, 1);
+      const d = `${d6.getFullYear()}-${pad(d6.getMonth() + 1)}-01`;
+      if (d < neededStartDate) neededStartDate = d;
+    } else if (reportRangeType === '1year' || reportRangeType === 'all') {
+      neededStartDate = '2026-01-01';
+    } else if (reportRangeType === 'custom' && reportCustomStartDate) {
+      if (reportCustomStartDate < neededStartDate) neededStartDate = reportCustomStartDate;
+    }
+
+    if (activeTab === 'cost_analysis' && costAnalysisStartDate) {
+      if (costAnalysisStartDate < neededStartDate) neededStartDate = costAnalysisStartDate;
+    }
+
+    if (oldestLoadedOrderDateRef.current && neededStartDate < oldestLoadedOrderDateRef.current) {
+      ensureOrdersLoadedUntil(neededStartDate);
+    }
+  }, [
+    selectedBookkeepingDate,
+    selectedMonthlyReportMonth,
+    reportRangeType,
+    reportCustomStartDate,
+    activeTab,
+    costAnalysisStartDate,
+    oldestLoadedOrderDate,
+    isAllHistoryLoaded,
+    ensureOrdersLoadedUntil
+  ]);
 
   // Fetch purchases from Supabase
   const fetchPurchases = async () => {
@@ -7129,6 +7249,19 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                             {preset.label}
                           </button>
                         ))}
+                        {isLoadingMoreOrders ? (
+                          <span style={{ fontSize: '0.72rem', padding: '3px 8px', borderRadius: '6px', backgroundColor: 'rgba(245, 158, 11, 0.15)', color: '#f59e0b', fontWeight: 'bold' }}>
+                            ⏳ 正在按需載入更早歷史訂單...
+                          </span>
+                        ) : !isAllHistoryLoaded && oldestLoadedOrderDate ? (
+                          <span style={{ fontSize: '0.72rem', padding: '3px 8px', borderRadius: '6px', backgroundColor: 'rgba(59, 130, 246, 0.12)', color: '#3b82f6', fontWeight: 'bold' }} title="系統預設僅載入最近600筆訂單以節省流量；點選「上個月」或「全部歷史」時才會自動按需補抓舊單">
+                            ⚡ 輕量載入：{oldestLoadedOrderDate} ~ 今日 ({orders.length}筆)
+                          </span>
+                        ) : (
+                          <span style={{ fontSize: '0.72rem', padding: '3px 8px', borderRadius: '6px', backgroundColor: 'rgba(16, 185, 129, 0.12)', color: '#10b981', fontWeight: 'bold' }}>
+                            ✅ 已載入全期歷史 ({orders.length}筆)
+                          </span>
+                        )}
                       </div>
 
                       {/* Custom Date Picker */}
@@ -9621,11 +9754,24 @@ export default function BookkeepingView({ storeCode: propStoreCode, onBackToDemo
                   }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
                       <div>
-                        <h4 style={{ fontSize: '1.05rem', fontWeight: '900', margin: '0 0 4px 0', color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <h4 style={{ fontSize: '1.05rem', fontWeight: '900', margin: '0 0 4px 0', color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                           📊 食材進貨成本、月均花費與銷售毛利交叉分析報告
                           <span style={{ fontSize: '0.72rem', padding: '2px 8px', borderRadius: '12px', backgroundColor: 'rgba(16, 185, 129, 0.15)', color: '#10b981', fontWeight: 'bold' }}>
-                            本地即時運算・0雲端流量
+                            按需智慧載入・省流量
                           </span>
+                          {isLoadingMoreOrders ? (
+                            <span style={{ fontSize: '0.72rem', padding: '2px 8px', borderRadius: '12px', backgroundColor: 'rgba(245, 158, 11, 0.15)', color: '#f59e0b', fontWeight: 'bold' }}>
+                              ⏳ 正在按需載入區間歷史訂單...
+                            </span>
+                          ) : !isAllHistoryLoaded && oldestLoadedOrderDate ? (
+                            <span style={{ fontSize: '0.72rem', padding: '2px 8px', borderRadius: '12px', backgroundColor: 'rgba(59, 130, 246, 0.12)', color: '#3b82f6', fontWeight: 'bold' }}>
+                              ⚡ 目前已載入：{oldestLoadedOrderDate} ~ 今日 ({orders.length}筆)
+                            </span>
+                          ) : (
+                            <span style={{ fontSize: '0.72rem', padding: '2px 8px', borderRadius: '12px', backgroundColor: 'rgba(16, 185, 129, 0.12)', color: '#10b981', fontWeight: 'bold' }}>
+                              ✅ 已載入全期歷史 ({orders.length}筆)
+                            </span>
+                          )}
                         </h4>
                         <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', margin: 0 }}>
                           自由選擇任何日期區間，系統自動從進貨單、訂單銷量與目前庫存交叉算出「雙腸、花枝羹、蚵仔、湯底、肉包」等每月平均花費與每碗成本。
